@@ -1,78 +1,92 @@
+from typing import Dict, List, Optional, Any, Tuple
+from pinecone import Pinecone, Index
 import logging
-from datetime import datetime
-from typing import Dict, Any, List, Optional, Tuple
-from pinecone import Pinecone
-from api.core.memory.models import Memory, MemoryType
-import asyncio
-from functools import partial
+from httpx import AsyncClient
 
 logger = logging.getLogger(__name__)
 
 class PineconeService:
-    """Service for interacting with Pinecone vector database."""
-
-    def __init__(self, api_key: str, environment: str, index_name: str):
+    def __init__(
+        self,
+        api_key: str,
+        environment: str,
+        index_name: str,
+        dimension: int = 1536
+    ):
         self.api_key = api_key
         self.environment = environment
         self.index_name = index_name
-        self.index = None
+        self.dimension = dimension
         self.pc = None
+        self.index = None
+        self._http_client = None
 
     async def initialize_index(self):
-        """Initialize Pinecone index."""
+        """Initialize Pinecone index"""
         try:
+            # Initialize Pinecone client
             self.pc = Pinecone(api_key=self.api_key)
             
-            existing_indexes = self.pc.list_indexes().names()
-            if self.index_name not in existing_indexes:
+            # Check if index exists
+            existing_indexes = self.pc.list_indexes()
+            
+            if self.index_name not in existing_indexes.names():
+                # Create index if it doesn't exist
                 self.pc.create_index(
                     name=self.index_name,
-                    dimension=1536,
+                    dimension=self.dimension,
                     metric="cosine"
                 )
                 logger.info(f"Created new Pinecone index: {self.index_name}")
             
+            # Get index instance
             self.index = self.pc.Index(self.index_name)
-            logger.info(f"Successfully initialized Pinecone index: {self.index_name}")
+            self._http_client = AsyncClient()
+            logger.info(f"Successfully connected to Pinecone index: {self.index_name}")
             
         except Exception as e:
-            logger.error(f"Error initializing Pinecone: {e}")
+            logger.error(f"Error initializing Pinecone index: {e}")
             raise
+
+    async def close_connections(self):
+        """Close any open connections"""
+        if self._http_client:
+            await self._http_client.aclose()
 
     async def upsert_memory(
         self,
         memory_id: str,
         vector: List[float],
         metadata: Dict[str, Any]
-    ):
-        """Upsert a memory vector to Pinecone."""
+    ) -> bool:
+        """Upsert a memory vector and metadata to Pinecone"""
         try:
-            if not self.index:
-                await self.initialize_index()
-
-            # Ensure memory_type is uppercase in metadata
-            if "memory_type" in metadata:
-                metadata["memory_type"] = metadata["memory_type"].upper()
-            
-            logger.debug(f"Upserting memory with ID: {memory_id}, metadata: {metadata}")
-
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                partial(
-                    self.index.upsert,
-                    vectors=[{
-                        "id": memory_id,
-                        "values": vector,
-                        "metadata": metadata
-                    }]
-                )
+            self.index.upsert(
+                vectors=[(memory_id, vector, metadata)],
+                namespace=""
             )
+            return True
+        except Exception as e:
+            logger.error(f"Error upserting memory to Pinecone: {e}")
+            raise
+
+    async def fetch_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a specific memory by ID from Pinecone"""
+        try:
+            response = self.index.fetch(ids=[memory_id])
             
-            logger.debug(f"Successfully upserted memory: {memory_id}")
+            if not response or memory_id not in response['vectors']:
+                return None
+                
+            vector_data = response['vectors'][memory_id]
+            return {
+                "id": memory_id,
+                "vector": vector_data.values,
+                "metadata": vector_data.metadata
+            }
             
         except Exception as e:
-            logger.error(f"Error upserting memory: {e}")
+            logger.error(f"Error fetching memory from Pinecone: {e}")
             raise
 
     async def query_memory(
@@ -80,89 +94,46 @@ class PineconeService:
         query_vector: List[float],
         top_k: int = 5,
         filter: Optional[Dict] = None
-    ) -> List[Tuple[Memory, float]]:
-        """Query memories by vector similarity."""
+    ) -> List[Tuple[Dict[str, Any], float]]:
+        """Query similar memories from Pinecone"""
         try:
-            if not self.index:
-                await self.initialize_index()
-
-            logger.debug(f"Querying with filter: {filter}")
-
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None,
-                partial(
-                    self.index.query,
-                    vector=query_vector,
-                    top_k=top_k,
-                    filter=filter,
-                    include_metadata=True
-                )
-            )
-
-            logger.debug(f"Query returned {len(results.matches)} matches")
-
-            memories_with_scores = []
-            for match in results.matches:
-                try:
-                    memory = self._create_memory_from_result(match)
-                    memories_with_scores.append((memory, match.score))
-                except Exception as e:
-                    logger.error(f"Error processing match {match.id}: {e}")
-                    continue
-
-            return memories_with_scores
-
-        except Exception as e:
-            logger.error(f"Error querying memory: {e}")
-            raise
-
-    def _create_memory_from_result(self, result: Any) -> Memory:
-        """Create a Memory object from a Pinecone query result."""
-        try:
-            metadata = result.metadata
-            
-            # Log the incoming metadata for debugging
-            logger.debug(f"Creating memory from result metadata: {metadata}")
-            
-            # Get memory type from metadata and ensure it's uppercase
-            memory_type_str = metadata.get("memory_type", "EPISODIC").upper()
-            
-            # Create the memory object with explicit MemoryType enum
-            memory = Memory(
-                id=result.id,
-                content=metadata.get("content", ""),
-                memory_type=MemoryType[memory_type_str],
-                created_at=metadata.get("created_at", datetime.now().isoformat()),
-                semantic_vector=result.values,
-                metadata=metadata
+            response = self.index.query(
+                vector=query_vector,
+                top_k=top_k,
+                include_values=True,
+                include_metadata=True,
+                filter=filter
             )
             
-            logger.debug(f"Successfully created memory object: {memory.id}")
-            return memory
+            results = []
+            for match in response.matches:
+                memory_data = {
+                    "id": match.id,
+                    "vector": match.values,
+                    "metadata": match.metadata
+                }
+                results.append((memory_data, match.score))
+                
+            return results
             
         except Exception as e:
-            logger.error(f"Error creating memory from result: {e}")
+            logger.error(f"Error querying memories from Pinecone: {e}")
             raise
 
-    async def delete_memory(self, memory_id: str):
-        """Delete a memory by ID."""
+    async def delete_memory(self, memory_id: str) -> bool:
+        """Delete a memory from Pinecone"""
         try:
-            if not self.index:
-                await self.initialize_index()
-
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                partial(self.index.delete, ids=[memory_id])
-            )
-            
+            self.index.delete(ids=[memory_id])
+            return True
         except Exception as e:
-            logger.error(f"Error deleting memory: {e}")
+            logger.error(f"Error deleting memory from Pinecone: {e}")
             raise
 
-    async def close_connections(self):
-        """Close Pinecone connections."""
-        self.index = None
-        self.pc = None
-        logger.info("Closed Pinecone connections")
+    async def delete_all_memories(self) -> bool:
+        """Delete all memories from the index"""
+        try:
+            self.index.delete(delete_all=True)
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting all memories from Pinecone: {e}")
+            raise
