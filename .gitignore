@@ -63,6 +63,8 @@ junit-report.xml
 htmlcov/
 pytestdebug.log
 tests/
+conftest.py
+pyproject.toml
 
 # Ignore compiled files
 *.o

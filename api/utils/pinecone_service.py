@@ -150,41 +150,50 @@ class PineconeService:
     ) -> List[Memory]:
         """
         Fetch recent memories of a specific type within the given age limit.
-        
+    
         Args:
             memory_type: Type of memory to fetch (EPISODIC or SEMANTIC)
             max_age_days: Maximum age of memories in days
             limit: Maximum number of memories to fetch
-            
+        
         Returns:
             List of Memory objects
         """
         try:
-            # Calculate the cutoff date
+            # Calculate the cutoff date and convert to ISO format
             cutoff_date = datetime.utcnow() - timedelta(days=max_age_days)
-            
+            cutoff_date_iso = cutoff_date.isoformat()
+        
             # Query Pinecone for recent memories
             query_response = self.index.query(
-                vector=[0] * 1536,  # Dummy vector to match all
+                vector=[0] * self.dimension,  # Dummy vector to match all
                 filter={
                     "memory_type": memory_type,
-                    "created_at": {"$gte": cutoff_date.timestamp()}
+                    "created_at": {"$gte": cutoff_date_iso}
                 },
                 top_k=limit,
                 include_metadata=True
             )
-            
+        
             # Convert to Memory objects
             memories = []
             for match in query_response.matches:
-                memory_data = match.metadata
-                memory_data['id'] = match.id
-                memory_data['vector'] = match.values
-                memories.append(Memory(**memory_data))
-            
+                if not match.metadata:
+                    continue
+                
+                try:
+                    memory_data = match.metadata.copy()
+                    memory_data['id'] = match.id
+                    memory_data['semantic_vector'] = match.values
+                    memories.append(Memory(**memory_data))
+                except Exception as e:
+                    logger.warning(f"Failed to convert match to Memory: {str(e)}")
+                    continue
+        
             return memories
-            
+        
         except Exception as e:
+            logger.error(f"Error fetching recent memories: {str(e)}")
             raise MemoryOperationError(
                 operation="fetch_recent_memories",
                 details=f"Failed to fetch recent memories: {str(e)}"

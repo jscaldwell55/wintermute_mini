@@ -58,26 +58,29 @@ class MemorySystem:
         memory_type: MemoryType,
         metadata: Optional[Dict[str, Any]] = None,
         window_id: Optional[str] = None
-    ) -> str:
+    )  -> str:
         """Add a memory to the system."""
         try:
             # Generate semantic vector
             semantic_vector = await self.vector_operations.create_semantic_vector(content)
-            
+        
             # Generate memory ID
             memory_id = f"mem_{uuid.uuid4()}"
-            
-            # Prepare metadata
+        
+            # Create ISO format timestamp
+            created_at = datetime.utcnow().isoformat()
+        
+            # Prepare metadata with explicit ISO format timestamp
             full_metadata = {
                 "content": content,
-                "created_at": datetime.now().isoformat(),
+                "created_at": created_at,
                 "memory_type": memory_type.value,
                 **(metadata or {}),
             }
-            
+        
             if window_id:
                 full_metadata["window_id"] = window_id
-            
+        
             # Create memory object
             memory = Memory(
                 id=memory_id,
@@ -85,19 +88,19 @@ class MemorySystem:
                 memory_type=memory_type,
                 semantic_vector=semantic_vector,
                 metadata=full_metadata,
-                created_at=full_metadata["created_at"],
+                created_at=created_at,
                 window_id=window_id
             )
-            
+        
             # Store in Pinecone
             await self.pinecone_service.upsert_memory(
                 memory_id=memory.id,
                 vector=semantic_vector,
                 metadata=memory.metadata
             )
-            
+        
             return memory.id
-            
+        
         except Exception as e:
             logger.error(f"Error adding memory: {e}")
             raise MemoryOperationError(f"Failed to add memory: {str(e)}")
