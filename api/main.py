@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from contextlib import asynccontextmanager
+import asyncio
 
 from api.core.memory.models import (
     CreateMemoryRequest,
@@ -14,9 +15,9 @@ from api.core.vector.vector_operations import VectorOperations
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.utils.config import get_settings
+from api.core.consolidation.models import ConsolidationConfig
+from api.core.consolidation.consolidator import MemoryConsolidator, run_consolidation
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class SystemComponents:
@@ -25,6 +26,8 @@ class SystemComponents:
         self.vector_operations = None
         self.pinecone_service = None
         self.llm_service = None
+        self.consolidator = None
+        self.consolidation_task = None
         self._initialized = False
         self.settings = get_settings()
     
@@ -51,6 +54,15 @@ class SystemComponents:
                     vector_operations=self.vector_operations
                 )
                 
+                # Initialize consolidator
+                config = ConsolidationConfig()
+                self.consolidator = MemoryConsolidator(
+                    config=config,
+                    pinecone_service=self.pinecone_service,
+                    llm_service=self.llm_service
+                )
+                self.consolidation_task = asyncio.create_task(run_consolidation(self.consolidator))
+                
                 self._initialized = True
                 logger.info("System components initialized successfully")
             except Exception as e:
@@ -58,6 +70,14 @@ class SystemComponents:
                 raise
     
     async def cleanup(self):
+        if self.consolidation_task:
+            self.consolidation_task.cancel()
+            try:
+                await self.consolidation_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Memory consolidation task stopped")
+            
         if self.pinecone_service:
             await self.pinecone_service.close_connections()
         logger.info("System cleanup completed")

@@ -1,3 +1,7 @@
+from datetime import datetime, timedelta
+from typing import List, Optional
+from api.core.memory.models import Memory
+from api.utils.responses import MemoryOperationError
 from typing import Dict, List, Optional, Any, Tuple
 from pinecone import Pinecone, Index
 import logging
@@ -137,3 +141,73 @@ class PineconeService:
         except Exception as e:
             logger.error(f"Error deleting all memories from Pinecone: {e}")
             raise
+
+    async def fetch_recent_memories(
+        self,
+        memory_type: str,
+        max_age_days: int,
+        limit: int = 1000
+    ) -> List[Memory]:
+        """
+        Fetch recent memories of a specific type within the given age limit.
+        
+        Args:
+            memory_type: Type of memory to fetch (EPISODIC or SEMANTIC)
+            max_age_days: Maximum age of memories in days
+            limit: Maximum number of memories to fetch
+            
+        Returns:
+            List of Memory objects
+        """
+        try:
+            # Calculate the cutoff date
+            cutoff_date = datetime.utcnow() - timedelta(days=max_age_days)
+            
+            # Query Pinecone for recent memories
+            query_response = self.index.query(
+                vector=[0] * 1536,  # Dummy vector to match all
+                filter={
+                    "memory_type": memory_type,
+                    "created_at": {"$gte": cutoff_date.timestamp()}
+                },
+                top_k=limit,
+                include_metadata=True
+            )
+            
+            # Convert to Memory objects
+            memories = []
+            for match in query_response.matches:
+                memory_data = match.metadata
+                memory_data['id'] = match.id
+                memory_data['vector'] = match.values
+                memories.append(Memory(**memory_data))
+            
+            return memories
+            
+        except Exception as e:
+            raise MemoryOperationError(
+                operation="fetch_recent_memories",
+                details=f"Failed to fetch recent memories: {str(e)}"
+            )
+
+    async def archive_memory(self, memory_id: str) -> None:
+        """
+        Archive a memory by setting its archived flag.
+        
+        Args:
+            memory_id: ID of the memory to archive
+        """
+        try:
+            # Update the memory's metadata to mark it as archived
+            self.index.update(
+                id=memory_id,
+                set_metadata={
+                    "archived": True,
+                    "archived_at": datetime.utcnow().timestamp()
+                }
+            )
+        except Exception as e:
+            raise MemoryOperationError(
+                operation="archive_memory",
+                details=f"Failed to archive memory {memory_id}: {str(e)}"
+            )    
