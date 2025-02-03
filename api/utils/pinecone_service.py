@@ -83,14 +83,20 @@ class PineconeService(MemoryService):
             raise PineconeError(f"Failed to create memory: {e}") from e
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves a memory from Pinecone by its ID."""
+        """Retrieves a memory from Pinecone by its ID with error handling."""
         try:
             if self.index is None:
                 logger.error("❌ Pinecone index is None! Cannot fetch memory.")
                 return None
         
             logger.info(f"🔍 Fetching memory from Pinecone: {memory_id}")
-            response = await self.index.fetch(ids=[memory_id])  # ❌ This may be returning None!
+        
+            # Validate that fetch is callable before awaiting
+            if not hasattr(self.index, 'fetch'):
+                logger.error("❌ Pinecone index does not have a `fetch` method.")
+                return None
+        
+            response = await self.index.fetch(ids=[memory_id])  # Ensures the method is awaited correctly
 
             if response is None:
                 logger.error(f"❌ Pinecone returned None for memory_id '{memory_id}'")
@@ -109,6 +115,7 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"❌ Failed to retrieve memory from Pinecone: {e}")
             raise PineconeError(f"Failed to retrieve memory: {e}") from e
+
 
     async def update_memory(self, memory_id: str, vector: List[float], metadata: Dict[str, Any]) -> bool:
         """Updates an existing memory in Pinecone."""

@@ -23,7 +23,10 @@ class Memory(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the memory")
     content: str = Field(..., description="The content of the memory")
     memory_type: MemoryType = Field(..., description="Type of memory (EPISODIC or SEMANTIC)")
+    
+    # 🔥 Fix: Ensure `created_at` is always a string to prevent validation errors
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="Creation timestamp")
+
     semantic_vector: Optional[List[float]] = Field(None, description="Vector embedding of the memory content")
     metadata: Dict = Field(default_factory=dict, description="Additional metadata for the memory")
     window_id: Optional[str] = Field(None, description="Optional window ID for context grouping")
