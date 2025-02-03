@@ -1,3 +1,4 @@
+# prompt_templates.py
 import logging
 from typing import Dict, Any
 
@@ -12,8 +13,13 @@ Context from memory:
 Current query:
 {query}
 
-Please provide a helpful response based on the context and query above. If the context is relevant, incorporate it naturally into your response. If the context isn't relevant, simply respond to the query directly.
-"""
+Instructions:
+1. If the memories provide relevant context, incorporate them naturally into your response
+2. If the memories aren't relevant, respond to the query directly without mentioning the memories
+3. Keep your response focused and concise
+4. If the memories seem to contradict each other, acknowledge this and provide a balanced response
+
+Response:"""
 
 def format_prompt(
     template: str,
@@ -23,15 +29,16 @@ def format_prompt(
 ) -> str:
     """Format a prompt template with provided values."""
     try:
+        # Handle empty context
+        if not context.strip():
+            context = "No relevant memories found."
+            
         formatted = template.format(
             context=context,
             query=query,
             **kwargs
         )
         return formatted.strip()
-    except KeyError as e:
-        logger.error(f"Missing template variable: {e}")
-        raise
-    except Exception as e:
+    except (KeyError, ValueError) as e:
         logger.error(f"Error formatting prompt: {e}")
-        raise
+        raise ValueError(f"Invalid prompt template or parameters: {e}")
