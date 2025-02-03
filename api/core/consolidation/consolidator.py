@@ -99,6 +99,24 @@ class MemoryConsolidator:
                 
                 if len(cluster_memories) >= self.config.min_cluster_size:
                     await self._create_semantic_memory(cluster_memories)
+
+# With this corrected version:
+            # Perform clustering
+            if vectors.shape[0] >= self.config.min_cluster_size:
+                clusters = self._cluster_memories(vectors)
+            
+                # Process each significant cluster
+                for cluster_idx in np.unique(clusters):
+                    if cluster_idx == -1:  # Skip noise points
+                        continue
+                    
+                    cluster_memories = [
+                        episodic_memories[i] for i, label in enumerate(clusters)
+                        if label == cluster_idx
+                    ]
+                    
+                    if len(cluster_memories) >= self.config.min_cluster_size:
+                        await self._create_semantic_memory(cluster_memories)
         
             # Archive old memories
             await self._archive_old_memories(episodic_memories)

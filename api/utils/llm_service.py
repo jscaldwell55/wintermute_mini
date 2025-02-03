@@ -52,3 +52,30 @@ class LLMService:
         except Exception as e:
             logger.error(f"Error generating response: {e}")
             raise
+
+    async def generate_summary(self, context: str) -> str:
+        """
+        Generate a summary of memory contexts using GPT model.
+    
+        Args:
+            context: The context to summarize (typically multiple memories combined)
+        
+        Returns:
+            A summarized version of the input context
+        """
+        prompt = f"""Please create a concise summary of the following memories, capturing the key themes and relationships:
+
+    Context:
+    {context}
+
+    Summary:"""
+
+        try:
+            return await self.generate_gpt_response_async(
+                prompt=prompt,
+                temperature=0.5,  # Lower temperature for more focused summaries
+                max_tokens=200    # Limit summary length
+            )
+        except Exception as e:
+            logger.error(f"Error generating summary: {e}")
+            raise

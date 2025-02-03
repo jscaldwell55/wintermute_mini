@@ -98,15 +98,31 @@ class MemorySystem:
     ) -> MemoryResponse:
         """Create a memory from a validated request."""
         try:
+            logger.info(f"Creating memory from request: {request}")
+        
+            # First create the memory
             memory_id = await self.add_memory(
                 content=request.content,
                 memory_type=request.memory_type,
                 metadata=request.metadata,
                 window_id=request.window_id
             )
+        
+            if not memory_id:
+                raise MemoryOperationError("Failed to generate memory ID")
+            
+            logger.info(f"Memory created with ID: {memory_id}")
 
-            # Retrieve the created memory to return as response
+            # Add a small delay to ensure consistency
+            await asyncio.sleep(0.5)
+
+            # Retrieve the created memory
             memory = await self.get_memory_by_id(memory_id)
+            if not memory:
+                raise MemoryOperationError(f"Failed to retrieve newly created memory: {memory_id}")
+
+            logger.info(f"Successfully retrieved memory: {memory_id}")
+        
             return MemoryResponse(
                 id=memory.id,
                 content=memory.content,
@@ -118,7 +134,7 @@ class MemorySystem:
             )
 
         except Exception as e:
-            logger.error(f"Error creating memory from request: {e}")
+            logger.error(f"Error creating memory from request: {e}", exc_info=True)
             raise MemoryOperationError(f"Failed to create memory: {str(e)}")
 
     @retry(
@@ -199,6 +215,9 @@ class MemorySystem:
     async def get_memory_by_id(self, memory_id: str) -> Memory:
         """Retrieve a memory by its ID."""
         try:
+            if not memory_id:
+                raise MemoryOperationError("Memory ID cannot be None or empty")
+
             # Check if memory is in cache
             memory = await self.cache.get(memory_id)
             if memory:
@@ -206,9 +225,16 @@ class MemorySystem:
                 return memory
 
             # Fetch from Pinecone if not in cache
+            logger.info(f"Fetching memory from Pinecone: {memory_id}")
             memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
+        
             if not memory_data:
+                logger.error(f"No memory data found for ID: {memory_id}")
                 raise MemoryOperationError(f"Memory not found: {memory_id}")
+
+            if not memory_data.get("metadata"):
+                logger.error(f"Memory data missing metadata: {memory_data}")
+                raise MemoryOperationError(f"Invalid memory data format: missing metadata")
 
             # Validate the retrieved data using the Memory model
             memory = Memory(
@@ -223,11 +249,12 @@ class MemorySystem:
 
             # Add memory to cache
             await self.cache.put(memory)
+            logger.info(f"Successfully retrieved and cached memory: {memory_id}")
 
             return memory
 
         except Exception as e:
-            logger.error(f"Error retrieving memory: {e}")
+            logger.error(f"Error retrieving memory: {e}", exc_info=True)
             raise MemoryOperationError(f"Failed to retrieve memory: {str(e)}")
 
     async def query_memories(
