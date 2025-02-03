@@ -69,19 +69,34 @@ class PineconeService(MemoryService):
         return self._index
 
     async def create_memory(self, memory_id: str, vector: List[float], metadata: Dict[str, Any]) -> bool:
-        """Creates a memory in Pinecone."""
+        """Creates a memory in Pinecone with error handling."""
         try:
+            if self.index is None:
+                logger.error("❌ Pinecone index is not initialized. Cannot create memory.")
+                raise PineconeError("Pinecone index is not initialized.")
+
+            logger.info(f"📝 Creating memory in Pinecone: {memory_id}")
             self.index.upsert(vectors=[(memory_id, vector, metadata)])
             return True
         except Exception as e:
-            logger.error(f"Failed to create memory in Pinecone: {e}")
+            logger.error(f"❌ Failed to create memory: {e}")
             raise PineconeError(f"Failed to create memory: {e}") from e
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves a memory from Pinecone by its ID."""
         try:
-            response = self.index.fetch(ids=[memory_id])
-            if response and memory_id in response['vectors']:
+            if self.index is None:
+                logger.error("❌ Pinecone index is None! Cannot fetch memory.")
+                return None
+        
+            logger.info(f"🔍 Fetching memory from Pinecone: {memory_id}")
+            response = await self.index.fetch(ids=[memory_id])  # ❌ This may be returning None!
+
+            if response is None:
+                logger.error(f"❌ Pinecone returned None for memory_id '{memory_id}'")
+                return None
+
+            if memory_id in response['vectors']:
                 vector_data = response['vectors'][memory_id]
                 return {
                     'id': memory_id,
@@ -89,10 +104,10 @@ class PineconeService(MemoryService):
                     'metadata': vector_data['metadata']
                 }
             else:
-                logger.warning(f"Memory with ID '{memory_id}' not found in Pinecone.")
+                logger.warning(f"⚠️ Memory with ID '{memory_id}' not found in Pinecone.")
                 return None
         except Exception as e:
-            logger.error(f"Failed to retrieve memory from Pinecone: {e}")
+            logger.error(f"❌ Failed to retrieve memory from Pinecone: {e}")
             raise PineconeError(f"Failed to retrieve memory: {e}") from e
 
     async def update_memory(self, memory_id: str, vector: List[float], metadata: Dict[str, Any]) -> bool:
