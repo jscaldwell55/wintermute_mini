@@ -34,6 +34,7 @@ class PineconeService(MemoryService):
             logger.info("Initializing Pinecone client...")
             self.pc = Pinecone(api_key=self.api_key)
 
+            # Check existing indexes and create if needed
             existing_indexes = self.pc.list_indexes().names()
             if self.index_name not in existing_indexes:
                 logger.warning(f"Index '{self.index_name}' not found. Creating it...")
@@ -44,30 +45,26 @@ class PineconeService(MemoryService):
                     spec=pinecone.PodSpec(environment=self.environment)
                 )
 
+            # Force synchronous initialization and immediate connection test
             self._index = self.pc.Index(self.index_name)
             if self._index is None:
                 raise RuntimeError("Pinecone index creation failed!")
 
-            self.initialized = True
-            logger.info(f"✅ Pinecone index '{self.index_name}' initialized successfully.")
+            # Test the connection immediately
+            try:
+                self._index.describe_index_stats()
+                self.initialized = True
+                logger.info(f"✅ Pinecone index '{self.index_name}' initialized and connected successfully.")
+            except Exception as e:
+                logger.error(f"Failed to connect to Pinecone index: {e}")
+                self._index = None
+                raise
 
         except Exception as e:
             logger.error(f"Failed to initialize Pinecone: {e}")
             self._index = None
             self.initialized = False
             raise PineconeError(f"Failed to initialize Pinecone: {e}")
-
-    @property
-    def index(self) -> Index:
-        """Lazy initialization of the Pinecone index with proper error handling."""
-        if self._index is None:
-            logger.warning("Pinecone index is not initialized. Attempting to initialize...")
-            self._initialize_pinecone()
-
-        if self._index is None:
-            raise PineconeError("Pinecone index failed to initialize.")
-    
-        return self._index
 
     async def create_memory(self, memory_id: str, vector: List[float], metadata: Dict[str, Any]) -> bool:
         """Creates a memory in Pinecone with error handling."""

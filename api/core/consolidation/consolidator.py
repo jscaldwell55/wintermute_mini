@@ -40,20 +40,29 @@ class MemoryConsolidator:
                 top_k=1000,
                 filter={"memory_type": "EPISODIC"}
             )
-            
-            episodic_memories = [
-                Memory(
-                    id=mem[0]['id'],
-                    content=mem[0]['content'],
-                    memory_type=mem[0]['memory_type'],
-                    semantic_vector=mem[0].get('vector', [0.1] * 1536),
-                    metadata=mem[0].get('metadata', {}),
-                    created_at=datetime.fromisoformat(
-                        mem[0].get('metadata', {}).get('created_at', datetime.utcnow().isoformat())
-                    )
-                ) for mem in query_results
-            ]
-            
+        
+            # Create memory objects with proper datetime handling
+            episodic_memories = []
+            for mem in query_results:
+                memory_data = mem[0]  # Get the memory data from the tuple
+                # Ensure created_at is a string in ISO format
+                created_at = memory_data.get('metadata', {}).get('created_at')
+                if isinstance(created_at, datetime):
+                    created_at = created_at.isoformat()
+                elif not created_at:
+                    created_at = datetime.utcnow().isoformat()
+
+                memory = Memory(
+                    id=memory_data['id'],
+                    content=memory_data['metadata']['content'],
+                    memory_type=memory_data['memory_type'],
+                    semantic_vector=memory_data.get('vector', [0.1] * 1536),
+                    metadata=memory_data.get('metadata', {}),
+                    created_at=created_at,  # Now we're sure this is a string
+                    window_id=memory_data.get('metadata', {}).get('window_id')
+                )
+                episodic_memories.append(memory)
+        
             if not episodic_memories:
                 logger.info("No episodic memories found for consolidation")
                 return
@@ -61,10 +70,10 @@ class MemoryConsolidator:
             # Adjust clustering parameters based on current memory set
             if isinstance(self, AdaptiveConsolidator):
                 await self.adjust_clustering_params(episodic_memories)
-            
+        
             # Convert memories to vector format for clustering
             vectors = np.array([mem.semantic_vector for mem in episodic_memories])
-            
+        
             # Reshape vectors if needed
             if len(vectors.shape) == 1:
                 vectors = vectors.reshape(1, -1)
@@ -73,27 +82,27 @@ class MemoryConsolidator:
                     "consolidation",
                     f"Invalid vector shape: {vectors.shape}"
                 )
-            
+        
             # Perform clustering
             if vectors.shape[0] >= self.config.min_cluster_size:
                 clusters = self._cluster_memories(vectors)
-                
+            
                 # Process each significant cluster
                 for cluster_idx in np.unique(clusters):
                     if cluster_idx == -1:  # Skip noise points
                         continue
-                        
-                    cluster_memories = [
-                        episodic_memories[i] for i, label in enumerate(clusters)
-                        if label == cluster_idx
-                    ]
                     
-                    if len(cluster_memories) >= self.config.min_cluster_size:
-                        await self._create_semantic_memory(cluster_memories)
-            
+                cluster_memories = [
+                    episodic_memories[i] for i, label in enumerate(clusters)
+                    if label == cluster_idx
+                ]
+                
+                if len(cluster_memories) >= self.config.min_cluster_size:
+                    await self._create_semantic_memory(cluster_memories)
+        
             # Archive old memories
             await self._archive_old_memories(episodic_memories)
-            
+        
         except Exception as e:
             logger.error(f"Memory consolidation failed: {str(e)}")
             raise MemoryOperationError("consolidation", str(e))
