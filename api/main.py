@@ -117,14 +117,6 @@ class SystemComponents:
                 self.vector_operations = VectorOperationsImpl()
                 logger.info("✅ Vector operations initialized")
 
-                # Ensure required Pinecone environment variables exist
-                if not self.settings.pinecone_api_key:
-                    logger.error("❌ PINECONE_API_KEY is missing!")
-                if not self.settings.pinecone_environment:
-                    logger.error("❌ PINECONE_ENVIRONMENT is missing!")
-                if not self.settings.pinecone_index_name:
-                    logger.error("❌ PINECONE_INDEX_NAME is missing!")
-
                 # Initialize Pinecone service
                 logger.info("🔍 Attempting to initialize Pinecone Service...")
                 self.pinecone_service = PineconeService(
@@ -133,9 +125,14 @@ class SystemComponents:
                     index_name=self.settings.pinecone_index_name
                 )
 
-                self.pinecone_service._initialize_pinecone()  # Ensure it initializes
-                if self.pinecone_service.index is None:
-                    raise RuntimeError("❌ Pinecone index is still None after initialization!")
+                # Verify Pinecone initialization worked
+                try:
+                    _ = self.pinecone_service.index  # This will trigger initialization if needed
+                    logger.info("✅ Pinecone service initialized successfully")
+                except Exception as e:
+                    logger.error(f"Failed to initialize Pinecone service: {e}")
+                    raise
+
                 logger.info(f"✅ Pinecone index '{self.pinecone_service.index_name}' initialized successfully!")
 
                 # Initialize LLM service

@@ -23,7 +23,24 @@ class PineconeService(MemoryService):
         self.initialized = False
         self.embedding_dimension = 1536  # Default embedding dimension
 
-        self._initialize_pinecone()  # Ensure initialization at instantiation
+        # Call initialize during init but handle failures gracefully
+        try:
+            self._initialize_pinecone()
+        except Exception as e:
+            logger.error(f"Failed to initialize Pinecone during service creation: {e}")
+            # Don't raise here - let the service be created but not initialized
+
+    @property
+    def index(self) -> Index:
+        """Lazy initialization of the Pinecone index with proper error handling."""
+        if not self._index:
+            logger.warning("Pinecone index is not initialized. Attempting to initialize...")
+            self._initialize_pinecone()
+        
+        if not self._index:
+            raise PineconeError("Pinecone index failed to initialize.")
+        
+        return self._index
 
     def _initialize_pinecone(self):
         """Initializes the Pinecone client and index with error handling."""
@@ -45,7 +62,7 @@ class PineconeService(MemoryService):
                     spec=pinecone.PodSpec(environment=self.environment)
                 )
 
-            # Force synchronous initialization and immediate connection test
+            # Initialize the index and test connection
             self._index = self.pc.Index(self.index_name)
             if self._index is None:
                 raise RuntimeError("Pinecone index creation failed!")
