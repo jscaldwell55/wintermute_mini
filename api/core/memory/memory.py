@@ -31,19 +31,14 @@ class MemorySystem:
         settings: Optional[Settings] = None,
         cache_capacity: int = 1000,
     ):
-        """
-        Initialize the memory system.
-
-        Args:
-            pinecone_service (MemoryService): The memory service implementation.
-            vector_operations (VectorOperations): The vector operations implementation.
-            settings (Optional[Settings], optional): The system settings. Defaults to None.
-            cache_capacity (int, optional): The cache capacity. Defaults to 1000.
-        """
         self.pinecone_service = pinecone_service
         self.vector_operations = vector_operations
         self.settings = settings or Settings()
         self.cache = MemoryCache(capacity=cache_capacity)
+        # Add initialization check
+        if not self.cache:
+            logger.error("Failed to initialize memory cache")
+            raise MemoryOperationError("Cache initialization failed")
 
     async def batch_create_memories(
         self,
@@ -223,24 +218,24 @@ class MemorySystem:
                 raise MemoryOperationError("Memory ID cannot be None or empty")
 
             # Check if memory is in cache
-            memory = await self.cache.get(memory_id)
-            if memory:
-                logger.info(f"Cache hit for memory ID: {memory_id}")
-                return memory
+            try:
+                cached_memory = await self.cache.get(memory_id)
+                if cached_memory:
+                    logger.info(f"Cache hit for memory ID: {memory_id}")
+                    return cached_memory
+            except Exception as cache_error:
+                logger.warning(f"Cache retrieval failed: {cache_error}")
+                # Continue to Pinecone if cache fails
 
-            # Fetch from Pinecone if not in cache
+            # Fetch from Pinecone
             logger.info(f"Fetching memory from Pinecone: {memory_id}")
             memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
-        
+
             if not memory_data:
                 logger.error(f"No memory data found for ID: {memory_id}")
-                raise MemoryOperationError(f"Memory not found: {memory_id}")
+                return None  # Return None instead of raising error for not found case
 
-            if not memory_data.get("metadata"):
-                logger.error(f"Memory data missing metadata: {memory_data}")
-                raise MemoryOperationError(f"Invalid memory data format: missing metadata")
-
-            # Validate the retrieved data using the Memory model
+            # Create memory object
             memory = Memory(
                 id=memory_id,
                 content=memory_data["metadata"]["content"],
@@ -251,9 +246,11 @@ class MemorySystem:
                 window_id=memory_data["metadata"].get("window_id")
             )
 
-            # Add memory to cache
-            await self.cache.put(memory)
-            logger.info(f"Successfully retrieved and cached memory: {memory_id}")
+            # Try to cache the memory, but don't fail if caching fails
+            try:
+                await self.cache.put(memory)
+            except Exception as cache_error:
+                logger.warning(f"Failed to cache memory {memory_id}: {cache_error}")
 
             return memory
 

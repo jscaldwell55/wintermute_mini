@@ -90,8 +90,18 @@ class PineconeService(MemoryService):
                 logger.error("❌ Pinecone index is not initialized. Cannot create memory.")
                 raise PineconeError("Pinecone index is not initialized.")
 
+            # Sanitize metadata
+            cleaned_metadata = {}
+            for key, value in metadata.items():
+                if isinstance(value, (str, int, float, bool)):
+                    cleaned_metadata[key] = value
+                elif isinstance(value, list) and all(isinstance(x, str) for x in value):
+                    cleaned_metadata[key] = value
+                else:
+                    cleaned_metadata[key] = str(value)
+
             logger.info(f"📝 Creating memory in Pinecone: {memory_id}")
-            self.index.upsert(vectors=[(memory_id, vector, metadata)])
+            self.index.upsert(vectors=[(memory_id, vector, cleaned_metadata)])
             return True
         except Exception as e:
             logger.error(f"❌ Failed to create memory: {e}")
