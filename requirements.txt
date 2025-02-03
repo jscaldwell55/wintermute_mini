@@ -1,24 +1,45 @@
-pydantic[dotenv]
-numpy
-pinecone-client
-typing-extensions
-python-dotenv
-loguru
-pytest
-pytest-asyncio
-numpy>=1.20
-pydantic>=2.0.0
+# Core dependencies
+fastapi>=0.100.0
+uvicorn>=0.24.0
+pydantic[dotenv]>=2.0.0
 pydantic-settings>=2.0.0
-python-dotenv>=0.20
-click>=8.0
+python-dotenv>=0.20.0
+
+# Vector operations and machine learning
+numpy>=1.20.0
+scipy>=1.8.0
+scikit-learn>=1.0.0
+torch>=2.0.0
+transformers>=4.30.0
+
+# Database and caching
+pinecone-client>=2.2.0
+cachetools>=5.3.0
+tenacity==8.2.3
+
+# OpenAI integration
+openai>=1.12.0
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.25.3
+pytest-benchmark>=5.1.0
+
+# Typing and utilities
+typing-extensions>=4.5.0
+
+# Logging
 loguru>=0.5.0 ; sys_platform == 'win32'
 colorlog>=6.8.2 ; sys_platform != 'win32'
-scipy>=1.8.0
-pytest>=7.0
-openai>=1.12.0
-fastapi
-uvicorn
-tenacity==8.2.3
-torch
-transformers
-scikit-learn
+
+# CLI tools
+click>=8.0.0
+
+# HTTP client
+httpx>=0.24.0
+
+# Optional dependencies for development
+black>=23.0.0  # Code formatting
+isort>=5.12.0  # Import sorting
+mypy>=1.0.0    # Type checking
+flake8>=6.0.0  # Linting

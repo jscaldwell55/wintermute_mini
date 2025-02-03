@@ -1,3 +1,4 @@
+# models.py
 from enum import Enum
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
@@ -22,7 +23,7 @@ class Memory(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the memory")
     content: str = Field(..., description="The content of the memory")
     memory_type: MemoryType = Field(..., description="Type of memory (EPISODIC or SEMANTIC)")
-    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="Creation timestamp")
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="Creation timestamp")
     semantic_vector: Optional[List[float]] = Field(None, description="Vector embedding of the memory content")
     metadata: Dict = Field(default_factory=dict, description="Additional metadata for the memory")
     window_id: Optional[str] = Field(None, description="Optional window ID for context grouping")
@@ -35,6 +36,7 @@ class MemoryResponse(BaseModel):
     created_at: str = Field(..., description="Creation timestamp")
     metadata: Dict = Field(..., description="Memory metadata")
     window_id: Optional[str] = Field(None, description="Window ID if specified")
+    semantic_vector: Optional[List[float]] = Field(None, description="Semantic vector of the memory")
 
 class QueryRequest(BaseModel):
     """Request model for querying memories"""

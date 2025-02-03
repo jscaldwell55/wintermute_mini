@@ -65,6 +65,7 @@ pytestdebug.log
 tests/
 conftest.py
 pyproject.toml
+run.py
 
 # Ignore compiled files
 *.o
