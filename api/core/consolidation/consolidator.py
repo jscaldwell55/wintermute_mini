@@ -49,7 +49,8 @@ class MemoryConsolidator:
                     semantic_vector=mem[0].get('vector', [0.1] * 1536),
                     metadata=mem[0].get('metadata', {}),
                     created_at=datetime.fromisoformat(
-                        mem[0].get('metadata', {}).get('created_at', datetime.utcnow().isoformat())
+                        created_at=mem[0].get('metadata', {}).get('created_at', datetime.utcnow().isoformat())
+
                     )
                 ) for mem in query_results
             ]
