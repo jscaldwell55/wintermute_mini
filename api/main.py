@@ -139,7 +139,7 @@ class SystemComponents:
                 logger.info(f"✅ Pinecone index '{self.pinecone_service.index_name}' initialized successfully!")
 
                 # Initialize LLM service
-                self.llm_service = LLMService(self.settings.openai_api_key)
+                self.llm_service = LLMService()
                 logger.info("✅ LLM service initialized")
 
                 # Initialize memory system
