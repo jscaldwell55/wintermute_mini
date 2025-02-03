@@ -106,84 +106,94 @@ class SystemComponents:
         self.consolidation_task = None
         self._initialized = False
         self.settings = get_settings()
-    
+
     async def initialize(self):
         """Initialize all system components with proper error handling"""
         if not self._initialized:
             try:
-                logger.info("Initializing system components...")
-            
-                # Initialize vector operations if not already set
-                if not hasattr(self, 'vector_operations'):
-                    self.vector_operations = VectorOperationsImpl()
-                logger.info("Vector operations initialized")
-            
-                # Initialize or use existing Pinecone service
-                if not hasattr(self, 'pinecone_service'):
-                    self.pinecone_service = PineconeService(
-                        api_key=self.settings.pinecone_api_key,
-                        environment=self.settings.pinecone_environment,
-                        index_name=self.settings.pinecone_index_name
-                    )
-                    if hasattr(self.pinecone_service, 'initialize_index'):
-                        await self.pinecone_service.initialize_index()
-                logger.info("Pinecone service initialized")
-            
-                # Initialize LLM service if not already set
-                if not hasattr(self, 'llm_service'):
-                    self.llm_service = LLMService(self.settings.openai_api_key)
-                logger.info("LLM service initialized")
-            
-                # Initialize memory system if not already set
-                if not hasattr(self, 'memory_system'):
-                    self.memory_system = MemorySystem(
-                        pinecone_service=self.pinecone_service,
-                        vector_operations=self.vector_operations,
-                        settings=self.settings,
-                    )
-                logger.info("Memory system initialized")
-            
-                # Initialize consolidator if not already set
-                if not hasattr(self, 'consolidator'):
-                    config = ConsolidationConfig()
-                    self.consolidator = AdaptiveConsolidator(
-                        config=config,
-                        pinecone_service=self.pinecone_service,
-                        llm_service=self.llm_service
-                    )
-                    self.consolidation_task = asyncio.create_task(run_consolidation(self.consolidator))
-                logger.info("Memory consolidator initialized")
-            
+                logger.info("🔧 Initializing system components...")
+
+                # Initialize vector operations
+                self.vector_operations = VectorOperationsImpl()
+                logger.info("✅ Vector operations initialized")
+
+                # Ensure required Pinecone environment variables exist
+                if not self.settings.pinecone_api_key:
+                    logger.error("❌ PINECONE_API_KEY is missing!")
+                if not self.settings.pinecone_environment:
+                    logger.error("❌ PINECONE_ENVIRONMENT is missing!")
+                if not self.settings.pinecone_index_name:
+                    logger.error("❌ PINECONE_INDEX_NAME is missing!")
+
+                # Initialize Pinecone service
+                logger.info("🔍 Attempting to initialize Pinecone Service...")
+                self.pinecone_service = PineconeService(
+                    api_key=self.settings.pinecone_api_key,
+                    environment=self.settings.pinecone_environment,
+                    index_name=self.settings.pinecone_index_name
+                )
+
+                self.pinecone_service._initialize_pinecone()  # Ensure it initializes
+                if self.pinecone_service.index is None:
+                    raise RuntimeError("❌ Pinecone index is still None after initialization!")
+                logger.info(f"✅ Pinecone index '{self.pinecone_service.index_name}' initialized successfully!")
+
+                # Initialize LLM service
+                self.llm_service = LLMService(self.settings.openai_api_key)
+                logger.info("✅ LLM service initialized")
+
+                # Initialize memory system
+                self.memory_system = MemorySystem(
+                    pinecone_service=self.pinecone_service,
+                    vector_operations=self.vector_operations,
+                    settings=self.settings,
+                )
+                logger.info("✅ Memory system initialized")
+
+                # Initialize memory consolidator
+                config = ConsolidationConfig()
+                self.consolidator = AdaptiveConsolidator(
+                    config=config,
+                    pinecone_service=self.pinecone_service,
+                    llm_service=self.llm_service
+                )
+                self.consolidation_task = asyncio.create_task(run_consolidation(self.consolidator))
+                logger.info("✅ Memory consolidator initialized")
+
                 self._initialized = True
-                logger.info("All system components initialized successfully")
+                logger.info("🎉 All system components initialized successfully")
+
             except Exception as e:
-                logger.error(f"Error initializing system components: {e}")
-                await self.cleanup()  # Cleanup on initialization failure
+                logger.error(f"🚨 Error initializing system components: {e}")
+                await self.cleanup()  # Ensure cleanup is available
                 raise
 
-async def cleanup(self):
-    """Cleanup all system components"""
-    try:
-        if hasattr(self, 'consolidation_task') and self.consolidation_task:
-            self.consolidation_task.cancel()
-            try:
-                await self.consolidation_task
-            except asyncio.CancelledError:
-                pass
-            logger.info("Memory consolidation task stopped")
-        
-        if hasattr(self, 'pinecone_service') and self.pinecone_service:
-            if hasattr(self.pinecone_service, 'close_connections'):
-                await self.pinecone_service.close_connections()
-            elif hasattr(self.pinecone_service, 'cleanup'):
-                await self.pinecone_service.cleanup()
-            logger.info("Pinecone service connections closed")
-        
-        self._initialized = False
-        logger.info("System cleanup completed")
-    except Exception as e:
-        logger.error(f"Error during system cleanup: {e}")
-        raise
+    async def cleanup(self):
+        """Cleanup all system components"""
+        try:
+            logger.info("🔧 Running system cleanup...")
+
+            # Cancel consolidation task
+            if self.consolidation_task:
+                self.consolidation_task.cancel()
+                try:
+                    await self.consolidation_task
+                except asyncio.CancelledError:
+                    pass
+                logger.info("✅ Memory consolidation task stopped")
+
+            # Close Pinecone service
+            if self.pinecone_service:
+                self.pinecone_service = None  # Properly clear Pinecone reference
+                logger.info("✅ Pinecone service connections closed")
+
+            self._initialized = False
+            logger.info("🎉 System cleanup completed")
+
+        except Exception as e:
+            logger.error(f"🚨 Error during system cleanup: {e}")
+            raise
+
 
 # Create global components instance
 components = SystemComponents()

@@ -41,18 +41,17 @@ class PineconeService(MemoryService):
 
 
     def _initialize_pinecone(self):
-        """Initializes the Pinecone client and index with proper error handling."""
+        """Initializes the Pinecone client and index with better error handling."""
         try:
             if not self.api_key or not self.environment or not self.index_name:
-               raise ValueError("Missing required Pinecone credentials.")
+                raise ValueError("Missing Pinecone credentials!")
 
             logger.info("Initializing Pinecone client...")
             self.pc = Pinecone(api_key=self.api_key)
 
-            # Ensure the index exists
             existing_indexes = self.pc.list_indexes().names()
             if self.index_name not in existing_indexes:
-                logger.warning(f"Index '{self.index_name}' not found. Creating a new index...")
+                logger.warning(f"Index '{self.index_name}' not found. Creating it...")
                 self.pc.create_index(
                     name=self.index_name,
                     dimension=self.embedding_dimension,
@@ -60,16 +59,18 @@ class PineconeService(MemoryService):
                     spec=pinecone.PodSpec(environment=self.environment)
                 )
 
-            # Set the index
             self._index = self.pc.Index(self.index_name)
+            if self._index is None:
+                raise RuntimeError("Pinecone index creation failed!")
+
             self.initialized = True
             logger.info(f"Pinecone index '{self.index_name}' initialized successfully.")
 
         except Exception as e:
-            logger.error(f"Failed to initialize Pinecone index: {e}")
-            self.initialized = False
+            logger.error(f"Failed to initialize Pinecone: {e}")
             self._index = None
-            raise PineconeError(f"Failed to initialize Pinecone: {e}") from e
+            self.initialized = False
+            raise PineconeError(f"Failed to initialize Pinecone: {e}")
 
     
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
