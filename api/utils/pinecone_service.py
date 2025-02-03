@@ -29,36 +29,48 @@ class PineconeService(MemoryService):
 
     @property
     def index(self) -> Index:
-        """Lazy initialization of the Pinecone index."""
+        """Lazy initialization of the Pinecone index with proper error handling."""
         if self._index is None:
+            logger.warning("Pinecone index is not initialized. Attempting to initialize...")
             self._initialize_pinecone()
+        
+        if self._index is None:
+            raise PineconeError("Pinecone index failed to initialize.")
+    
         return self._index
 
+
     def _initialize_pinecone(self):
-        """Initializes the Pinecone client and index."""
+        """Initializes the Pinecone client and index with proper error handling."""
         try:
+            if not self.api_key or not self.environment or not self.index_name:
+               raise ValueError("Missing required Pinecone credentials.")
+
+            logger.info("Initializing Pinecone client...")
             self.pc = Pinecone(api_key=self.api_key)
-            if self.index_name not in self.pc.list_indexes().names():
+
+            # Ensure the index exists
+            existing_indexes = self.pc.list_indexes().names()
+            if self.index_name not in existing_indexes:
+                logger.warning(f"Index '{self.index_name}' not found. Creating a new index...")
                 self.pc.create_index(
                     name=self.index_name,
                     dimension=self.embedding_dimension,
                     metric="cosine",
                     spec=pinecone.PodSpec(environment=self.environment)
                 )
+
+            # Set the index
             self._index = self.pc.Index(self.index_name)
             self.initialized = True
+            logger.info(f"Pinecone index '{self.index_name}' initialized successfully.")
+
         except Exception as e:
             logger.error(f"Failed to initialize Pinecone index: {e}")
-            raise PineconeError(f"Failed to initialize Pinecone index: {e}") from e
+            self.initialized = False
+            self._index = None
+            raise PineconeError(f"Failed to initialize Pinecone: {e}") from e
 
-    async def create_memory(self, memory_id: str, vector: List[float], metadata: Dict[str, Any]) -> bool:
-        """Creates a memory in Pinecone."""
-        try:
-            self.index.upsert(vectors=[(memory_id, vector, metadata)])
-            return True
-        except Exception as e:
-            logger.error(f"Failed to create memory in Pinecone: {e}")
-            raise PineconeError(f"Failed to create memory: {e}") from e
     
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves a memory from Pinecone by its ID."""
@@ -148,22 +160,20 @@ class PineconeService(MemoryService):
     async def health_check(self) -> Dict[str, Any]:
         """Checks the health of the Pinecone service."""
         try:
-            if not self.initialized:
-                await self._initialize_pinecone()
-            pinecone.init(api_key=self.api_key, environment=self.environment)
-            pinecone.list_indexes()
-            return {
-                "status": "healthy",
-                "initialized": self.initialized,
-                "index": self.index_name
-            }
+            if not self.initialized or self._index is None:
+                logger.error("Pinecone service is not initialized properly.")
+                return {"status": "unhealthy", "error": "Pinecone not initialized"}
+
+            # Perform a simple health check
+            response = self.pc.list_indexes()
+            if self.index_name in response.names():
+                return {"status": "healthy", "index": self.index_name}
+            else:
+                return {"status": "unhealthy", "error": "Index not found"}
+
         except Exception as e:
             logger.error(f"Pinecone health check failed: {e}")
-            return {
-                "status": "unhealthy", 
-                "error": str(e),
-                "initialized": self.initialized
-            }
+            return {"status": "unhealthy", "error": str(e)}
 
     async def fetch_recent_memories(
         self,
