@@ -159,26 +159,30 @@ class MemorySystem:
         # Create ISO format timestamp
         created_at = datetime.utcnow().isoformat()
 
-        # Prepare metadata
-        full_metadata = {
-            "content": content,
-            "created_at": created_at,
-            "memory_type": memory_type.value,
-            **(metadata or {}),
-        }
-
-        if window_id:
-            full_metadata["window_id"] = window_id
-
         try:
             # Generate semantic vector
             semantic_vector = await self.vector_operations.create_semantic_vector(content)
+        
+            # Convert to list if it's a numpy array
+            if hasattr(semantic_vector, 'tolist'):
+                semantic_vector = semantic_vector.tolist()
+
+            # Prepare metadata
+            full_metadata = {
+                "content": content,
+                "created_at": created_at,
+                "memory_type": memory_type.value,
+                **(metadata or {}),
+            }
+
+            if window_id:
+                full_metadata["window_id"] = window_id
 
             memory = Memory(
                 id=memory_id,
                 content=content,
                 memory_type=memory_type,
-                semantic_vector=semantic_vector,
+                semantic_vector=semantic_vector,  # Now it's a list
                 created_at=created_at,
                 metadata=full_metadata,
                 window_id=window_id

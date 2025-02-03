@@ -100,7 +100,7 @@ class MemoryConsolidator:
                 if len(cluster_memories) >= self.config.min_cluster_size:
                     await self._create_semantic_memory(cluster_memories)
 
-# With this corrected version:
+
             # Perform clustering
             if vectors.shape[0] >= self.config.min_cluster_size:
                 clusters = self._cluster_memories(vectors)
@@ -130,18 +130,21 @@ class MemoryConsolidator:
         try:
             # Prepare context for LLM
             context = prepare_cluster_context(cluster_memories)
-            
+        
             # Generate semantic summary
             summary = await self.llm_service.generate_summary(context)
-            
+        
             # Calculate centroid vector for the cluster
             centroid = calculate_cluster_centroid([mem.semantic_vector for mem in cluster_memories])
-            
+        
+            # Convert numpy array to list
+            if hasattr(centroid, 'tolist'):
+                centroid = centroid.tolist()
+        
             # Create memory data
             memory_data = {
                 "content": summary,
                 "memory_type": "SEMANTIC",
-                "semantic_vector": centroid,
                 "metadata": {
                     "source_memories": [mem.id for mem in cluster_memories],
                     "creation_method": "consolidation",
@@ -149,7 +152,7 @@ class MemoryConsolidator:
                     "created_at": datetime.utcnow().isoformat(),
                 }
             }
-            
+        
             # Store using query-compatible format
             await self.pinecone_service.create_memory(
                 memory_id=f"sem_{datetime.utcnow().timestamp()}",
