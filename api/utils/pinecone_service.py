@@ -1,3 +1,4 @@
+# pinecone_service.py
 import pinecone
 from pinecone import Index, Pinecone
 from typing import List, Dict, Any, Tuple, Optional
@@ -83,7 +84,6 @@ class PineconeService(MemoryService):
             raise PineconeError(f"Failed to create memory: {e}") from e
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves a memory from Pinecone by its ID with error handling."""
         try:
             if self.index is None:
                 logger.error("❌ Pinecone index is None! Cannot fetch memory.")
@@ -91,12 +91,8 @@ class PineconeService(MemoryService):
         
             logger.info(f"🔍 Fetching memory from Pinecone: {memory_id}")
         
-            # Validate that fetch is callable before awaiting
-            if not hasattr(self.index, 'fetch'):
-                logger.error("❌ Pinecone index does not have a `fetch` method.")
-                return None
-        
-            response = await self.index.fetch(ids=[memory_id])  # Ensures the method is awaited correctly
+            # Make sure to use synchronous fetch since Pinecone's Python client doesn't support async
+            response = self.index.fetch(ids=[memory_id])
 
             if response is None:
                 logger.error(f"❌ Pinecone returned None for memory_id '{memory_id}'")
