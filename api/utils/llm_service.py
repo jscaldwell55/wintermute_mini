@@ -2,7 +2,7 @@
 import logging
 from openai import AsyncOpenAI
 from api.utils.config import get_settings
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, before_log
 from datetime import datetime, time
 from typing import List, Dict, Optional, Tuple, Any
 
