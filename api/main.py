@@ -34,7 +34,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://wintermute-frontend.herokuapp.com"],
+    allow_origins=[
+        "https://wintermute-staging-x-49dd432d3500.herokuapp.com",  # Production URL
+        "http://localhost:3000",  # Local development
+        "http://localhost:5173"   # Vite's default development port
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
