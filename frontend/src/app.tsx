@@ -1,5 +1,5 @@
 import React from 'react';
-import WintermuteInterface from './components/WintermuteInterface';
+import WintermuteInterface from './components/wintermute_interface';
 
 const App: React.FC = () => {
   return (

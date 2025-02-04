@@ -5,10 +5,9 @@
       "lib": ["ES2020", "DOM", "DOM.Iterable"],
       "module": "ESNext",
       "skipLibCheck": true,
-      "baseUrl": ".",
+      "baseUrl": "src",
       "paths": {
-        "@/*": ["./src/*"],
-        "@components/*": ["./src/components/*"]
+        "@/*": ["./*"]
       },
       "moduleResolution": "bundler",
       "allowImportingTsExtensions": true,
@@ -19,7 +18,8 @@
       "strict": true,
       "noUnusedLocals": true,
       "noUnusedParameters": true,
-      "noFallthroughCasesInSwitch": true
+      "noFallthroughCasesInSwitch": true,
+      "forceConsistentCasingInFileNames": true
     },
     "include": ["src"],
     "references": [{ "path": "./tsconfig.node.json" }]
