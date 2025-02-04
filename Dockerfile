@@ -1,19 +1,9 @@
-# Use Python 3.11.5 slim base image
-FROM python:3.11.5-slim
+# Stage 1: Build frontend
+FROM node:18-slim AS frontend-builder
 
-# Set working directory
 WORKDIR /app
 
-# Install Node.js and npm
-RUN apt-get update && apt-get install -y \
-    curl \
-    build-essential \
-    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy package files
+# Copy package files for frontend
 COPY package*.json ./
 COPY frontend/package*.json ./frontend/
 
@@ -21,26 +11,36 @@ COPY frontend/package*.json ./frontend/
 RUN npm install
 RUN cd frontend && npm install
 
-# Copy the rest of the application
-COPY . .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy frontend source
+COPY frontend/ ./frontend/
 
 # Build frontend
 RUN cd frontend && npm run build
 
-# Create necessary directories
-RUN mkdir -p static
-RUN mkdir -p frontend/dist
+# Stage 2: Python application
+FROM python:3.11.5-slim
 
-# Copy frontend build to static
+WORKDIR /app
+
+# Copy frontend build from previous stage
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+
+# Create static directory and copy frontend build
+RUN mkdir -p static
 RUN cp -r frontend/dist/* static/
+
+# Copy Python requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application
+COPY . .
 
 # Set environment variables
 ENV PORT=8000
 ENV HOST=0.0.0.0
 ENV MAX_PROMPT_LENGTH=4000
+ENV STATIC_FILES_DIR="/app/frontend/dist"
 
 # Expose port
 EXPOSE 8000

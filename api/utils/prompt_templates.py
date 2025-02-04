@@ -23,9 +23,21 @@ Instructions:
 
 Response:"""
 
-    def format(self, context: str, query: str, **kwargs: Dict[str, Any]) -> str:
-        """Format template with provided values."""
+    def format(self, context: str = "", query: str = "", minimal: bool = False, **kwargs: Dict[str, Any]) -> str:
+        """
+        Format template with provided values.
+        
+        Args:
+            context: Memory context to include
+            query: Current user query
+            minimal: If True, return just the query without the full template
+            **kwargs: Additional template parameters
+        """
         try:
+            # For health checks and other minimal prompts
+            if minimal:
+                return query.strip()
+                
             if not context.strip():
                 context = "No relevant memories found."
                 
@@ -47,12 +59,16 @@ response_template = ResponseTemplate()
 
 def format_prompt(
     template: str,
-    context: str,
-    query: str,
+    context: str = "",
+    query: str = "",
+    minimal: bool = False,
     **kwargs: Dict[str, Any]
 ) -> str:
     """Format a prompt template with provided values."""
     try:
+        if minimal:
+            return query.strip()
+            
         if not context.strip():
             context = "No relevant memories found."
             
