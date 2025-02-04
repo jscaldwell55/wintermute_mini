@@ -267,7 +267,7 @@ def create_app() -> FastAPI:
             "http://localhost:3000",
             "http://localhost:5173"
         ],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -281,7 +281,23 @@ def create_app() -> FastAPI:
     # Set up static files
     setup_static_files(app)
 
-    # Register routes
+    @app.options("/query")
+    async def query_options():
+        return {"message": "Options request successful"}
+
+    @app.get("/debug-routes")
+    async def debug_routes():
+        """List all registered routes and their methods"""
+        routes = []
+        for route in app.routes:
+            routes.append({
+                "path": route.path,
+                "methods": route.methods,
+                "name": route.name
+            })
+        return {"routes": routes}
+
+    # Your existing routes
     @app.post("/query", response_model=QueryResponse)
     async def query_memory(
         query: QueryRequest,

@@ -1,31 +1,47 @@
+// src/types/index.ts
+
+export interface QueryRequest {
+  prompt: string;
+  window_id?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface QueryResponse {
-    response: string;
-    metadata?: {
-      memories_accessed?: number;
-      processing_time?: number;
+  response: string;
+  matches?: Memory[];
+  metadata?: {
+    memories_accessed?: number;
+    processing_time?: number;
+  };
+}
+
+export type TabType = 'query' | 'memories' | 'system';
+
+export interface Memory {
+  id: string;
+  content: string;
+  memory_type: 'EPISODIC' | 'SEMANTIC';  // Match backend enum
+  created_at: string;
+  metadata?: Record<string, unknown>;
+  window_id?: string;
+}
+
+export interface SystemStatus {
+  status: 'online' | 'offline' | 'degraded';
+  initialization_complete: boolean;
+  environment: string;
+  services: {
+    pinecone: {
+      status: string;
+      error?: string;
     };
-  }
-  
-  export type TabType = 'query' | 'memories' | 'system';
-  
-  export interface Memory {
-    id: string;
-    content: string;
-    type: 'episodic' | 'semantic';
-    timestamp: string;
-    metadata?: Record<string, unknown>;
-  }
-  
-  export interface SystemStatus {
-    status: 'online' | 'offline' | 'degraded';
-    components: {
-      memory_store: 'connected' | 'disconnected';
-      llm_service: 'available' | 'unavailable';
-      vector_operations: 'operational' | 'failed';
+    vector_operations: {
+      status: string;
+      model: string;
     };
-    metrics?: {
-      total_memories: number;
-      response_time_ms: number;
-      last_consolidation: string;
+    memory_service: {
+      status: string;
+      cache_enabled: boolean;
     };
-  }
+  };
+}

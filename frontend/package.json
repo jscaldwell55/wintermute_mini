@@ -6,7 +6,7 @@
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
-        "heroku-postbuild": "cd frontend && npm install --production=false && npm run build",
+        "heroku-postbuild": "npm install --production=false && npm run build",
         "preview": "vite preview",
         "start": "node server.js"
     },
