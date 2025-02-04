@@ -1,0 +1,18 @@
+setup:
+  addons:
+    - plan: heroku-postgresql:hobby-dev
+  config:
+    NODE_OPTIONS: --max_old_space_size=2048
+    PYTHON_VERSION: 3.11.5
+
+build:
+  packages:
+    - nodejs
+    - python
+  config:
+    PYTHON_VERSION: python-3.11.5
+  docker:
+    web: Dockerfile
+
+run:
+  web: gunicorn api.main:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --bind 0.0.0.0:$PORT
