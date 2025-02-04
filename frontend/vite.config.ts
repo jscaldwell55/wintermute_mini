@@ -1,18 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 export default defineConfig({
     plugins: [
         react(),
-        nodePolyfills({
-        }),
     ],
     resolve: {
         alias: {
             '@': path.resolve(__dirname, './src'),
-            // crypto: 'crypto-browserify', // Alias crypto to crypto-browserify
+            crypto: 'crypto-browserify',
         },
     },
     build: {
@@ -25,9 +22,8 @@ export default defineConfig({
             output: {
                 manualChunks: (id) => {
                     if (id.includes('node_modules')) {
-                        if (id.includes('recharts')) {
-                            return 'recharts';
-                        }
+                        if (id.includes('recharts')) return 'recharts';
+                        if (id.includes('react')) return 'react';
                         return 'vendor';
                     }
                 },
@@ -35,7 +31,8 @@ export default defineConfig({
         },
     },
     server: {
-        port: process.env.PORT ? parseInt(process.env.PORT) : 5173,
-        host: true,
+        port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
+        host: '0.0.0.0',
+        strictPort: true,
     },
 });
