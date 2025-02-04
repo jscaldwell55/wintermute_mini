@@ -3,33 +3,28 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
-    plugins: [react()],
-    build: {
-        outDir: 'dist',
-        assetsDir: 'assets',
-        sourcemap: false,
-        minify: 'terser',
-        target: 'es2015',
-        base: './',
-        rollupOptions: {
-            output: {
-                manualChunks: undefined,
-            },
-        },
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
     },
-    resolve: {
-        alias: {
-            '@': path.resolve(__dirname, './src'),
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+      },
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
         },
+      },
     },
-    server: {
-        port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
-        host: true,
-        proxy: {
-            '/api': {
-                target: '/',
-                changeOrigin: true,
-            },
-        },
-    }
+  },
+  server: {
+    port: process.env.PORT ? parseInt(process.env.PORT) : 5173,
+    host: true,
+  },
 })

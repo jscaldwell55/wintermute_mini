@@ -9,5 +9,11 @@
         "node": "16.x",
         "npm": "8.x"
     },
-    "cacheDirectories": ["frontend/node_modules"]
+    "cacheDirectories": [
+        "frontend/node_modules"
+    ],
+    "devDependencies": {
+        "@types/node": "^22.13.1",
+        "path": "^0.12.7"
+    }
 }
