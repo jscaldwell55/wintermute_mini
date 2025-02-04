@@ -30,8 +30,6 @@ from api.core.memory.models import (
     Memory,
     MemoryType
 )
-from api.core.memory import router as memory_router
-from api.utils import router as utils_router
 from api.core.memory.memory import MemorySystem, MemoryOperationError
 from api.core.vector.vector_operations import VectorOperationsImpl
 from api.utils.pinecone_service import PineconeService
@@ -43,8 +41,6 @@ from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
-app.include_router(memory_router)
-app.include_router(utils_router)
 
 app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
 
