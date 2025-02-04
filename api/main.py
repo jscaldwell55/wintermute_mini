@@ -9,6 +9,7 @@ import time
 from typing import AsyncGenerator
 import uvicorn
 from httpx import AsyncClient, HTTPStatusError, ReadTimeout
+from fastapi.staticfiles import StaticFiles
 
 from api.core.memory.models import (
     CreateMemoryRequest,
@@ -26,6 +27,23 @@ from api.core.consolidation.consolidator import MemoryConsolidator, run_consolid
 from api.utils.prompt_templates import response_template
 
 logger = logging.getLogger(__name__)
+
+settings = get_settings()
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://wintermute-frontend.herokuapp.com"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+try:
+    app.mount("/static", StaticFiles(directory=settings.static_files_dir), name="static")
+except Exception as e:
+    logger.warning(f"Could not mount static files: {str(e)}")
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(

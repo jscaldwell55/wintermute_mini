@@ -1,0 +1,10 @@
+{
+    "name": "wintermute",
+    "scripts": {
+      "postinstall": "cd frontend && npm install && npm run build"
+    },
+    "engines": {
+      "node": "16.x",
+      "npm": "8.x"
+    }
+  }

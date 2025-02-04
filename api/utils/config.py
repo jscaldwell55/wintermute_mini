@@ -35,6 +35,31 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra='allow')
 
+    # Frontend Settings
+    # Frontend Settings
+    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Heroku URL
+    cors_origins: list[str] = ["https://wintermute-staging-x-49dd432d3500.herokuapp.com"]  # Same Heroku URL
+    api_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Same Heroku URL
+    static_files_dir: str = "static"
+    templates_dir: str = "templates"
+    
+    # API Base URL (useful for both CLI and frontend)
+    api_url: str = "http://localhost:8000"  # Development default
+    
+    # Session Settings
+    session_secret_key: str
+    session_expiry: int = 86400  # 24 hours in seconds
+    
+    # Rate Limiting
+    rate_limit_requests: int = 100
+    rate_limit_window: int = 3600  # 1 hour in seconds
+
+    model_config = SettingsConfigDict(
+        env_file=".env", 
+        extra='allow',
+        env_file_encoding='utf-8'
+    )
+
 @lru_cache()
 def get_settings() -> Settings:
     """Get cached settings instance."""
