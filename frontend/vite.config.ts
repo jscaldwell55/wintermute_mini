@@ -1,9 +1,21 @@
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { nodePolyfills } from 'vite-plugin-node-polyfills'; // Import
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    nodePolyfills({
+      include: ['crypto'], // Specify crypto
+      globals: {
+        global: true,
+        Buffer: true,
+      },
+      protocolImports: true,
+    }),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -14,7 +26,7 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, 'index.html'), // Now points to frontend/index.html
+        main: path.resolve(__dirname, 'index.html'),
       },
       output: {
         manualChunks: (id) => {
