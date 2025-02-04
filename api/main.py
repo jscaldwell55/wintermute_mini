@@ -23,7 +23,7 @@ from api.utils.llm_service import LLMService
 from api.utils.config import get_settings
 from api.core.consolidation.models import ConsolidationConfig
 from api.core.consolidation.consolidator import MemoryConsolidator, run_consolidation, AdaptiveConsolidator
-from api.utils.prompt_templates import ResponseTemplate
+from api.utils.prompt_templates import response_template
 
 logger = logging.getLogger(__name__)
 
@@ -247,8 +247,8 @@ async def query_memory(query: QueryRequest):
         ])
         
         # Use the template instead of inline f-string
-        prompt = format_prompt(
-            template=RESPONSE_TEMPLATE,
+        prompt = response_template.format(
+            
             context=context,
             query=query.prompt
         )

@@ -1,10 +1,12 @@
-# prompt_templates.py
 import logging
 from typing import Dict, Any
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-RESPONSE_TEMPLATE = """
+class ResponseTemplate(BaseModel):
+    """Template for AI responses with context"""
+    template: str = """
 You are an AI assistant with a memory system. You have access to relevant memories that might help with the current query.
 
 Context from memory:
@@ -21,6 +23,28 @@ Instructions:
 
 Response:"""
 
+    def format(self, context: str, query: str, **kwargs: Dict[str, Any]) -> str:
+        """Format template with provided values."""
+        try:
+            if not context.strip():
+                context = "No relevant memories found."
+                
+            formatted = self.template.format(
+                context=context,
+                query=query,
+                **kwargs
+            )
+            return formatted.strip()
+        except (KeyError, ValueError) as e:
+            logger.error(f"Error formatting prompt: {e}")
+            raise ValueError(f"Invalid prompt template or parameters: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error formatting prompt: {e}")
+            raise
+
+# Create instance for import
+response_template = ResponseTemplate()
+
 def format_prompt(
     template: str,
     context: str,
@@ -29,7 +53,6 @@ def format_prompt(
 ) -> str:
     """Format a prompt template with provided values."""
     try:
-        # Handle empty context
         if not context.strip():
             context = "No relevant memories found."
             
@@ -39,6 +62,9 @@ def format_prompt(
             **kwargs
         )
         return formatted.strip()
-    except (KeyError, ValueError) as e:
+    except KeyError as e:
+        logger.error(f"Missing template variable: {e}")
+        raise
+    except Exception as e:
         logger.error(f"Error formatting prompt: {e}")
-        raise ValueError(f"Invalid prompt template or parameters: {e}")
+        raise
