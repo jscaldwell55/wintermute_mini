@@ -11,6 +11,7 @@ import uvicorn
 from fastapi.staticfiles import StaticFiles
 import sys
 import os
+import logging
 app = FastAPI(title="Project Wintermute")
 app.add_middleware(
     CORSMiddleware,
@@ -41,9 +42,19 @@ from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
+logger = logging.getLogger(__name__)
 
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
 
+
+try:
+    app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
+    logger.info("Successfully mounted static files from frontend/dist")
+except RuntimeError as e:
+    logger.warning(f"Static files directory not found: {e}. Continuing without static file serving.")
+    # Optionally, you could serve a simple HTML page here
+    @app.get("/")
+    async def serve_default_page():
+        return {"message": "API is running"}
 
 logger = logging.getLogger(__name__)
 

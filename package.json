@@ -1,12 +1,12 @@
 {
-  "name": "wintermute",
-  "scripts": {
-    "postinstall": "cd frontend && npm install && npm run build",
-    "start": "cd frontend && npm start"
-  },
-  "engines": {
-    "node": "16.x",
-    "npm": "8.x"
-  },
-  "cacheDirectories": ["frontend/node_modules"]
+    "name": "wintermute",
+    "scripts": {
+        "heroku-prebuild": "cd frontend && npm install",
+        "heroku-postbuild": "cd frontend && npm run build"
+    },
+    "engines": {
+        "node": "16.x",
+        "npm": "8.x"
+    },
+    "cacheDirectories": ["frontend/node_modules"]
 }
