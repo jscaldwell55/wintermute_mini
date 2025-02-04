@@ -1,7 +1,7 @@
 # llm_service.py
 import logging
 from openai import AsyncOpenAI
-from api.utils.config import get_settings
+from api.utils.config import get_settings, Settings
 from tenacity import retry, stop_after_attempt, wait_exponential, before_log
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Any
@@ -16,9 +16,9 @@ class LLMService:
     
     MAX_PROMPT_LENGTH = 4096  # Adjust based on model limits
     
-    def __init__(self):
+    def __init__(self, settings: Optional[Settings] = None):
         """Initialize the LLM service with configuration and defaults."""
-        self.settings = get_settings()
+        self.settings = settings or get_settings()
         self.client = AsyncOpenAI(api_key=self.settings.openai_api_key)
         self.model = self.settings.llm_model_id
         
@@ -106,9 +106,9 @@ class LLMService:
             # ✅ Validate and truncate prompt if necessary
             prompt = await self.validate_prompt(prompt)
 
-            if len(prompt) > max_tokens:
-                logger.warning(f"Prompt too long ({len(prompt)} > {max_tokens}), truncating...")
-                prompt = prompt[:max_tokens]  # Trim to max length
+            if len(prompt) > self.settings.max_prompt_length:
+                logger.warning(f"Truncating prompt from {len(prompt)} to {self.settings.max_prompt_length} characters")
+                prompt = prompt[:self.settings.max_prompt_length]
             
             # Prepare messages
             messages = []

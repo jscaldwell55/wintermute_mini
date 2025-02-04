@@ -30,9 +30,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Build frontend
 RUN cd frontend && npm run build
 
+# Create necessary directories
+RUN mkdir -p static
+RUN mkdir -p frontend/dist
+
+# Copy frontend build to static
+RUN cp -r frontend/dist/* static/
+
 # Set environment variables
 ENV PORT=8000
 ENV HOST=0.0.0.0
+ENV MAX_PROMPT_LENGTH=4000
 
 # Expose port
 EXPOSE 8000

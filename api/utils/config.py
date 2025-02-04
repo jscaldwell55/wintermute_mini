@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     llm_model_id: str = "gpt-3.5-turbo"
     llm_temperature: float = 0.7
     llm_max_tokens: int = 500
+    max_prompt_length: int = 4000
+    max_context_length: int = 2000
+    max_response_length: int = 1000
 
      # Vector and Embedding Settings
     embedding_model: str = "text-embedding-3-small"  # Add this line
@@ -71,3 +74,6 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
+
+class Config:
+        env_file = ".env"
