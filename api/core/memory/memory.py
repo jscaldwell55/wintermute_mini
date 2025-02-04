@@ -29,7 +29,7 @@ class MemorySystem:
         pinecone_service: MemoryService,
         vector_operations: VectorOperations,
         settings: Optional[Settings] = None,
-        cache_capacity: int = 1000,
+        cache_capacity: int = 100,
     ):
         self.pinecone_service = pinecone_service
         self.vector_operations = vector_operations
