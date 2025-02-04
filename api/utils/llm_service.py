@@ -81,6 +81,67 @@ class LLMService:
         stop=stop_after_attempt(3),
         before=before_log(logger, logging.WARNING)
     )
+
+    # Add this method to your LLMService class
+    async def generate_summary(
+        self, 
+        memories: List[Any], 
+        max_length: int = 500
+    ) -> str:
+        """
+        Generate a summary of the given memories.
+    
+        Args:
+            memories: List of memory objects to summarize
+            max_length: Maximum length of the summary in tokens
+        
+        Returns:
+            Generated summary text
+        
+        Raises:
+            LLMServiceError: If summary generation fails
+        """
+        try:
+            # Combine memory contents
+            memory_texts = []
+            for memory in memories:
+                if hasattr(memory, 'content'):
+                    memory_texts.append(memory.content)
+                elif isinstance(memory, dict) and 'content' in memory:
+                    memory_texts.append(memory['content'])
+                else:
+                    logger.warning(f"Skipping memory with unexpected format: {memory}")
+                
+            if not memory_texts:
+                raise LLMServiceError(
+                    operation="generate_summary",
+                    details="No valid memory content found to summarize"
+             )
+            
+            combined_content = "\n\n".join(memory_texts)
+        
+            # Generate summary using ChatGPT
+            system_message = (
+                "You are a memory consolidation system. Create a concise summary of the "
+                "following related memories, focusing on key themes and important details. "
+                "The summary should be coherent and maintain contextual relationships."
+            )
+        
+            summary = await self.generate_gpt_response_async(
+                prompt=combined_content,
+                system_message=system_message,
+                max_tokens=max_length,
+                temperature=0.5  # Lower temperature for more focused summary
+            )
+        
+            return summary
+        
+        except Exception as e:
+            logger.error(f"Failed to generate summary: {str(e)}")
+            raise LLMServiceError(
+                operation="generate_summary",
+                details=str(e)
+            )
     async def generate_gpt_response_async(
         self, 
         prompt: str, 
