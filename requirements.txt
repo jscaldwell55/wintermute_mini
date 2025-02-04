@@ -4,6 +4,7 @@ uvicorn>=0.24.0
 pydantic[dotenv]>=2.0.0
 pydantic-settings>=2.0.0
 python-dotenv>=0.20.0
+gunicorn>=21.2.0
 
 # Vector operations and machine learning
 numpy>=1.20.0
@@ -40,3 +41,7 @@ isort>=5.12.0  # Import sorting
 mypy>=1.0.0    # Type checking
 flake8>=6.0.0  # Linting
 scikit-learn>=1.0.0
+
+# Static File Serving
+aiofiles>=23.1.0
+jinja2>=3.1.2
