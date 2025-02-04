@@ -35,10 +35,40 @@ class MemorySystem:
         self.vector_operations = vector_operations
         self.settings = settings or Settings()
         self.cache = MemoryCache(capacity=cache_capacity)
-        # Add initialization check
+        self._initialized = False  # Add initialization flag
         if not self.cache:
             logger.error("Failed to initialize memory cache")
             raise MemoryOperationError("Cache initialization failed")
+
+    async def initialize(self) -> bool:
+        """Initialize the memory system and its components."""
+        try:
+            # Verify vector operations initialization
+            if hasattr(self.vector_operations, 'initialize'):
+                await self.vector_operations.initialize()
+
+            # Verify Pinecone initialization
+            if hasattr(self.pinecone_service, 'initialize'):
+                await self.pinecone_service.initialize()
+
+            # Initialize cache if enabled
+            if self.cache:
+                await self.cache.clear()  # Now properly awaited
+
+            self._initialized = True
+            logger.info("Memory system initialized successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to initialize memory system: {e}")
+            self._initialized = False
+            return False
+
+    async def ensure_initialized(self) -> bool:
+        """Ensure the memory system is initialized."""
+        if not self._initialized:
+            return await self.initialize()
+        return True
 
     async def batch_create_memories(
         self,
@@ -331,3 +361,7 @@ class MemorySystem:
             window_id=window_id,
         )
         return memory_id
+    
+    async def health_check(self):
+        """Checks the health of the memory system."""
+        return {"status": "healthy", "cache_enabled": self.settings.enable_memory_cache}

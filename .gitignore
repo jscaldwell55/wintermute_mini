@@ -66,6 +66,7 @@ tests/
 conftest.py
 pyproject.toml
 run.py
+test-config.env
 
 # Ignore compiled files
 *.o

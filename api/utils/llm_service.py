@@ -69,11 +69,12 @@ class LLMService:
         stop=stop_after_attempt(3),
         before=before_log(logger, logging.WARNING)
     )
+    
     async def generate_gpt_response_async(
         self, 
         prompt: str, 
         temperature: float = None, 
-        max_tokens: int = None,
+        max_tokens: int = 4096,
         top_p: float = None,
         frequency_penalty: float = None,
         presence_penalty: float = None,
@@ -102,8 +103,12 @@ class LLMService:
         request_id = f"req_{int(start_time * 1000)}"  # Unique request ID for tracking
         
         try:
-            # Validate and prepare prompt
+            # ✅ Validate and truncate prompt if necessary
             prompt = await self.validate_prompt(prompt)
+
+            if len(prompt) > max_tokens:
+                logger.warning(f"Prompt too long ({len(prompt)} > {max_tokens}), truncating...")
+                prompt = prompt[:max_tokens]  # Trim to max length
             
             # Prepare messages
             messages = []
@@ -116,7 +121,7 @@ class LLMService:
                 "model": self.model,
                 "messages": messages,
                 "temperature": temperature or self.default_temperature,
-                "max_tokens": max_tokens or self.default_max_tokens,
+                "max_tokens": min(max_tokens, 4096),  # ✅ Ensure OpenAI API max limit
                 "top_p": top_p or self.default_top_p,
                 "frequency_penalty": frequency_penalty or self.default_frequency_penalty,
                 "presence_penalty": presence_penalty or self.default_presence_penalty

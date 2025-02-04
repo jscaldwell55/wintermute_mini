@@ -83,3 +83,15 @@ class MemoryService(ABC):
                 - The similarity score between the query vector and the memory vector.
         """
         raise NotImplementedError
+    
+    @abstractmethod
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Checks the health status of the memory service.
+    
+        Returns:
+            Dict[str, Any]: A dictionary containing at minimum:
+                - status: str ("healthy" or "unhealthy")
+                - error: Optional[str] (error message if unhealthy)
+        """
+        raise NotImplementedError

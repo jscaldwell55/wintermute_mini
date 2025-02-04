@@ -1,7 +1,7 @@
 # consolidator.py
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 from sklearn.cluster import DBSCAN
 from typing import List
@@ -34,18 +34,18 @@ class MemoryConsolidator:
         3. Archive old episodic memories
         """
         try:
-            # Fetch recent episodic memories using query instead of direct fetch
+            # Fetch recent episodic memories
             query_results = await self.pinecone_service.query_memories(
-                query_vector=[0.1] * 1536,  # Default query vector
+                query_vector=[0.1] * 1536,  
                 top_k=1000,
                 filter={"memory_type": "EPISODIC"}
             )
         
-            # Create memory objects with proper datetime handling
             episodic_memories = []
             for mem in query_results:
-                memory_data = mem[0]  # Get the memory data from the tuple
-                # Ensure created_at is a string in ISO format
+                memory_data = mem[0]
+                
+                # ✅ Convert `created_at` to ISO format if necessary
                 created_at = memory_data.get('metadata', {}).get('created_at')
                 if isinstance(created_at, datetime):
                     created_at = created_at.isoformat()
@@ -58,7 +58,7 @@ class MemoryConsolidator:
                     memory_type=memory_data['memory_type'],
                     semantic_vector=memory_data.get('vector', [0.1] * 1536),
                     metadata=memory_data.get('metadata', {}),
-                    created_at=created_at,  # Now we're sure this is a string
+                    created_at=created_at,
                     window_id=memory_data.get('metadata', {}).get('window_id')
                 )
                 episodic_memories.append(memory)
@@ -67,47 +67,19 @@ class MemoryConsolidator:
                 logger.info("No episodic memories found for consolidation")
                 return
 
-            # Adjust clustering parameters based on current memory set
+            # Adjust clustering parameters
             if isinstance(self, AdaptiveConsolidator):
                 await self.adjust_clustering_params(episodic_memories)
         
-            # Convert memories to vector format for clustering
             vectors = np.array([mem.semantic_vector for mem in episodic_memories])
-        
-            # Reshape vectors if needed
             if len(vectors.shape) == 1:
                 vectors = vectors.reshape(1, -1)
-            elif len(vectors.shape) > 2:
-                raise MemoryOperationError(
-                    "consolidation",
-                    f"Invalid vector shape: {vectors.shape}"
-                )
-        
-            # Perform clustering
-            if vectors.shape[0] >= self.config.min_cluster_size:
-                clusters = self._cluster_memories(vectors)
-            
-                # Process each significant cluster
-                for cluster_idx in np.unique(clusters):
-                    if cluster_idx == -1:  # Skip noise points
-                        continue
-                    
-                cluster_memories = [
-                    episodic_memories[i] for i, label in enumerate(clusters)
-                    if label == cluster_idx
-                ]
-                
-                if len(cluster_memories) >= self.config.min_cluster_size:
-                    await self._create_semantic_memory(cluster_memories)
-
 
             # Perform clustering
             if vectors.shape[0] >= self.config.min_cluster_size:
                 clusters = self._cluster_memories(vectors)
-            
-                # Process each significant cluster
                 for cluster_idx in np.unique(clusters):
-                    if cluster_idx == -1:  # Skip noise points
+                    if cluster_idx == -1:  
                         continue
                     
                     cluster_memories = [
@@ -117,13 +89,49 @@ class MemoryConsolidator:
                     
                     if len(cluster_memories) >= self.config.min_cluster_size:
                         await self._create_semantic_memory(cluster_memories)
-        
-            # Archive old memories
+
+            # ✅ Archive old memories
             await self._archive_old_memories(episodic_memories)
         
         except Exception as e:
             logger.error(f"Memory consolidation failed: {str(e)}")
             raise MemoryOperationError("consolidation", str(e))
+
+    async def _archive_old_memories(self, memories: List[Memory]) -> None:
+        """Archive old episodic memories that have been consolidated."""
+        current_time = datetime.utcnow().replace(tzinfo=timezone.utc)  # ✅ Make `current_time` timezone-aware
+    
+        for memory in memories:
+            try:
+                created_at_str = memory.created_at  # This is a string
+            
+                # ✅ Convert string to timezone-aware datetime
+                if isinstance(created_at_str, str):
+                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                
+                    # ✅ Ensure `created_at` is explicitly in UTC
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                else:
+                    created_at = created_at_str  # If already a datetime, use as is
+
+                # ✅ Now perform the subtraction correctly
+                age_days = (current_time - created_at).days  
+            
+                if age_days > self.config.max_age_days:
+                    await self.pinecone_service.update_memory(
+                        memory_id=memory.id,
+                        vector=memory.semantic_vector,
+                        metadata={
+                            **memory.metadata,
+                            "archived": True,
+                            "archived_at": current_time.isoformat()
+                        }
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to archive memory {memory.id}: {e}")
+                continue
+
 
     async def _create_semantic_memory(self, cluster_memories: List[Memory]) -> None:
         """Generate a semantic memory from a cluster of similar episodic memories."""
@@ -176,34 +184,53 @@ class MemoryConsolidator:
         ).fit(vectors)
         return clustering.labels_
 
-    async def _archive_old_memories(self, memories: List[Memory]) -> None:
-        """Archive old episodic memories that have been consolidated."""
-        current_time = datetime.utcnow()
-        for memory in memories:
-            try:
-                age_days = (current_time - memory.created_at).days
-                if age_days > self.config.max_age_days:
-                    await self.pinecone_service.update_memory(
-                        memory_id=memory.id,
-                        vector=memory.semantic_vector,
-                        metadata={
-                            **memory.metadata,
-                            "archived": True,
-                            "archived_at": current_time.isoformat()
-                        }
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to archive memory {memory.id}: {e}")
-                continue
+    from datetime import datetime
 
-class AdaptiveConsolidator(MemoryConsolidator):  # Inherit from MemoryConsolidator
+async def _archive_old_memories(self, memories: List[Memory]) -> None:
+    """Archive old episodic memories that have been consolidated."""
+    current_time = datetime.utcnow()
+    
+    for memory in memories:
+        try:
+            created_at_str = memory.created_at  # This is a string
+            
+            # ✅ Convert string to datetime
+            if isinstance(created_at_str, str):
+                created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+            else:
+                created_at = created_at_str  # If already a datetime, use as is
+            
+            # ✅ Now perform the subtraction correctly
+            age_days = (current_time - created_at).days  
+            
+            if age_days > self.config.max_age_days:
+                await self.pinecone_service.update_memory(
+                    memory_id=memory.id,
+                    vector=memory.semantic_vector,
+                    metadata={
+                        **memory.metadata,
+                        "archived": True,
+                        "archived_at": current_time.isoformat()
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Failed to archive memory {memory.id}: {e}")
+            continue
+
+class AdaptiveConsolidator(MemoryConsolidator):  # ✅ Correct inheritance
 
     def __init__(self, config, pinecone_service, llm_service):
-        self.config = config
-        self.pinecone_service = pinecone_service
-        self.llm_service = llm_service
+        # ✅ Call parent class constructor
+        super().__init__(config, pinecone_service, llm_service)  
 
-        
+    async def consolidate_memories(self) -> None:
+        """✅ Ensure this method calls the parent's consolidate_memories"""
+        await super().consolidate_memories()
+
+    async def _archive_old_memories(self, memories: List[Memory]) -> None:
+        """✅ Explicitly inherit _archive_old_memories from MemoryConsolidator"""
+        await super()._archive_old_memories(memories)
+
     def _calculate_nearest_neighbor_distances(self, vectors: np.ndarray) -> List[float]:
         """Calculate the average distance of each point to its nearest neighbor."""
         if vectors.shape[0] <= 1:

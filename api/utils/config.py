@@ -1,3 +1,4 @@
+# config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, Optional
 from functools import lru_cache
@@ -5,6 +6,11 @@ from functools import lru_cache
 class Settings(BaseSettings):
     """Application settings."""
 
+    # Memory Cache Settings
+    enable_memory_cache: bool = True  # Add this line
+    memory_cache_size: int = 1000     # Optional: Add cache size setting
+    memory_cache_ttl: int = 3600      # Optional: Add cache TTL in seconds
+    
     # API Keys
     openai_api_key: str
     pinecone_api_key: str
@@ -18,11 +24,12 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.7
     llm_max_tokens: int = 500
 
-    # Vector Settings
-    vector_model_id: str = "text-embedding-3-small"  # You might not need this one if you're only using OpenAI embeddings
-    vector_dimension: int = 1536  # You probably don't need this one since the dimension will come from the model
-    embedding_model_id: str = "text-embedding-3-small"
-    embedding_dimension: int = 1536  # The dimension will come from the model, so you might not need this.
+     # Vector and Embedding Settings
+    embedding_model: str = "text-embedding-3-small"  # Add this line
+    embedding_model_id: str = "text-embedding-3-small"  # You can keep or remove this
+    embedding_dimension: int = 1536
+    vector_dimension: int = 1536
+    vector_model_id: str = "text-embedding-3-small"
 
     # Environment
     environment: Literal["dev", "test", "production"] = "dev"
@@ -35,7 +42,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra='allow')
 
-    # Frontend Settings
+
     # Frontend Settings
     frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Heroku URL
     cors_origins: list[str] = ["https://wintermute-staging-x-49dd432d3500.herokuapp.com"]  # Same Heroku URL

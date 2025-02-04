@@ -1,6 +1,6 @@
 # models.py
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from uuid import uuid4
@@ -17,28 +17,47 @@ class CreateMemoryRequest(BaseModel):
     window_id: Optional[str] = Field(None, description="Optional window ID for context grouping")
 
 class Memory(BaseModel):
-    """Core memory model"""
-    model_config = ConfigDict(from_attributes=True)
+    id: str
+    content: str
+    memory_type: MemoryType
+    created_at: str
+    metadata: Dict[str, Any]
+    window_id: Optional[str] = None
+    semantic_vector: Optional[List[float]] = None
 
-    id: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the memory")
-    content: str = Field(..., description="The content of the memory")
-    memory_type: MemoryType = Field(..., description="Type of memory (EPISODIC or SEMANTIC)")
-    
-    # 🔥 Fix: Ensure `created_at` is always a string to prevent validation errors
-    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="Creation timestamp")
-    semantic_vector: Optional[List[float]] = Field(None, description="Vector embedding of the memory content")
-    metadata: Dict = Field(default_factory=dict, description="Additional metadata for the memory")
-    window_id: Optional[str] = Field(None, description="Optional window ID for context grouping")
+    def to_response(self) -> 'MemoryResponse':
+        """Convert Memory to MemoryResponse"""
+        return MemoryResponse(
+            id=self.id,
+            content=self.content,
+            memory_type=self.memory_type,
+            created_at=self.created_at,
+            metadata=self.metadata,
+            window_id=self.window_id,
+            semantic_vector=self.semantic_vector
+        )
 
 class MemoryResponse(BaseModel):
-    """Response model for memory operations"""
-    id: str = Field(..., description="Unique identifier of the created/retrieved memory")
-    content: str = Field(..., description="Content of the memory")
-    memory_type: MemoryType = Field(..., description="Type of memory")
-    created_at: str = Field(..., description="Creation timestamp")
-    metadata: Dict = Field(..., description="Memory metadata")
-    window_id: Optional[str] = Field(None, description="Window ID if specified")
-    semantic_vector: Optional[List[float]] = Field(None, description="Semantic vector of the memory")
+    id: str
+    content: str
+    memory_type: MemoryType
+    created_at: str
+    metadata: Dict[str, Any]
+    window_id: Optional[str] = None
+    semantic_vector: Optional[List[float]] = None
+
+    @classmethod
+    def from_memory(cls, memory: Memory) -> 'MemoryResponse':
+        """Create MemoryResponse from Memory object"""
+        return cls(
+            id=memory.id,
+            content=memory.content,
+            memory_type=memory.memory_type,
+            created_at=memory.created_at,
+            metadata=memory.metadata,
+            window_id=memory.window_id,
+            semantic_vector=memory.semantic_vector
+        )
 
 class QueryRequest(BaseModel):
     """Request model for querying memories"""
