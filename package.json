@@ -1,8 +1,9 @@
 {
     "name": "wintermute",
     "scripts": {
-        "heroku-prebuild": "cd frontend && npm install",
-        "heroku-postbuild": "cd frontend && npm run build"
+        "heroku-prebuild": "cd frontend && npm install --include=dev",
+        "heroku-postbuild": "cd frontend && npm run build",
+        "start": "cd frontend && npm start"
     },
     "engines": {
         "node": "16.x",

@@ -6,6 +6,7 @@ pydantic-settings>=2.0.0
 python-dotenv>=0.20.0
 gunicorn>=21.2.0
 
+
 # Vector operations and machine learning
 numpy>=1.20.0
 

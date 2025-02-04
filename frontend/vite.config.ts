@@ -5,16 +5,31 @@ import path from 'path'
 export default defineConfig({
     plugins: [react()],
     build: {
-      outDir: 'dist',
-      // ensure assets are built with relative paths
-      assetsDir: 'assets',
+        outDir: 'dist',
+        assetsDir: 'assets',
+        sourcemap: false,
+        minify: 'terser',
+        target: 'es2015',
+        base: './',
+        rollupOptions: {
+            output: {
+                manualChunks: undefined,
+            },
+        },
+    },
+    resolve: {
+        alias: {
+            '@': path.resolve(__dirname, './src'),
+        },
     },
     server: {
-      proxy: {
-        '/api': {
-          target: '/',
-          changeOrigin: true,
+        port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
+        host: true,
+        proxy: {
+            '/api': {
+                target: '/',
+                changeOrigin: true,
+            },
         },
-      },
-    },
-  })
+    }
+})
