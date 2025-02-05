@@ -1,6 +1,6 @@
 # pinecone_service.py
 import pinecone
-from pinecone import Index, Pinecone
+from pinecone import Index, Pinecone, ServerlessSpec
 from typing import List, Dict, Any, Tuple, Optional
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.exceptions import PineconeError, MemoryOperationError
@@ -37,10 +37,10 @@ class PineconeService(MemoryService):
         if not self._index:
             logger.warning("Pinecone index is not initialized. Attempting to initialize...")
             self._initialize_pinecone()
-        
+
         if not self._index:
             raise PineconeError("Pinecone index failed to initialize.")
-        
+
         return self._index
 
     def _initialize_pinecone(self):
@@ -60,7 +60,7 @@ class PineconeService(MemoryService):
                     name=self.index_name,
                     dimension=self.embedding_dimension,
                     metric="cosine",
-                    spec=pinecone.PodSpec(environment=self.environment)
+                    spec=pinecone.PodSpec(environment=self.environment) # Changed to PodSpec
                 )
 
             # Initialize the index and test connection
@@ -113,9 +113,9 @@ class PineconeService(MemoryService):
             if self.index is None:
                 logger.error("❌ Pinecone index is None! Cannot fetch memory.")
                 return None
-        
+
             logger.info(f"🔍 Fetching memory from Pinecone: {memory_id}")
-        
+
             # Make sure to use synchronous fetch since Pinecone's Python client doesn't support async
             response = self.index.fetch(ids=[memory_id])
 
@@ -158,23 +158,25 @@ class PineconeService(MemoryService):
             raise PineconeError(f"Failed to delete memory: {e}") from e
 
     async def query_memories(
-        self, 
-        query_vector: List[float], 
+        self,
+        query_vector: List[float],
         top_k: int = 10,
-        filter: Dict = None
+        filter: Optional[Dict[str, Any]] = None,
+        include_metadata: bool = False  # Add this line!
     ) -> List[Tuple[Dict[str, Any], float]]:
+        """Queries the Pinecone index, now with include_metadata."""
         try:
-            logger.info(f"Querying Pinecone with filter: {filter}")
+            logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
                 vector=query_vector,
                 top_k=top_k,
                 include_values=True,
-                include_metadata=True,
+                include_metadata=include_metadata,  # Pass the parameter
                 filter=filter
             )
-        
+
             logger.info(f"Raw Pinecone results: {str(results)[:200]}")  # Log first 200 chars
-        
+
             memories_with_scores = []
             for result in results['matches']:
                 logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
@@ -187,11 +189,10 @@ class PineconeService(MemoryService):
                 }
                 memories_with_scores.append((memory_data, result['score']))
             return memories_with_scores
-            
+
         except Exception as e:
             logger.error(f"Failed to query memories from Pinecone: {e}")
             raise PineconeError(f"Failed to query memories: {e}") from e
-
     async def close_connections(self):
         """Closes the Pinecone index connection."""
         if self._index:
