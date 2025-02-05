@@ -553,8 +553,7 @@ def create_app() -> FastAPI:
                         "model": components.settings.embedding_model
                     },
                     "memory_service": {
-                        "status": "healthy",
-                        "cache_enabled": components.settings.enable_memory_cache
+                        "status": "healthy"
                     }
                 })
                 

@@ -34,10 +34,7 @@ class MemorySystem:
         self.pinecone_service = pinecone_service
         self.vector_operations = vector_operations
         self.settings = settings or Settings()
-        self._initialized = False  # Add initialization flag
-        if not self.cache:
-            logger.error("Failed to initialize memory cache")
-            raise MemoryOperationError("Cache initialization failed")
+        self._initialized = False
 
     async def initialize(self) -> bool:
         """Initialize the memory system and its components."""
@@ -49,10 +46,6 @@ class MemorySystem:
             # Verify Pinecone initialization
             if hasattr(self.pinecone_service, 'initialize'):
                 await self.pinecone_service.initialize()
-
-            # Initialize cache if enabled
-            if self.cache:
-                await self.cache.clear()  # Now properly awaited
 
             self._initialized = True
             logger.info("Memory system initialized successfully")
@@ -370,4 +363,4 @@ class MemorySystem:
     
     async def health_check(self):
         """Checks the health of the memory system."""
-        return {"status": "healthy", "cache_enabled": self.settings.enable_memory_cache}
+        return {"status": "healthy"}

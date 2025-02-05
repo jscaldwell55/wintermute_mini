@@ -3,6 +3,8 @@ from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel, Field, ConfigDict, validator
 from datetime import datetime
 from uuid import uuid4
+from api.utils.config import get_settings
+
 
 class MemoryType(str, Enum):
     EPISODIC = "EPISODIC"
@@ -98,20 +100,16 @@ class MemoryResponse(BaseModel):
         )
 
 class QueryRequest(BaseModel):
-    """Request model for querying memories"""
     query: str
     prompt: str = Field(..., description="The query prompt")
-    top_k: int = Field(default=5, ge=1, le=20, description="Number of memories to retrieve (max 20)")
+    top_k: int = Field(
+        default=Field(default_factory=lambda: get_settings().default_memories_per_query),
+        ge=1,
+        le=Field(default_factory=lambda: get_settings().max_memories_per_query),
+        description="Number of memories to retrieve"
+    )
     window_id: Optional[str] = Field(None, description="Optional window ID to filter context")
     request_metadata: Optional[RequestMetadata] = None
-
-    @validator('prompt')
-    def validate_prompt_length(cls, v):
-        if not v:
-            raise ValueError("Prompt cannot be empty")
-        if len(v) > 32000:
-            raise ValueError("Prompt exceeds maximum length of 32000 characters")
-        return v
 
 class QueryResponse(BaseModel):
     """Response model for memory queries"""

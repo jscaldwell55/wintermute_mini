@@ -1,15 +1,9 @@
-# config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, Optional
 from functools import lru_cache
 
 class Settings(BaseSettings):
     """Application settings."""
-
-    # Memory Cache Settings
-    enable_memory_cache: bool = True  # Add this line
-    memory_cache_size: int = 1000     # Optional: Add cache size setting
-    memory_cache_ttl: int = 3600      # Optional: Add cache TTL in seconds
     
     # API Keys
     openai_api_key: str
@@ -27,13 +21,10 @@ class Settings(BaseSettings):
     max_context_length: int = 2000
     max_response_length: int = 1000
 
-     # Vector and Embedding Settings
-    embedding_model: str = "text-embedding-3-small"  # Add this line
-    embedding_model_id: str = "text-embedding-3-small"  # You can keep or remove this
-    embedding_dimension: int = 1536
-    vector_dimension: int = 1536
-    vector_model_id: str = "text-embedding-3-small"
-
+    # Vector and Embedding Settings
+    embedding_model: str = "text-embedding-3-small"
+    vector_dimension: int = 1536  # Simplified to one dimension setting
+    
     # Environment
     environment: Literal["dev", "test", "production"] = "dev"
     debug: bool = False
@@ -43,18 +34,9 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_delay: int = 1
 
-    model_config = SettingsConfigDict(env_file=".env", extra='allow')
-
-
     # Frontend Settings
-    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Heroku URL
-    cors_origins: list[str] = ["https://wintermute-staging-x-49dd432d3500.herokuapp.com"]  # Same Heroku URL
-    api_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Same Heroku URL
-    static_files_dir: str = "static"
-    templates_dir: str = "templates"
-    
-    # API Base URL (useful for both CLI and frontend)
-    api_url: str = "http://localhost:8000"  # Development default
+    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"
+    cors_origins: list[str] = ["https://wintermute-staging-x-49dd432d3500.herokuapp.com"]
     
     # Session Settings
     session_secret_key: str
@@ -65,15 +47,21 @@ class Settings(BaseSettings):
     rate_limit_window: int = 3600  # 1 hour in seconds
 
     model_config = SettingsConfigDict(
-        env_file=".env", 
-        extra='allow',
-        env_file_encoding='utf-8'
+        env_file=".env",
+        env_file_encoding='utf-8',
+        extra='allow'
     )
+    # Memory Retrieval Settings
+    max_memories_per_query: int = 20  # Hard limit on memories per query
+    default_memories_per_query: int = 5  # Default if not specified
+    min_similarity_threshold: float = 0.6  # Minimum similarity score to include memory
+    time_weight_ratio: float = 0.2  # How much to weight recency (0.0 to 1.0)
+    
+    # When fetching for filtering, how many extra to get
+    initial_fetch_multiplier: float = 2.0  # Will fetch max_memories_per_query * multiplier
 
-@lru_cache()
-def get_settings() -> Settings:
-    """Get cached settings instance."""
-    return Settings()
-
-class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding='utf-8',
+        extra='allow'
+    )
