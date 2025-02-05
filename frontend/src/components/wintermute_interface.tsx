@@ -1,8 +1,7 @@
+// src/components/WintermuteInterface.tsx
 import React, { useState } from 'react';
-import { MessagesSquare, AlertCircle, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { cn } from '@/lib/utils';
 
 // Types
 interface QueryResponse {
@@ -13,39 +12,15 @@ interface QueryResponse {
   };
 }
 
-interface TabButtonProps {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}
-
 // Constants
 const API_URL = process.env.VITE_API_URL || 'https://wintermute-staging-x-49dd432d3500.herokuapp.com';
 
-// Components
-const TabButton: React.FC<TabButtonProps> = ({ active, onClick, icon, children }) => (
-  <button
-    onClick={onClick}
-    className={cn(
-      'flex items-center px-4 py-2 rounded-lg transition-colors',
-      active ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
-    )}
-  >
-    {icon}
-    <span className="ml-2">{children}</span>
-  </button>
-);
-
 const WintermuteInterface: React.FC = () => {
-  // State
-  const [activeTab, setActiveTab] = useState<'query'>('query');
   const [query, setQuery] = useState<string>('');
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Handlers
   const handleQuery = async () => {
     if (!query.trim()) return;
 
@@ -66,7 +41,7 @@ const WintermuteInterface: React.FC = () => {
       }
 
       const data = await result.json();
-      setResponse(data);
+      setResponse(data); // Save the response to state
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
     } finally {
@@ -81,42 +56,44 @@ const WintermuteInterface: React.FC = () => {
           <h1 className="text-4xl font-bold text-gray-900 mb-2">Wintermute</h1>
         </header>
 
-        {activeTab === 'query' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Query Interface</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <textarea
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="w-full p-3 border rounded-lg h-32 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter your query here..."
-                />
-                <button
-                  onClick={handleQuery}
-                  disabled={loading || !query.trim()}
-                  className="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    'Send Query'
-                  )}
-                </button>
-              </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Query Interface</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Query Text Input */}
+              <textarea
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="w-full p-3 border rounded-lg h-32 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter your query here..."
+              />
 
+              {/* Send Query Button */}
+              <button
+                onClick={handleQuery}
+                disabled={loading || !query.trim()}
+                className="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Send Query'
+                )}
+              </button>
+
+              {/* Display Error Message */}
               {error && (
-                <Alert variant="destructive" className="mt-4">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
+                <div className="mt-4 text-red-600 bg-red-100 p-3 rounded-lg">
+                  <strong>Error:</strong> {error}
+                </div>
               )}
 
+              {/* Display Query Response */}
               {response && (
                 <div className="mt-6 p-4 bg-white rounded-lg border">
                   <h3 className="font-semibold mb-2">Response:</h3>
@@ -129,9 +106,9 @@ const WintermuteInterface: React.FC = () => {
                   )}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
