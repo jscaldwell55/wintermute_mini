@@ -65,3 +65,8 @@ class Settings(BaseSettings):
         env_file_encoding='utf-8',
         extra='allow'
     )
+
+@lru_cache()
+def get_settings() -> Settings:
+    """Create and cache settings instance."""
+    return Settings()
