@@ -5,15 +5,17 @@ const DEFAULT_API_URL = 'https://wintermute-staging-x-49dd432d3500.herokuapp.com
 const API_URL = (import.meta.env.VITE_API_URL as string) || DEFAULT_API_URL;
 
 interface QueryRequest {
+  query: string;     // Add this
   prompt: string;
+  top_k?: number;    // Optional since there's a default
   window_id?: string;
-  metadata?: Record<string, any>;
 }
 
 export const queryAPI = async (query: string, windowId?: string): Promise<QueryResponse> => {
   try {
     const requestData: QueryRequest = {
-      prompt: query,
+      query: query,      // Add this
+      prompt: query,     // Keep this
       window_id: windowId || crypto.randomUUID()
     };
 
