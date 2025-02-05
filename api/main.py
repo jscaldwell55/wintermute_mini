@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 import logging
+logging.basicConfig(level=logging.INFO)
 import asyncio
 import time
 import sys

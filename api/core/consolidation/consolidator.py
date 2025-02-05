@@ -1,6 +1,7 @@
 # consolidator.py
 import asyncio
 import logging
+logging.basicConfig(level=logging.INFO)
 from datetime import datetime, timezone
 import numpy as np
 from sklearn.cluster import DBSCAN

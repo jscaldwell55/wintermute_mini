@@ -1,5 +1,6 @@
 # llm_service.py
 import logging
+logging.basicConfig(level=logging.INFO)
 from openai import AsyncOpenAI
 from api.utils.config import get_settings, Settings
 from tenacity import retry, stop_after_attempt, wait_exponential, before_log

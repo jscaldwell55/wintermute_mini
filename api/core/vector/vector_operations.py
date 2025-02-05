@@ -4,6 +4,7 @@ from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_random_exponential, before_sleep_log
 from api.utils.config import get_settings
 import logging
+logging.basicConfig(level=logging.INFO)
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
 logger = logging.getLogger(__name__)

@@ -7,6 +7,7 @@ from api.core.memory.exceptions import PineconeError, MemoryOperationError
 from api.core.memory.models import Memory
 from tenacity import retry, stop_after_attempt, wait_fixed, before_sleep_log, RetryError
 import logging
+logging.basicConfig(level=logging.INFO)
 import time
 from datetime import datetime, timedelta
 import asyncio

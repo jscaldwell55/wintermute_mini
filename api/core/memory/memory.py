@@ -3,6 +3,7 @@ from datetime import datetime
 import uuid
 from typing import List, Dict, Optional, Tuple, Any
 import logging
+logging.basicConfig(level=logging.INFO)
 import asyncio
 from pydantic import BaseModel, Field, ValidationError
 from enum import Enum

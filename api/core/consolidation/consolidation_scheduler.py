@@ -4,6 +4,7 @@ import sys
 from datetime import datetime, time
 import pytz
 import logging
+logging.basicConfig(level=logging.INFO)
 from api.utils.config import get_settings
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService

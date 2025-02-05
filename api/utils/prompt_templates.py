@@ -1,4 +1,5 @@
 import logging
+logging.basicConfig(level=logging.INFO)
 from typing import Dict, Any
 from pydantic import BaseModel
 
