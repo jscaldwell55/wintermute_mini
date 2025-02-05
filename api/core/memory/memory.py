@@ -4,17 +4,18 @@ import uuid
 from typing import List, Dict, Optional, Tuple, Any
 import logging
 import asyncio
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from enum import Enum
 from tenacity import retry, stop_after_attempt, wait_fixed, RetryError, before_sleep_log
 from collections import OrderedDict
+import time
+import math
 
 # Updated imports:
 from api.utils.config import Settings
-from api.core.memory.cache import MemoryCache
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
-from api.core.memory.models import Memory, MemoryType, CreateMemoryRequest, MemoryResponse, QueryRequest, QueryResponse
+from api.core.memory.models import Memory, MemoryType, CreateMemoryRequest, MemoryResponse, QueryRequest, QueryResponse, RequestMetadata, OperationType, ErrorDetail
 from api.core.memory.exceptions import MemoryOperationError
 
 logger = logging.getLogger(__name__)
@@ -28,13 +29,11 @@ class MemorySystem:
         self,
         pinecone_service: MemoryService,
         vector_operations: VectorOperations,
-        settings: Optional[Settings] = None,
-        cache_capacity: int = 100,
+        settings: Any
     ):
         self.pinecone_service = pinecone_service
         self.vector_operations = vector_operations
         self.settings = settings or Settings()
-        self.cache = MemoryCache(capacity=cache_capacity)
         self._initialized = False  # Add initialization flag
         if not self.cache:
             logger.error("Failed to initialize memory cache")
@@ -117,225 +116,232 @@ class MemorySystem:
             logger.error(f"Batch memory creation failed: {e}")
             raise MemoryOperationError(f"Failed to create memories in batch: {str(e)}")
     
-    async def create_memory_from_request(
-        self,
-        request: CreateMemoryRequest
-    ) -> MemoryResponse:
-        """Create a memory from a validated request."""
-        try:
-            logger.info(f"Creating memory from request: {request}")
-        
-            # First create the memory
-            memory_id = await self.add_memory(
-                content=request.content,
-                memory_type=request.memory_type,
-                metadata=request.metadata,
-                window_id=request.window_id
-            )
-        
-            if not memory_id:
-                raise MemoryOperationError("Failed to generate memory ID")
-            
-            logger.info(f"Memory created with ID: {memory_id}")
-
-            # Add a small delay to ensure consistency
-            await asyncio.sleep(0.5)
-
-            # Retrieve the created memory
-            memory = await self.get_memory_by_id(memory_id)
-            if not memory:
-                raise MemoryOperationError(f"Failed to retrieve newly created memory: {memory_id}")
-
-            logger.info(f"Successfully retrieved memory: {memory_id}")
-        
-            return MemoryResponse(
-                id=memory.id,
-                content=memory.content,
-                memory_type=memory.memory_type,
-                created_at=memory.created_at,
-                metadata=memory.metadata,
-                window_id=memory.window_id,
-                semantic_vector=memory.semantic_vector
-            )
-
-        except Exception as e:
-            logger.error(f"Error creating memory from request: {e}", exc_info=True)
-            raise MemoryOperationError(f"Failed to create memory: {str(e)}")
-
     @retry(
         stop=stop_after_attempt(RETRY_ATTEMPTS),
         wait=wait_fixed(RETRY_WAIT_SECONDS),
         reraise=True,
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
-    async def _add_memory_with_retry(
+    
+    async def create_memory_from_request(
         self,
-        content: str,
-        memory_type: MemoryType,
-        metadata: Optional[Dict[str, Any]] = None,
-        window_id: Optional[str] = None
-    ) -> str:
-        """Add a memory to the system with retry mechanism."""
-        logger.info(f"Attempting to add memory. Content: {content}, Memory Type: {memory_type}")
-
-        # Generate memory ID with 'mem_' prefix here
-        memory_id = "mem_" + str(uuid.uuid4())
-
-        # Create ISO format timestamp
-        created_at = datetime.utcnow().isoformat()
-
+        request: CreateMemoryRequest
+    ) -> MemoryResponse:
+        """Create a memory from a validated request."""
         try:
-            # Generate semantic vector
-            semantic_vector = await self.vector_operations.create_semantic_vector(content)
+            request.request_metadata = RequestMetadata(
+                operation_type=OperationType.STORE,
+                window_id=request.window_id
+            )
         
-            # Convert to list if it's a numpy array
-            if hasattr(semantic_vector, 'tolist'):
-                semantic_vector = semantic_vector.tolist()
+            logger.info(f"Creating memory from request: {request}")
+    
+            # Generate memory ID with 'mem_' prefix
+            memory_id = f"mem_{uuid.uuid4()}"
+            created_at = datetime.utcnow().isoformat()
 
-            # Prepare metadata
-            full_metadata = {
-                "content": content,
-                "created_at": created_at,
-                "memory_type": memory_type.value,
-                **(metadata or {}),
-            }
+            try:
+                # Generate semantic vector
+                semantic_vector = await self.vector_operations.create_semantic_vector(request.content)
+        
+                if hasattr(semantic_vector, 'tolist'):
+                    semantic_vector = semantic_vector.tolist()
 
-            if window_id:
-                full_metadata["window_id"] = window_id
+                # Prepare metadata
+                full_metadata = {
+                    "content": request.content,
+                    "created_at": created_at,
+                    "memory_type": request.memory_type.value,
+                    **(request.metadata or {}),
+                }
 
-            memory = Memory(
-                id=memory_id,
-                content=content,
-                memory_type=memory_type,
-                semantic_vector=semantic_vector,  # Now it's a list
-                created_at=created_at,
-                metadata=full_metadata,
-                window_id=window_id
-            )
+                if request.window_id:
+                    full_metadata["window_id"] = request.window_id
 
-            # Store in Pinecone
-            await self.pinecone_service.create_memory(
-                memory_id=memory.id,
-                vector=semantic_vector,
-                metadata=memory.metadata,
-            )
+                # Create memory object
+                memory = Memory(
+                    id=memory_id,
+                    content=request.content,
+                    memory_type=request.memory_type,
+                    semantic_vector=semantic_vector,
+                    created_at=created_at,
+                    metadata=full_metadata,
+                    window_id=request.window_id
+                )
 
-            logger.info(f"Successfully added memory with ID: {memory_id}")
-            return memory.id
+                # Store directly in Pinecone
+                success = await self.pinecone_service.create_memory(
+                    memory_id=memory.id,
+                    vector=semantic_vector,
+                    metadata=memory.metadata,
+                )
+
+                if not success:
+                    raise MemoryOperationError("Failed to store memory in vector database")
+
+                logger.info(f"Successfully created memory with ID: {memory_id}")
+
+                return MemoryResponse(
+                    id=memory.id,
+                    content=memory.content,
+                    memory_type=memory.memory_type,
+                    created_at=memory.created_at,
+                    metadata=memory.metadata,
+                    window_id=memory.window_id,
+                    semantic_vector=memory.semantic_vector,
+                    trace_id=request.request_metadata.trace_id
+                )
+
+            except Exception as e:
+                logger.error(f"Error during memory creation process: {e}")
+                raise MemoryOperationError(f"Failed to add memory during vector creation or upsertion: {e}")
 
         except Exception as e:
-            logger.error(f"Error during memory creation process: {e}")
-            raise MemoryOperationError(f"Failed to add memory during vector creation or upsertion: {e}")
-
-    async def add_memory(
-        self,
-        content: str,
-        memory_type: MemoryType,
-        metadata: Optional[Dict[str, Any]] = None,
-        window_id: Optional[str] = None
-    ) -> str:
-        """Add a memory to the system."""
-        try:
-            return await self._add_memory_with_retry(content, memory_type, metadata, window_id)
-        except RetryError as e:
-            logger.error(f"Error adding memory after multiple retries: {e.last_attempt.result()}")
-            raise MemoryOperationError(f"Failed to add memory after retries: {e.last_attempt.result()}")
-
-    async def get_memory_by_id(self, memory_id: str) -> Memory:
-        """Retrieve a memory by its ID."""
-        try:
-            if not memory_id:
-                raise MemoryOperationError("Memory ID cannot be None or empty")
-
-            # Check if memory is in cache
-            try:
-                cached_memory = await self.cache.get(memory_id)
-                if cached_memory:
-                    logger.info(f"Cache hit for memory ID: {memory_id}")
-                    return cached_memory
-            except Exception as cache_error:
-                logger.warning(f"Cache retrieval failed: {cache_error}")
-                # Continue to Pinecone if cache fails
-
-            # Fetch from Pinecone
-            logger.info(f"Fetching memory from Pinecone: {memory_id}")
-            memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
-
-            if not memory_data:
-                logger.error(f"No memory data found for ID: {memory_id}")
-                return None  # Return None instead of raising error for not found case
-
-            # Create memory object
-            memory = Memory(
-                id=memory_id,
-                content=memory_data["metadata"]["content"],
-                memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                created_at=memory_data["metadata"]["created_at"],
-                semantic_vector=memory_data["vector"],
-                metadata=memory_data["metadata"],
-                window_id=memory_data["metadata"].get("window_id")
+            logger.error(f"Error creating memory from request: {e}", exc_info=True)
+            return MemoryResponse(
+                error=ErrorDetail(
+                    code="MEMORY_CREATION_FAILED",
+                    message=str(e),
+                    trace_id=request.request_metadata.trace_id,
+                    operation_type=OperationType.STORE
+                )
             )
-
-            # Try to cache the memory, but don't fail if caching fails
-            try:
-                await self.cache.put(memory)
-            except Exception as cache_error:
-                logger.warning(f"Failed to cache memory {memory_id}: {cache_error}")
-
-            return memory
-
-        except Exception as e:
-            logger.error(f"Error retrieving memory: {e}", exc_info=True)
-            raise MemoryOperationError(f"Failed to retrieve memory: {str(e)}")
 
     async def query_memories(
         self,
         request: QueryRequest
     ) -> QueryResponse:
-        """Query memories based on a query request."""
+        """Query memories based on semantic similarity and recency."""
         try:
             # Generate query vector
             query_vector = await self.vector_operations.create_semantic_vector(
                 request.prompt
             )
 
-            # Build filter
-            filter_dict = {}
-            if request.window_id:
-                filter_dict["window_id"] = request.window_id
+            # Get more initial results to account for filtering
+            initial_top_k = min(request.top_k * 2, 100)
 
-            # Query Pinecone
-            results = await self.pinecone_service.query_memories(
+            semantic_filter = {
+                "memory_type": "SEMANTIC",
+                **({"window_id": request.window_id} if request.window_id else {})
+            }
+
+            # Query semantic memories
+            semantic_results = await self.pinecone_service.query_memories(
                 query_vector=query_vector,
-                top_k=request.top_k,
-                filter=filter_dict,
+                top_k=initial_top_k,
+                filter=semantic_filter,
             )
 
-            # Convert results to response model
+            # Process and filter results
             matches = []
             similarity_scores = []
+            current_time = datetime.utcnow()
 
-            for memory_data, score in results:
-                memory_response = MemoryResponse(
-                    id=memory_data["id"],
-                    content=memory_data["metadata"]["content"],
-                    memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                    created_at=memory_data["metadata"]["created_at"],
-                    metadata=memory_data["metadata"],
-                    window_id=memory_data["metadata"].get("window_id"),
-                    semantic_vector=memory_data["vector"]
-                )
-                matches.append(memory_response)
-                similarity_scores.append(score)
+            for memory_data, similarity_score in semantic_results:
+                # Basic similarity threshold
+                if similarity_score < 0.6:
+                    continue
+
+                try:
+                    # Apply gentle time weighting
+                    consolidated_at = datetime.fromisoformat(
+                        memory_data["metadata"].get("consolidated_at", "").replace("Z", "+00:00")
+                    )
+                    age_days = (current_time - consolidated_at).days
+                    time_weight = 0.7 + (0.3 / (1 + math.exp(age_days / 180 - 2)))
+                
+                    # Combine scores (80% similarity, 20% time)
+                    final_score = (similarity_score * 0.8) + (time_weight * 0.2)
+                
+                    # Add source information
+                    source_info = ""
+                    if source_memories := memory_data["metadata"].get("source_memories"):
+                        source_info = f"\nDerived from {len(source_memories)} related interactions."
+
+                    memory_response = MemoryResponse(
+                        id=memory_data["id"],
+                        content=memory_data["metadata"]["content"] + source_info,
+                        memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                        created_at=memory_data["metadata"]["created_at"],
+                        metadata={
+                            **memory_data["metadata"],
+                            "similarity_score": similarity_score,
+                        },
+                        window_id=memory_data["metadata"].get("window_id"),
+                        semantic_vector=memory_data["vector"]
+                    )
+                    matches.append(memory_response)
+                    similarity_scores.append(final_score)
+
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Error processing timestamp for memory {memory_data['id']}: {e}")
+                    continue
+
+            # Sort by final score and limit to requested number
+            sorted_results = sorted(zip(matches, similarity_scores), 
+                              key=lambda x: x[1], 
+                              reverse=True)[:request.top_k]
+            matches, similarity_scores = zip(*sorted_results) if sorted_results else ([], [])
 
             return QueryResponse(
-                matches=matches,
-                similarity_scores=similarity_scores,
+                matches=list(matches),
+                similarity_scores=list(similarity_scores),
             )
 
         except Exception as e:
             logger.error(f"Error querying memories: {e}")
             raise MemoryOperationError(f"Failed to query memories: {str(e)}")
+    
+    async def store_interaction(
+        self,
+        query: str,
+        response: str,
+        window_id: Optional[str] = None
+    ) -> MemoryResponse:
+        """Store query and response as an episodic memory with enhanced error handling."""
+        trace_id = f"store_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        logger.info(f"[{trace_id}] Starting interaction storage")
+    
+        try:
+            # Format and validate interaction content
+            if not query or not response:
+                raise ValueError("Query and response must not be empty")
+            
+            interaction_content = f"Query: {query}\nResponse: {response}"
+            if len(interaction_content) > 32000:  # Add reasonable limit
+                logger.warning(f"[{trace_id}] Large interaction content: {len(interaction_content)} chars")
+    
+            # Create memory request
+            try:
+                request = CreateMemoryRequest(
+                    content=interaction_content,
+                    memory_type=MemoryType.EPISODIC,
+                    metadata={
+                        "interaction_type": "query_response",
+                        "query": query,
+                        "response": response,
+                        "trace_id": trace_id,
+                        "stored_at": datetime.utcnow().isoformat()
+                    },
+                    window_id=window_id
+                )
+            except ValidationError as e:
+                logger.error(f"[{trace_id}] Failed to create memory request: {str(e)}")
+                raise MemoryOperationError(f"Invalid memory request: {str(e)}")
+    
+            # Store the memory
+            try:
+                result = await self.create_memory_from_request(request)
+                logger.info(f"[{trace_id}] Successfully stored interaction with ID: {result.id}")
+                return result
+            except Exception as e:
+                logger.error(f"[{trace_id}] Failed to store memory: {str(e)}", exc_info=True)
+                raise MemoryOperationError(f"Failed to store interaction: {str(e)}")
+            
+        except Exception as e:
+            logger.error(f"[{trace_id}] Unexpected error in store_interaction: {str(e)}", exc_info=True)
+            raise MemoryOperationError(f"Unexpected error storing interaction: {str(e)}")
 
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID."""

@@ -13,6 +13,7 @@ import os
 from typing import AsyncGenerator, List, Optional, Dict, Any
 import uvicorn
 from pydantic import ValidationError
+import uuid
 
 from api.core.memory.models import (
     CreateMemoryRequest,
@@ -20,7 +21,9 @@ from api.core.memory.models import (
     QueryRequest,
     QueryResponse,
     Memory,
-    MemoryType
+    MemoryType,
+    OperationType,
+    RequestMetadata
 )
 from api.core.memory.memory import MemorySystem, MemoryOperationError
 from api.core.vector.vector_operations import VectorOperationsImpl
@@ -329,40 +332,88 @@ def create_app() -> FastAPI:
     # Your existing routes
     @app.post("/query", response_model=QueryResponse)
     async def query_memory(
-        request: Request,  # Add this to debug raw request
+        request: Request,
         query: QueryRequest,
         memory_system: MemorySystem = Depends(get_memory_system),
         llm_service: LLMService = Depends(lambda: components.llm_service)
     ):
+        # Add request metadata
+        trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        query.request_metadata = RequestMetadata(
+            operation_type=OperationType.QUERY,
+            window_id=query.window_id,
+            trace_id=trace_id
+        )
         try:
-            # Log incoming request data
-            raw_body = await request.json()
-            logger.info(f"Received query request: {raw_body}")
-            logger.info(f"Parsed query model: {query}")
+            # Log incoming request with trace ID
+            trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+            logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
 
-            query_response = await memory_system.query_memories(query)
-            context = "\n".join([f"- {memory.content}" for memory in query_response.matches])
-            prompt = response_template.format(context=context, query=query.prompt)
-            response = await llm_service.generate_response_async(prompt)
-        
-            await memory_system.add_interaction(
-                user_input=query.prompt,
-                response=response,
-                window_id=query.window_id
-            )
-        
+            # Step 1: Query memories
+            try:
+                query_response = await memory_system.query_memories(query)
+                logger.info(f"[{trace_id}] Retrieved {len(query_response.matches)} matches")
+            except Exception as e:
+                logger.error(f"[{trace_id}] Memory query failed: {str(e)}", exc_info=True)
+                raise MemoryOperationError(f"Memory query failed: {str(e)}")
+
+            # Step 2: Generate response using context
+            try:
+                context = "\n".join([f"- {memory.content}" for memory in query_response.matches])
+                prompt = response_template.format(context=context, query=query.prompt)
+                response = await llm_service.generate_response_async(prompt)
+                logger.info(f"[{trace_id}] Generated response successfully")
+            except Exception as e:
+                logger.error(f"[{trace_id}] Response generation failed: {str(e)}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Response generation failed: {str(e)}")
+
+            # Step 3: Store interaction
+            try:
+                await memory_system.store_interaction(
+                    query=query.prompt,
+                    response=response,
+                    window_id=query.window_id
+                )
+                logger.info(f"[{trace_id}] Interaction stored successfully")
+            except Exception as e:
+                # Log error but don't fail the request
+                logger.error(f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True)
+
+            # Set response and return
             query_response.response = response
+            query_response.trace_id = trace_id  # Add trace ID to response for debugging
             return query_response
-        
+
         except ValidationError as e:
-            logger.error(f"Validation error: {e}")
-            raise HTTPException(status_code=422, detail=str(e))
+            logger.error(f"[{trace_id}] Validation error: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "Validation Error",
+                    "details": str(e),
+                    "trace_id": trace_id
+                }
+            )
         except MemoryOperationError as e:
-            logger.error(f"Memory operation error: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
+            logger.error(f"[{trace_id}] Memory operation error: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Memory Operation Error",
+                    "details": str(e),
+                    "trace_id": trace_id
+                }
+            )
         except Exception as e:
-            logger.error(f"Error processing query: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"[{trace_id}] Unexpected error: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Internal Server Error",
+                    "details": str(e),
+                    "trace_id": trace_id
+                }
+            )
 
     @app.post("/memories", response_model=MemoryResponse)
     async def add_memory(
@@ -396,7 +447,11 @@ def create_app() -> FastAPI:
             if memory_type:
                 filter_dict["memory_type"] = memory_type.value
 
-            query_vector = await memory_system.vector_operations.create_semantic_vector("")
+            # Instead of empty string, use a baseline query vector
+            query_vector = await memory_system.vector_operations.create_semantic_vector(
+                "Retrieve all memories"  # Base query text
+            )
+        
             results = await memory_system.pinecone_service.query_memories(
                 query_vector=query_vector,
                 top_k=limit,
