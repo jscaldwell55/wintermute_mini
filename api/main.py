@@ -327,9 +327,9 @@ def create_app() -> FastAPI:
             window_id=query.window_id,
             trace_id=trace_id
         )
+
         try:
             # Log incoming request with trace ID
-            trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
             logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
 
             # Step 1: Query memories
@@ -364,7 +364,7 @@ def create_app() -> FastAPI:
 
             # Set response and return
             query_response.response = response
-            query_response.trace_id = trace_id  # Add trace ID to response for debugging
+            query_response.trace_id = trace_id
             return query_response
 
         except ValidationError as e:
