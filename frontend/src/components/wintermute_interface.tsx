@@ -1,6 +1,5 @@
-// src/components/WintermuteInterface.tsx
 import React, { useState } from 'react';
-import { MessageSquare, AlertCircle, Loader2 } from 'lucide-react';
+import { MessagesSquare, AlertCircle, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
@@ -80,18 +79,7 @@ const WintermuteInterface: React.FC = () => {
       <div className="max-w-6xl mx-auto">
         <header className="mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">Wintermute</h1>
-          <p className="text-gray-600">AI Assistant with Semantic Memory</p>
         </header>
-
-        <div className="flex space-x-4 mb-6">
-          <TabButton
-            active={activeTab === 'query'}
-            onClick={() => setActiveTab('query')}
-            icon={<MessageSquare className="w-5 h-5" />}
-          >
-            Query
-          </TabButton>
-        </div>
 
         {activeTab === 'query' && (
           <Card>
