@@ -101,7 +101,7 @@ class QueryRequest(BaseModel):
     """Request model for querying memories"""
     query: str
     prompt: str = Field(..., description="The query prompt")
-    top_k: int = Field(default=5, ge=1, le=100, description="Number of memories to retrieve")
+    top_k: int = Field(default=5, ge=1, le=20, description="Number of memories to retrieve (max 20)")
     window_id: Optional[str] = Field(None, description="Optional window ID to filter context")
     request_metadata: Optional[RequestMetadata] = None
 

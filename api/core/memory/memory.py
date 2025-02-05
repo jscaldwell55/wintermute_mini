@@ -219,7 +219,7 @@ class MemorySystem:
             )
 
             # Get more initial results to account for filtering
-            initial_top_k = min(request.top_k * 2, 100)
+            initial_top_k = min(request.top_k * 2, 20)
 
             semantic_filter = {
                 "memory_type": "SEMANTIC",
