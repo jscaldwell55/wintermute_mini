@@ -66,6 +66,20 @@ class Settings(BaseSettings):
         extra='allow'
     )
 
+    # Consolidation Settings
+    consolidation_hour: int = 2  # 2 AM default
+    consolidation_minute: int = 0  # 0 minutes default
+    timezone: str = "UTC"
+    consolidation_batch_size: int = 1000  # How many memories to process per run
+    min_cluster_size: int = 3  # Minimum memories needed to form a cluster
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding='utf-8',
+        extra='allow'
+    )
+
+
 @lru_cache()
 def get_settings() -> Settings:
     """Create and cache settings instance."""

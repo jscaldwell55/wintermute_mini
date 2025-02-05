@@ -112,7 +112,6 @@ class SystemComponents:
         self.pinecone_service = None
         self.llm_service = None
         self.consolidator = None
-        self.consolidation_task = None
         self._initialized = False
         self.settings = get_settings()
 
@@ -149,15 +148,6 @@ class SystemComponents:
                 )
                 logger.info("✅ Memory system initialized")
 
-                config = ConsolidationConfig()
-                self.consolidator = AdaptiveConsolidator(
-                    config=config,
-                    pinecone_service=self.pinecone_service,
-                    llm_service=self.llm_service
-                )
-                self.consolidation_task = asyncio.create_task(run_consolidation(self.consolidator))
-                logger.info("✅ Memory consolidator initialized")
-
                 self._initialized = True
                 logger.info("🎉 All system components initialized successfully")
 
@@ -169,14 +159,6 @@ class SystemComponents:
     async def cleanup(self):
         try:
             logger.info("🔧 Running system cleanup...")
-
-            if self.consolidation_task:
-                self.consolidation_task.cancel()
-                try:
-                    await self.consolidation_task
-                except asyncio.CancelledError:
-                    pass
-                logger.info("✅ Memory consolidation task stopped")
 
             if self.pinecone_service:
                 self.pinecone_service = None
