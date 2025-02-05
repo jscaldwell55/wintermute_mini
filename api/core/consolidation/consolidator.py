@@ -41,12 +41,6 @@ class MemoryConsolidator:
                 filter={"memory_type": "EPISODIC"}
             )
         
-            logger.info(f"Retrieved {len(query_results)} memories for consolidation")
-            # Add detailed memory inspection
-            for i, (memory_data, score) in enumerate(query_results):
-                logger.info(f"Memory {i} type: {type(memory_data)}")
-                logger.info(f"Memory {i} score: {score}")
-                logger.info(f"Memory {i} content: {str(memory_data)[:100]}")
         except Exception as e:
             logger.error(f"Error during memory consolidation: {str(e)}")
             raise MemoryOperationError(f"Failed to consolidate memories: {str(e)}")
