@@ -222,7 +222,13 @@ def setup_static_files(app: FastAPI):
                 if os.path.exists(static_file):
                     return FileResponse(static_file)
                 raise HTTPException(status_code=404, detail="Not found")
-                
+            @app.get("/")
+            async def serve_root():
+                static_file = os.path.join(static_dir, "index.html")
+                if os.path.exists(static_file):
+                    return FileResponse(static_file)
+                raise HTTPException(status_code=404, detail="Not found")
+
             logger.info(f"Mounted static files from: {static_dir}")
         else:
             logger.warning("No static files directory found")
@@ -498,6 +504,8 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"Error retrieving memory: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/query")
 
     @app.delete("/memories/{memory_id}")
     async def delete_memory(
