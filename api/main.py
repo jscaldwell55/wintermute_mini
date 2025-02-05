@@ -429,6 +429,7 @@ def create_app() -> FastAPI:
         memory_type: Optional[MemoryType] = None,
         memory_system: MemorySystem = Depends(get_memory_system)
     ):
+        # ...
         try:
             filter_dict = {}
             if window_id:
@@ -436,15 +437,16 @@ def create_app() -> FastAPI:
             if memory_type:
                 filter_dict["memory_type"] = memory_type.value
 
-            # Instead of empty string, use a baseline query vector
-            query_vector = await memory_system.vector_operations.create_semantic_vector(
-                "Retrieve all memories"  # Base query text
-            )
-        
+
+            # Use a meaningful query, even for a broad request.
+            query_text = "Retrieve all memories"  # Or "Show all memories", etc.
+            query_vector = await memory_system.vector_operations.create_semantic_vector(query_text)
+
             results = await memory_system.pinecone_service.query_memories(
                 query_vector=query_vector,
                 top_k=limit,
-                filter=filter_dict if filter_dict else None
+                filter=filter_dict if filter_dict else None,
+                include_metadata = True # Always include metadata
             )
 
             memories = []
@@ -505,7 +507,6 @@ def create_app() -> FastAPI:
             logger.error(f"Error retrieving memory: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @app.post("/query")
 
     @app.delete("/memories/{memory_id}")
     async def delete_memory(

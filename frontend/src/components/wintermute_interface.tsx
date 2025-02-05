@@ -1,25 +1,21 @@
 // src/components/WintermuteInterface.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // Add useEffect
 import { Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-
-// Types
-interface QueryResponse {
-  response: string;
-  metadata?: {
-    memories_accessed?: number;
-    processing_time?: number;
-  };
-}
-
-// Constants
-const API_URL = process.env.VITE_API_URL || 'https://wintermute-staging-x-49dd432d3500.herokuapp.com';
+import { queryAPI } from '../services/api'; // Import the API function
+import { QueryResponse } from '../types'; // Import the type
 
 const WintermuteInterface: React.FC = () => {
   const [query, setQuery] = useState<string>('');
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [windowId, setWindowId] = useState<string>(''); // Add windowId state
+
+  // Generate windowId on component mount
+  useEffect(() => {
+    setWindowId(crypto.randomUUID());
+  }, []);
 
   const handleQuery = async () => {
     if (!query.trim()) return;
@@ -28,20 +24,8 @@ const WintermuteInterface: React.FC = () => {
     setError(null);
 
     try {
-      const result = await fetch(`${API_URL}/query`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query }),
-      });
-
-      if (!result.ok) {
-        throw new Error(`Failed to process query: ${result.statusText}`);
-      }
-
-      const data = await result.json();
-      setResponse(data); // Save the response to state
+      const data = await queryAPI(query, windowId); // Use the queryAPI function!
+      setResponse(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
     } finally {
