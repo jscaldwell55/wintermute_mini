@@ -34,9 +34,9 @@ class VectorOperationsImpl(VectorOperations):
             # Generate embedding
             response = await self.client.embeddings.create(
                 input=[text],
-                model=self.settings.embedding_model_id
+                model=self.settings.embedding_model  # Changed from embedding_model_id
             )
-            
+        
             # Normalize the embedding before returning
             embedding = response.data[0].embedding
             return self.normalize_vector(embedding)
@@ -66,7 +66,7 @@ class VectorOperationsImpl(VectorOperations):
             try:
                 response = await self.client.embeddings.create(
                     input=batch,
-                    model=self.settings.embedding_model_id
+                    model=self.settings.embedding_model  # Changed from embedding_model_id
                 )
                 # Normalize each vector before adding to results
                 batch_vectors = [self.normalize_vector(data.embedding) for data in response.data]
@@ -75,6 +75,7 @@ class VectorOperationsImpl(VectorOperations):
                 logger.error(f"Error generating embeddings for batch: {e}")
                 raise
         return vectors
+
 
     def cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """
