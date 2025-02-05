@@ -12,6 +12,7 @@ import sys
 import os
 from typing import AsyncGenerator, List, Optional, Dict, Any
 import uvicorn
+from pydantic import ValidationError
 
 from api.core.memory.models import (
     CreateMemoryRequest,
@@ -219,24 +220,26 @@ def setup_static_files(app: FastAPI):
         # First try to serve from the production build directory
         static_dir = os.path.join(os.getcwd(), "frontend", "dist")
         if os.path.exists(static_dir):
-            app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+            # Mount specific directories first
+            assets_dir = os.path.join(static_dir, "assets")
+            if os.path.exists(assets_dir):
+                app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+            
+            # Add catch-all route for SPA routing as the last route
+            @app.get("/{full_path:path}")
+            async def serve_spa(full_path: str):
+                # Don't catch API routes
+                if full_path.startswith(("api/", "query", "memories", "health", "ping", "test", "routes", "debug-query")):
+                    raise HTTPException(status_code=404, detail="Not found")
+                
+                static_file = os.path.join(static_dir, "index.html")
+                if os.path.exists(static_file):
+                    return FileResponse(static_file)
+                raise HTTPException(status_code=404, detail="Not found")
+                
             logger.info(f"Mounted static files from: {static_dir}")
         else:
-            # Fallback to development directory
-            static_dir = os.path.join(os.getcwd(), "frontend", "public")
-            if os.path.exists(static_dir):
-                app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
-                logger.info(f"Mounted static files from fallback directory: {static_dir}")
-            else:
-                logger.warning("No static files directory found")
-                
-        # Add catch-all route for SPA routing
-        @app.get("/{full_path:path}")
-        async def serve_spa(full_path: str):
-            static_file = os.path.join(static_dir, "index.html")
-            if os.path.exists(static_file):
-                return FileResponse(static_file)
-            raise HTTPException(status_code=404, detail="Not found")
+            logger.warning("No static files directory found")
                 
     except Exception as e:
         logger.error(f"Error setting up static files: {e}")
@@ -251,7 +254,6 @@ async def lifespan(app: FastAPI):
         await components.cleanup()
 
 def create_app() -> FastAPI:
-    """Create and configure the FastAPI application"""
     app = FastAPI(
         title="Project Wintermute Memory System",
         description="An AI assistant with semantic memory capabilities",
@@ -259,71 +261,107 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
 
-    # Add middleware
+    # 1. First add CORS middleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "https://wintermute-staging-x-49dd432d3500.herokuapp.com",
-            "http://localhost:3000",
-            "http://localhost:5173"
-        ],
-        allow_credentials=False,
+        allow_origins=["*"],  # Temporarily allow all origins
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+    # 2. Add rate limit middleware
     app.add_middleware(
         RateLimitMiddleware,
         rate_limit=100,
         window=60
     )
 
-    # Set up static files
-    setup_static_files(app)
+    # 3. Add debug routes BEFORE static files
+    @app.get("/ping")
+    async def ping():
+        return {"message": "pong"}
 
     @app.options("/query")
     async def query_options():
         return {"message": "Options request successful"}
 
-    @app.get("/debug-routes")
-    async def debug_routes():
-        """List all registered routes and their methods"""
-        routes = []
-        for route in app.routes:
-            routes.append({
-                "path": route.path,
-                "methods": route.methods,
-                "name": route.name
-            })
-        return {"routes": routes}
+    @app.post("/test")
+    async def test_post(request: Request):
+        """Test endpoint to verify POST requests are working"""
+        try:
+            body = await request.json()
+            return {
+                "message": "POST request successful",
+                "received_data": body,
+                "method": request.method,
+                "headers": dict(request.headers)
+            }
+        except Exception as e:
+            logger.error(f"Test endpoint error: {e}")
+            return {"error": str(e)}
 
+    @app.get("/routes")
+    async def list_routes():
+        """List all registered routes"""
+        return {
+            "routes": [
+                {
+                    "path": route.path,
+                    "name": route.name,
+                    "methods": list(route.methods)
+                }
+                for route in app.routes
+            ]
+        }
+
+    @app.post("/debug-query")
+    async def debug_query(request: Request):
+        """Debug endpoint to echo back request data"""
+        body = await request.json()
+        return {
+            "received": {
+                "method": request.method,
+                "headers": dict(request.headers),
+                "body": body
+            }
+        }
     # Your existing routes
     @app.post("/query", response_model=QueryResponse)
     async def query_memory(
+        request: Request,  # Add this to debug raw request
         query: QueryRequest,
         memory_system: MemorySystem = Depends(get_memory_system),
         llm_service: LLMService = Depends(lambda: components.llm_service)
     ):
         try:
+            # Log incoming request data
+            raw_body = await request.json()
+            logger.info(f"Received query request: {raw_body}")
+            logger.info(f"Parsed query model: {query}")
+
             query_response = await memory_system.query_memories(query)
             context = "\n".join([f"- {memory.content}" for memory in query_response.matches])
             prompt = response_template.format(context=context, query=query.prompt)
             response = await llm_service.generate_response_async(prompt)
-            
+        
             await memory_system.add_interaction(
                 user_input=query.prompt,
                 response=response,
                 window_id=query.window_id
             )
-            
+        
             query_response.response = response
             return query_response
-            
+        
+        except ValidationError as e:
+            logger.error(f"Validation error: {e}")
+            raise HTTPException(status_code=422, detail=str(e))
         except MemoryOperationError as e:
             logger.error(f"Memory operation error: {e}")
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
-            logger.error(f"Error processing query: {e}")
+            logger.error(f"Error processing query: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.post("/memories", response_model=MemoryResponse)
@@ -484,6 +522,8 @@ def create_app() -> FastAPI:
             })
 
         return status
+    
+    setup_static_files(app)
 
     return app
 
