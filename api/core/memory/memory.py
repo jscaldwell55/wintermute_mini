@@ -210,7 +210,7 @@ class MemorySystem:
             query_vector = await self.vector_operations.create_semantic_vector(
                 request.prompt
             )
-
+            logger.info(f"Query vector: {query_vector}")
             # Build filter for semantic memories
             semantic_filter = {
                 "memory_type": "SEMANTIC",
@@ -222,7 +222,7 @@ class MemorySystem:
                 top_k=request.top_k,
                 filter=semantic_filter,
             )
-    
+            logger.info(f"Received results from pinecone service: {results[:2]}")
             logger.info(f"Query returned {len(results)} raw results")
             for i, (memory_data, score) in enumerate(results):
                 logger.info(f"Memory {i} - Type: {type(memory_data)}, Score: {score}")
