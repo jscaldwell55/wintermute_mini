@@ -1,6 +1,6 @@
 // src/components/WintermuteInterface.tsx
 import React, { useState } from 'react';
-import { MessageSquare, Brain, Database, AlertCircle, Loader2 } from 'lucide-react';
+import { MessageSquare, AlertCircle, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
@@ -40,7 +40,7 @@ const TabButton: React.FC<TabButtonProps> = ({ active, onClick, icon, children }
 
 const WintermuteInterface: React.FC = () => {
   // State
-  const [activeTab, setActiveTab] = useState<'query' | 'memories' | 'system'>('query');
+  const [activeTab, setActiveTab] = useState<'query'>('query');
   const [query, setQuery] = useState<string>('');
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -49,10 +49,10 @@ const WintermuteInterface: React.FC = () => {
   // Handlers
   const handleQuery = async () => {
     if (!query.trim()) return;
-    
+
     setLoading(true);
     setError(null);
-    
+
     try {
       const result = await fetch(`${API_URL}/query`, {
         method: 'POST',
@@ -61,11 +61,11 @@ const WintermuteInterface: React.FC = () => {
         },
         body: JSON.stringify({ query }),
       });
-      
+
       if (!result.ok) {
         throw new Error(`Failed to process query: ${result.statusText}`);
       }
-      
+
       const data = await result.json();
       setResponse(data);
     } catch (err) {
@@ -79,7 +79,7 @@ const WintermuteInterface: React.FC = () => {
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-6xl mx-auto">
         <header className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Project Wintermute</h1>
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">Wintermute</h1>
           <p className="text-gray-600">AI Assistant with Semantic Memory</p>
         </header>
 
@@ -90,20 +90,6 @@ const WintermuteInterface: React.FC = () => {
             icon={<MessageSquare className="w-5 h-5" />}
           >
             Query
-          </TabButton>
-          <TabButton
-            active={activeTab === 'memories'}
-            onClick={() => setActiveTab('memories')}
-            icon={<Brain className="w-5 h-5" />}
-          >
-            Memories
-          </TabButton>
-          <TabButton
-            active={activeTab === 'system'}
-            onClick={() => setActiveTab('system')}
-            icon={<Database className="w-5 h-5" />}
-          >
-            System
           </TabButton>
         </div>
 
@@ -155,28 +141,6 @@ const WintermuteInterface: React.FC = () => {
                   )}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        )}
-
-        {activeTab === 'memories' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Memory Management</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">Memory management interface coming soon...</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {activeTab === 'system' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>System Status</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">System status interface coming soon...</p>
             </CardContent>
           </Card>
         )}
