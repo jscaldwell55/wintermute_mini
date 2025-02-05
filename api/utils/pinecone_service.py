@@ -159,11 +159,11 @@ class PineconeService(MemoryService):
     async def query_memories(
         self, 
         query_vector: List[float], 
-        top_k: int = 10, 
+        top_k: int = 10,
         filter: Dict = None
     ) -> List[Tuple[Dict[str, Any], float]]:
-        """Queries Pinecone for memories similar to the query vector."""
         try:
+            logger.info(f"Querying Pinecone with filter: {filter}")
             results = self.index.query(
                 vector=query_vector,
                 top_k=top_k,
@@ -171,9 +171,12 @@ class PineconeService(MemoryService):
                 include_metadata=True,
                 filter=filter
             )
-            
+        
+            logger.info(f"Raw Pinecone results: {str(results)[:200]}")  # Log first 200 chars
+        
             memories_with_scores = []
             for result in results['matches']:
+                logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
                 memory_data = {
                     'id': result['id'],
                     'metadata': result['metadata'],

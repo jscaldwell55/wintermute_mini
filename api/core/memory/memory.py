@@ -204,7 +204,33 @@ class MemorySystem:
         self,
         request: QueryRequest
     ) -> QueryResponse:
-        """Query memories based on semantic similarity and recency."""
+        try:
+            logger.info(f"Starting memory query with request: {request}")
+            query_vector = await self.vector_operations.create_semantic_vector(
+                request.prompt
+            )
+
+            # Build filter for semantic memories
+            semantic_filter = {
+                "memory_type": "SEMANTIC",
+                **({"window_id": request.window_id} if request.window_id else {})
+            }
+    
+            results = await self.pinecone_service.query_memories(
+                query_vector=query_vector,
+                top_k=request.top_k,
+                filter=semantic_filter,
+            )
+    
+            logger.info(f"Query returned {len(results)} raw results")
+            for i, (memory_data, score) in enumerate(results):
+                logger.info(f"Memory {i} - Type: {type(memory_data)}, Score: {score}")
+                logger.info(f"Memory {i} content: {str(memory_data)[:100]}")
+
+        except Exception as e:
+            logger.error(f"Error querying memories: {e}")
+            raise MemoryOperationError(f"Failed to query memories: {str(e)}")
+        
         try:
             # Generate query vector
             query_vector = await self.vector_operations.create_semantic_vector(
