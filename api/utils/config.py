@@ -61,11 +61,8 @@ class Settings(BaseSettings):
     # When fetching for filtering, how many extra to get
     initial_fetch_multiplier: float = 2.0  # Will fetch max_memories_per_query * multiplier
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding='utf-8',
-        extra='allow'
-    )
+    
+    
 
     # Consolidation Settings
     consolidation_hour: int = 2  # 2 AM default

@@ -539,8 +539,8 @@ def create_app() -> FastAPI:
             query_vector=user_query_embedding, # Use the query embedding
                 top_k=5,  # Top 5 episodic memories
                 filter={
-                "memory_type": "EPISODIC",
-                "created_at": {"$gte": cutoff_time_str}  # Time-based filter
+                    "memory_type": "EPISODIC",
+                    "created_at": {"$gte": cutoff_time_str}  # Time-based filter
              },
              include_metadata=True
             )
