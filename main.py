@@ -1,3 +1,4 @@
+# project_root/main.py
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -16,6 +17,7 @@ import uvicorn
 from pydantic import ValidationError
 import uuid
 import time
+from starlette.routing import Mount
 
 from api.core.memory.models import (
     CreateMemoryRequest,
@@ -335,12 +337,26 @@ async def test_post(request: Request):
 @app.get("/routes")
 async def list_routes():
     """List all registered routes"""
-    return {
-        "routes": [
-            {"path": route.path, "name": route.name, "methods": list(route.methods)}
-            for route in app.routes
-        ]
-    }
+    try:
+        routes = []
+        for route in app.routes:
+            route_info = {"path": route.path, "name": route.name}
+            # Check if the route has methods (mounted routes don't)
+            if hasattr(route, 'methods'):
+                route_info["methods"] = list(route.methods)
+            else:
+                route_info["type"] = "mount" if isinstance(route, Mount) else "other"
+            routes.append(route_info)
+            
+        logger.info(f"Successfully retrieved {len(routes)} routes")
+        return {"routes": routes}
+    except Exception as e:
+        logger.error(f"Error listing routes: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error listing routes: {str(e)}"
+        )
+
 
 
 @app.post("/debug-query")
