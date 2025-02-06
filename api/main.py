@@ -30,7 +30,7 @@ from api.core.memory.memory import MemorySystem, MemoryOperationError
 from api.core.vector.vector_operations import VectorOperationsImpl
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
-from api.utils.config import get_settings
+from api.utils.config import get_settings, Settings
 from api.core.consolidation.models import ConsolidationConfig
 from api.core.consolidation.consolidator import AdaptiveConsolidator
 from api.utils.prompt_templates import response_template  # Import if you have custom templates
@@ -174,7 +174,7 @@ class SystemComponents:
             logger.error(f"🚨 Error during system cleanup: {e}")
             raise
 
-# Create global components instance
+   # Create global components instance
 components = SystemComponents()
 
 # Define dependencies
