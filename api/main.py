@@ -1,4 +1,4 @@
-# main.py
+# main.py (Complete, with Hybrid Retrieval)
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -33,9 +33,10 @@ from api.utils.llm_service import LLMService
 from api.utils.config import get_settings
 from api.core.consolidation.models import ConsolidationConfig
 from api.core.consolidation.consolidator import run_consolidation, AdaptiveConsolidator
-from api.utils.prompt_templates import response_template
+from api.utils.prompt_templates import response_template  # Import if you have custom templates
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
+from datetime import datetime, timedelta, timezone  # Import timezone
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -78,7 +79,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     t for t in self.requests[client_ip]
                     if current_time - t < self.window
                 ]
-                
+
                 if len(recent_requests) >= self.rate_limit:
                     logger.warning(f"Rate limit exceeded for client: {client_ip}")
                     return Response(
@@ -86,7 +87,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         content="Rate limit exceeded. Please try again later.",
                         media_type="text/plain"
                     )
-                
+
                 self.requests[client_ip] = recent_requests + [current_time]
             else:
                 self.requests[client_ip] = [current_time]
@@ -162,6 +163,7 @@ class SystemComponents:
             logger.info("🔧 Running system cleanup...")
 
             if self.pinecone_service:
+                await self.pinecone_service.close_connections() # Ensure we use a close function.
                 self.pinecone_service = None
                 logger.info("✅ Pinecone service connections closed")
 
@@ -210,14 +212,14 @@ def setup_static_files(app: FastAPI):
             assets_dir = os.path.join(static_dir, "assets")
             if os.path.exists(assets_dir):
                 app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-            
+
             # Add catch-all route for SPA routing as the last route
             @app.get("/{full_path:path}")
             async def serve_spa(full_path: str):
                 # Don't catch API routes
                 if full_path.startswith(("api/", "query", "memories", "health", "ping", "test", "routes", "debug-query")):
                     raise HTTPException(status_code=404, detail="Not found")
-                
+
                 static_file = os.path.join(static_dir, "index.html")
                 if os.path.exists(static_file):
                     return FileResponse(static_file)
@@ -232,7 +234,7 @@ def setup_static_files(app: FastAPI):
             logger.info(f"Mounted static files from: {static_dir}")
         else:
             logger.warning("No static files directory found")
-                
+
     except Exception as e:
         logger.error(f"Error setting up static files: {e}")
         raise
@@ -277,6 +279,19 @@ def create_app() -> FastAPI:
     @app.options("/query")
     async def query_options():
         return {"message": "Options request successful"}
+    
+    # --- Manual Consolidation Endpoint (Temporary - for Development) ---
+    @app.post("/consolidate")
+    async def consolidate_now(settings: Settings = Depends(lambda: components.settings)): # Corrected Dependency
+        config = ConsolidationConfig(
+            consolidation_interval_hours=24,  # Use your default settings
+            max_age_days=settings.memory_max_age_days,
+            min_cluster_size=settings.min_cluster_size, # Get from settings
+            eps = settings.eps if hasattr(settings, 'eps') else 0.5 # Get from settings, if it exists.
+        )
+        consolidator = AdaptiveConsolidator(config, components.pinecone_service, components.llm_service)
+        await consolidator.consolidate_memories()
+        return {"message": "Consolidation triggered"}
 
     @app.post("/test")
     async def test_post(request: Request):
@@ -319,90 +334,6 @@ def create_app() -> FastAPI:
             }
         }
     # Your existing routes
-    @app.post("/query", response_model=QueryResponse)
-    async def query_memory(
-        request: Request,
-        query: QueryRequest,
-        memory_system: MemorySystem = Depends(get_memory_system),
-        llm_service: LLMService = Depends(lambda: components.llm_service)
-    ):
-        # Add request metadata
-        trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
-        query.request_metadata = RequestMetadata(
-            operation_type=OperationType.QUERY,
-            window_id=query.window_id,
-            trace_id=trace_id
-        )
-
-        try:
-            # Log incoming request with trace ID
-            logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
-
-            # Step 1: Query memories
-            try:
-                query_response = await memory_system.query_memories(query)
-                logger.info(f"[{trace_id}] Retrieved {len(query_response.matches)} matches")
-            except Exception as e:
-                logger.error(f"[{trace_id}] Memory query failed: {str(e)}", exc_info=True)
-                raise MemoryOperationError(f"Memory query failed: {str(e)}")
-
-            # Step 2: Generate response using context
-            try:
-                context = "\n".join([f"- {memory.content}" for memory in query_response.matches])
-                prompt = response_template.format(context=context, query=query.prompt)
-                response = await llm_service.generate_response_async(prompt)
-                logger.info(f"[{trace_id}] Generated response successfully")
-            except Exception as e:
-                logger.error(f"[{trace_id}] Response generation failed: {str(e)}", exc_info=True)
-                raise HTTPException(status_code=500, detail=f"Response generation failed: {str(e)}")
-
-            # Step 3: Store interaction
-            try:
-                await memory_system.store_interaction(
-                    query=query.prompt,
-                    response=response,
-                    window_id=query.window_id
-                )
-                logger.info(f"[{trace_id}] Interaction stored successfully")
-            except Exception as e:
-                # Log error but don't fail the request
-                logger.error(f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True)
-
-            # Set response and return
-            query_response.response = response
-            query_response.trace_id = trace_id
-            return query_response
-
-        except ValidationError as e:
-            logger.error(f"[{trace_id}] Validation error: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": "Validation Error",
-                    "details": str(e),
-                    "trace_id": trace_id
-                }
-            )
-        except MemoryOperationError as e:
-            logger.error(f"[{trace_id}] Memory operation error: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "Memory Operation Error",
-                    "details": str(e),
-                    "trace_id": trace_id
-                }
-            )
-        except Exception as e:
-            logger.error(f"[{trace_id}] Unexpected error: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "error": "Internal Server Error",
-                    "details": str(e),
-                    "trace_id": trace_id
-                }
-            )
 
     @app.post("/memories", response_model=MemoryResponse)
     async def add_memory(
@@ -490,7 +421,7 @@ def create_app() -> FastAPI:
                 return memory.to_response()
             if isinstance(memory, MemoryResponse):
                 return memory
-                
+
             return MemoryResponse(
                 id=memory.id,
                 content=memory.content,
@@ -530,7 +461,7 @@ def create_app() -> FastAPI:
 
         try:
             is_initialized = getattr(components, '_initialized', False)
-            
+
             if is_initialized:
                 try:
                     pinecone_health = await components.pinecone_service.health_check()
@@ -538,7 +469,7 @@ def create_app() -> FastAPI:
                 except Exception as e:
                     services_status["pinecone"] = {"status": "unhealthy", "error": str(e)}
                     is_initialized = False
-                    
+
                 services_status.update({
                     "vector_operations": {
                         "status": "healthy",
@@ -548,12 +479,12 @@ def create_app() -> FastAPI:
                         "status": "healthy"
                     }
                 })
-                
+
         except Exception as e:
             logger.error(f"Health check failed: {str(e)}")
             error_message = str(e)
             is_initialized = False
-            
+
         status = {
             "status": "ready" if is_initialized else "initializing",
             "initialization_complete": is_initialized,
@@ -568,10 +499,125 @@ def create_app() -> FastAPI:
             })
 
         return status
-    
-    setup_static_files(app)
 
-    return app
+    @app.post("/query", response_model=QueryResponse)
+    async def query_memory(
+        request: Request,
+        query: QueryRequest,
+        memory_system: MemorySystem = Depends(get_memory_system),
+        llm_service: LLMService = Depends(lambda: components.llm_service) # Use the service
+    ):
+        # Add request metadata
+        trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        query.request_metadata = RequestMetadata(
+            operation_type=OperationType.QUERY,
+            window_id=query.window_id,
+            trace_id=trace_id
+        )
+
+        try:
+            # Log incoming request with trace ID
+            logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
+
+            # --- 1. Hybrid Retrieval ---
+            user_query_embedding = await memory_system.vector_operations.create_semantic_vector(query.prompt)
+
+            # --- 1a. Semantic Retrieval ---
+            semantic_results = await memory_system.pinecone_service.query_memories(
+                query_vector=user_query_embedding,
+                top_k=3,  # Top 3 semantic memories (configurable later)
+                filter={"memory_type": "SEMANTIC"},  # Filter for semantic memories
+                include_metadata=True  # Ensure metadata is included
+            )
+            semantic_memories = [match[0]['metadata']['content'] for match in semantic_results] # Extract just the content
+
+            # --- 1b. Episodic Retrieval ---
+            cutoff_time = datetime.utcnow() - timedelta(hours=3)  # Last 3 hours (configurable)
+            cutoff_time_str = cutoff_time.isoformat()
+
+            episodic_results = await memory_system.pinecone_service.query_memories(
+            query_vector=user_query_embedding, # Use the query embedding
+                top_k=5,  # Top 5 episodic memories
+                filter={
+                "memory_type": "EPISODIC",
+                "created_at": {"$gte": cutoff_time_str}  # Time-based filter
+             },
+             include_metadata=True
+            )
+            # Format episodic memories with recency
+            episodic_memories = []
+            for match in episodic_results:
+                memory_data, _ = match  # Corrected unpacking
+                created_at = datetime.fromisoformat(memory_data['metadata']["created_at"].replace("Z", "+00:00"))
+                time_ago = (datetime.utcnow().replace(tzinfo=timezone.utc) - created_at).total_seconds()
+                if time_ago < 60:
+                    time_str = f"{int(time_ago)} seconds ago"
+                elif time_ago < 3600:
+                    time_str = f"{int(time_ago / 60)} minutes ago"
+                else:
+                    time_str = f"{int(time_ago/3600)} hours ago"
+
+                episodic_memories.append(f"[{time_str}] {memory_data['metadata']['content']}")
+
+            # --- 2. Combine Results (Simple Concatenation) --- (No longer needed, handled by prompt template)
+
+            # --- 3. Prompt Construction (Simplified) ---
+            prompt = response_template.format(
+                query=query.prompt,
+                semantic_memories=chr(10).join(semantic_memories),  # Join with newlines
+                episodic_memories=chr(10).join(episodic_memories)   # Join with newlines
+            )
+
+            # --- 4. LLM Call ---
+            response = await llm_service.generate_response_async(prompt)
+            logger.info(f"[{trace_id}] Generated response successfully")
+
+            # --- 5. Store Interaction (as Episodic Memory) ---
+            try:
+                await memory_system.store_interaction(
+                    query=query.prompt,
+                    response=response,
+                    window_id=query.window_id  # Use the provided window_id
+                )
+                logger.info(f"[{trace_id}] Interaction stored successfully")
+            except Exception as e:
+                # Log error but don't fail the request (for now)
+                logger.error(f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True)
+
+            # --- 6. Return Response ---
+            return QueryResponse(response=response, matches=[], trace_id=trace_id) # Return trace_id.  Matches is now empty
+
+        except ValidationError as e:
+            logger.error(f"[{trace_id}] Validation error: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "Validation Error",
+                    "details": str(e),
+                    "trace_id": trace_id
+                }
+            )
+        except MemoryOperationError as e:
+            logger.error(f"[{trace_id}] Memory operation error: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Memory Operation Error",
+                    "details": str(e),
+                    "trace_id": trace_id
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"[{trace_id}] Unexpected error: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Internal Server Error",
+                    "details": str(e),
+                    "trace_id": trace_id
+                }
+            )
 
 # Create the application instance
 app = create_app()

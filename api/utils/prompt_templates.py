@@ -1,53 +1,58 @@
+# prompt_templates.py
 import logging
 logging.basicConfig(level=logging.INFO)
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 class ResponseTemplate(BaseModel):
-    """Template for AI responses with context"""
+    """Template for AI responses with context."""
+
+    # Updated template with placeholders for semantic and episodic memories
     template: str = """
-You are an AI assistant with a memory system. You have access to relevant memories that might help with the current query.
+You are a helpful AI coaching assistant. Answer the user's question based on the following information:
 
-Context from memory:
-{context}
+User's Question: {query}
 
-Current query:
-{query}
+{memory_section}
 
-Instructions:
-1. If the memories provide relevant context, incorporate them naturally into your response
-2. If the memories aren't relevant, respond to the query directly without mentioning the memories
-3. Keep your response focused and concise
-4. If the memories seem to contradict each other, acknowledge this and provide a balanced response
+Provide your answer below:
+"""
+    semantic_memory_section: str = """
+Semantic Memories (General Knowledge):
 
-Response:"""
+{semantic_memories}
+"""
+    episodic_memory_section: str = """
+Recent Interactions (Episodic Memories):
 
-    def format(self, context: str = "", query: str = "", minimal: bool = False, **kwargs: Dict[str, Any]) -> str:
+{episodic_memories}
+"""
+    no_memory_section: str = "No relevant memories found."
+
+
+    def format(self, query: str, semantic_memories: Optional[str] = None, episodic_memories: Optional[str] = None) -> str:
         """
-        Format template with provided values.
-        
-        Args:
-            context: Memory context to include
-            query: Current user query
-            minimal: If True, return just the query without the full template
-            **kwargs: Additional template parameters
+        Formats the prompt template with the provided values.  Handles different
+        combinations of semantic and episodic memories.
         """
         try:
-            # For health checks and other minimal prompts
-            if minimal:
-                return query.strip()
-                
-            if not context.strip():
-                context = "No relevant memories found."
-                
+            if semantic_memories and episodic_memories:
+                memory_section = self.semantic_memory_section.format(semantic_memories=semantic_memories) + "\n" + self.episodic_memory_section.format(episodic_memories=episodic_memories)
+            elif semantic_memories:
+                memory_section = self.semantic_memory_section.format(semantic_memories=semantic_memories)
+            elif episodic_memories:
+                memory_section = self.episodic_memory_section.format(episodic_memories=episodic_memories)
+            else:
+                memory_section = self.no_memory_section
+            
             formatted = self.template.format(
-                context=context,
                 query=query,
-                **kwargs
+                memory_section=memory_section
             )
             return formatted.strip()
+
         except (KeyError, ValueError) as e:
             logger.error(f"Error formatting prompt: {e}")
             raise ValueError(f"Invalid prompt template or parameters: {e}")
@@ -57,31 +62,3 @@ Response:"""
 
 # Create instance for import
 response_template = ResponseTemplate()
-
-def format_prompt(
-    template: str,
-    context: str = "",
-    query: str = "",
-    minimal: bool = False,
-    **kwargs: Dict[str, Any]
-) -> str:
-    """Format a prompt template with provided values."""
-    try:
-        if minimal:
-            return query.strip()
-            
-        if not context.strip():
-            context = "No relevant memories found."
-            
-        formatted = template.format(
-            context=context,
-            query=query,
-            **kwargs
-        )
-        return formatted.strip()
-    except KeyError as e:
-        logger.error(f"Missing template variable: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Error formatting prompt: {e}")
-        raise

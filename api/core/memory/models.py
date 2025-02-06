@@ -1,3 +1,4 @@
+# memory/models.py
 from enum import Enum
 from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel, Field, ConfigDict, validator
