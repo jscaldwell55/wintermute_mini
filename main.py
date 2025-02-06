@@ -290,7 +290,13 @@ app.add_middleware(
 )
 
 app.add_middleware(RateLimitMiddleware, rate_limit=100, window=60)
-
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        duration = time.time() - start_time
+        logger.info(f"Request {request.method} {request.url.path} completed in {duration:.2f}s")
+        return response
 
 # --- Manual Consolidation Endpoint (Temporary - for Development) ---
 @app.post("/consolidate")
