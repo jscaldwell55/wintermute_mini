@@ -301,17 +301,27 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 # --- Manual Consolidation Endpoint (Temporary - for Development) ---
 @app.post("/consolidate")
 async def consolidate_now(settings: Settings = Depends(lambda: components.settings)):
-    config = ConsolidationConfig(
-        consolidation_interval_hours=24,  # Use your default settings
-        max_age_days=settings.memory_max_age_days,
-        min_cluster_size=settings.min_cluster_size,  # Get from settings
-        eps=settings.eps if hasattr(settings, "eps") else 0.5,  # Get from settings
-    )
-    consolidator = AdaptiveConsolidator(
-        config, components.pinecone_service, components.llm_service
-    )
-    await consolidator.consolidate_memories()
-    return {"message": "Consolidation triggered"}
+    try:
+        config = ConsolidationConfig(
+            consolidation_interval_hours=24,  # Use your default settings
+            max_age_days=settings.memory_max_age_days,
+            min_cluster_size=settings.min_cluster_size,  # Get from settings
+            eps=settings.eps if hasattr(settings, "eps") else 0.5,  # Get from settings
+        )
+        consolidator = AdaptiveConsolidator(
+            config, components.pinecone_service, components.llm_service
+        )
+        await consolidator.consolidate_memories()
+        logger.info("Manual consolidation completed successfully")
+        return {"message": "Consolidation triggered"}
+        
+    except Exception as e:
+        logger.error(f"Manual consolidation failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Consolidation failed: {str(e)}"
+        )
+            
 
 
 @app.get("/ping")
