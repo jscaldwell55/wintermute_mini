@@ -643,13 +643,7 @@ async def query_memory(
             detail={"error": "Internal Server Error", "details": str(e), "trace_id": trace_id},
         )
 
-# Create the application instance at module level
-app = FastAPI(
-    title="Project Wintermute Memory System",
-    description="An AI assistant with semantic memory capabilities",
-    version="1.0.0",
-    lifespan=lifespan
-)
+
 
 # Add middleware
 app.add_middleware(
