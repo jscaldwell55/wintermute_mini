@@ -45,5 +45,3 @@ ENV STATIC_FILES_DIR="/app/frontend/dist"
 # Expose port
 EXPOSE 8000
 
-# Command to run the application
-CMD gunicorn api.main:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --bind 0.0.0.0:$PORT
