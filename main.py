@@ -249,9 +249,9 @@ def setup_static_files(app: FastAPI):
                         "consolidate"
                     ])
                 ):
-                    logger.info(f"API path detected: {full_path}, not serving static file")
+                    logger.error(f"API path {full_path} not found or not properly routed")  # Add here
+                    logger.info(f"Passing through API request: {full_path}")
                     raise HTTPException(status_code=404, detail="Not found")
-
                 static_file = os.path.join(static_dir, "index.html")
                 if os.path.exists(static_file):
                     logger.info(f"Serving static file: {static_file}")
