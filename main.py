@@ -38,7 +38,7 @@ from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
 logger = logging.getLogger(__name__)
-
+logger.info("Main module loading")
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
@@ -248,13 +248,14 @@ async def lifespan(app: FastAPI):
         await components.cleanup()
 
 def create_app() -> FastAPI:
+    logger.info("Starting create_app()")
     app = FastAPI(
         title="Project Wintermute Memory System",
         description="An AI assistant with semantic memory capabilities",
         version="1.0.0",
         lifespan=lifespan
     )
-
+    
     # 1. First add CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -333,6 +334,8 @@ def create_app() -> FastAPI:
                 "body": body
             }
         }
+    
+    
     # Your existing routes
 
     @app.post("/memories", response_model=MemoryResponse)
@@ -619,7 +622,11 @@ def create_app() -> FastAPI:
                 }
             )
         
-
+            logger.info("Returning app from create_app()")  # Add this
+            return app
+        except Exception as e:
+            logger.error(f"Error in create_app(): {str(e)}")  # Add this
+            raise
 # Create the application instance
 app = create_app()
 
