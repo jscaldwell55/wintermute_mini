@@ -61,7 +61,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         ip: [t for t in times if current_time - t < self.window]
                         for ip, times in self.requests.items()
                     }
-                    self.requests = {ip: times for ip, times in self.requests.items() if times}
+                    self.requests = {
+                        ip: times for ip, times in self.requests.items() if times
+                    }
             except Exception as e:
                 logger.error(f"Error in rate limit cleanup: {e}")
 
@@ -219,7 +221,7 @@ def setup_static_files(app: FastAPI):
                 app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
                 logger.info(f"Mounted assets directory: {assets_dir}")
 
-            # Add catch-all route for SPA routing as the last route
+            # Add catch-all route for SPA routing
             @app.get("/{full_path:path}")
             async def serve_spa(full_path: str):
                 # Don't catch API routes
@@ -287,9 +289,6 @@ app.add_middleware(
 
 app.add_middleware(RateLimitMiddleware, rate_limit=100, window=60)
 
-# Set up static files *after* middleware, *before* routes that could conflict
-setup_static_files(app)
-
 
 # --- Manual Consolidation Endpoint (Temporary - for Development) ---
 @app.post("/consolidate")
@@ -315,7 +314,6 @@ async def ping():
 @app.options("/query")
 async def query_options():
     return {"message": "Options request successful"}
-    # Add debug routes BEFORE static files
 
 
 @app.post("/test")
@@ -350,9 +348,15 @@ async def debug_query(request: Request):
     """Debug endpoint to echo back request data"""
     body = await request.json()
     return {
-        "received": {"method": request.method, "headers": dict(request.headers), "body": body},
+        "received": {
+            "method": request.method,
+            "headers": dict(request.headers),
+            "body": body,
+        },
     }
 
+# Set up static files AFTER all API routes are defined
+setup_static_files(app)
 
 # Your existing routes
 
