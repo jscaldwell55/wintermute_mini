@@ -2,6 +2,11 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, Optional
 from functools import lru_cache
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+logger.info("config.py is being imported")
 
 class Settings(BaseSettings):
     """Application settings."""
@@ -71,12 +76,6 @@ class Settings(BaseSettings):
     consolidation_batch_size: int = 1000  # How many memories to process per run
     min_cluster_size: int = 3  # Minimum memories needed to form a cluster
     
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding='utf-8',
-        extra='allow'
-    )
-
 
 @lru_cache()
 def get_settings() -> Settings:
