@@ -47,3 +47,6 @@ scikit-learn>=1.0.0
 # Static File Serving
 aiofiles>=23.1.0
 jinja2>=3.1.2
+
+# Scheduling 
+pytz==2023.3
