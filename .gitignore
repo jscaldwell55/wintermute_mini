@@ -94,6 +94,7 @@ backup.py
 db.sqlite3
 instance/
 __pycache__/
+changes.patch
 
 # Ignore VS Code Workspace-specific files
 .vscode/
