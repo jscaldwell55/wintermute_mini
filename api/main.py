@@ -39,7 +39,6 @@ from api.core.memory.interfaces.vector_operations import VectorOperations
 from datetime import datetime, timedelta, timezone  # Import timezone
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
@@ -116,6 +115,8 @@ class SystemComponents:
         self.consolidator = None
         self._initialized = False
         self.settings = get_settings()
+
+        components = SystemComponents()      
 
     async def initialize(self):
         if not self._initialized:
