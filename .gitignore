@@ -8,7 +8,6 @@ venv/
 
 # Ignore build and log files
 build/
-dist/
 *.log
 *.pid
 *.seed
