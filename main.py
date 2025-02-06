@@ -116,7 +116,6 @@ class SystemComponents:
         self._initialized = False
         self.settings = get_settings()
 
-        components = SystemComponents()      
 
     async def initialize(self):
         if not self._initialized:
