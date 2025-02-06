@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import logging
 logging.basicConfig(level=logging.INFO)
 import asyncio
-import time
+from datetime import datetime, timedelta, timezone, time  # Import timezone
 import sys
 import os
 from typing import AsyncGenerator, List, Optional, Dict, Any
@@ -36,9 +36,10 @@ from api.core.consolidation.consolidator import AdaptiveConsolidator
 from api.utils.prompt_templates import response_template  # Import if you have custom templates
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
-from datetime import datetime, timedelta, timezone  # Import timezone
 
 logger = logging.getLogger(__name__)
+
+app = FastAPI()
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
