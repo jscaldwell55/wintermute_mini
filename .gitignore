@@ -67,6 +67,7 @@ conftest.py
 pyproject.toml
 run.py
 test-config.env
+backup.py
 
 # Ignore compiled files
 *.o
