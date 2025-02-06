@@ -1,5 +1,5 @@
 # run.py
-from api.main import app
+from project_root.main import app
 
 if __name__ == "__main__":
     import uvicorn
