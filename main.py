@@ -39,7 +39,6 @@ from api.core.memory.interfaces.vector_operations import VectorOperations
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
@@ -619,6 +618,8 @@ def create_app() -> FastAPI:
                     "trace_id": trace_id
                 }
             )
+        
+            return app
 
 # Create the application instance
 app = create_app()
@@ -642,3 +643,5 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Failed to start server: {str(e)}")
         sys.exit(1)
+
+            
