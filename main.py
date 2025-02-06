@@ -233,6 +233,7 @@ def setup_static_files(app: FastAPI):
                         "test",
                         "routes",
                         "debug-query",
+                        "consolidate",
                     )
                 ):
                     raise HTTPException(status_code=404, detail="Not found")
