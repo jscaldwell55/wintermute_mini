@@ -162,16 +162,28 @@ class PineconeService(MemoryService):
         query_vector: List[float],
         top_k: int = 10,
         filter: Optional[Dict[str, Any]] = None,
-        include_metadata: bool = False  # Add this line!
+        include_metadata: bool = False
     ) -> List[Tuple[Dict[str, Any], float]]:
         """Queries the Pinecone index, now with include_metadata."""
         try:
+            # Convert datetime filters to timestamps
+            if filter and 'created_at' in filter:
+                # If there's a $gte operator with a datetime string
+                if '$gte' in filter['created_at'] and isinstance(filter['created_at']['$gte'], str):
+                    try:
+                        dt = datetime.fromisoformat(filter['created_at']['$gte'].replace('Z', '+00:00'))
+                        filter['created_at']['$gte'] = int(dt.timestamp())
+                        logger.info(f"Converted datetime filter to timestamp: {filter['created_at']['$gte']}")
+                    except Exception as e:
+                        logger.error(f"Failed to convert datetime filter: {e}")
+                        raise PineconeError(f"Invalid datetime filter: {e}")
+
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
                 vector=query_vector,
                 top_k=top_k,
                 include_values=True,
-                include_metadata=include_metadata,  # Pass the parameter
+                include_metadata=include_metadata,
                 filter=filter
             )
 
@@ -193,6 +205,7 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"Failed to query memories from Pinecone: {e}")
             raise PineconeError(f"Failed to query memories: {e}") from e
+    
     async def close_connections(self):
         """Closes the Pinecone index connection."""
         if self._index:
