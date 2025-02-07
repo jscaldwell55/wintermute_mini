@@ -16,12 +16,13 @@ from api.core.memory.models import Memory, MemoryType  # <--- IMPORT MemoryType
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.core.memory.exceptions import MemoryOperationError
-# Import get_settings #FIX
+# Import get_settings, for use in get_consolidation_config
 from api.utils.config import get_settings, Settings
 from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
+# Moved from main.py
 @lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
@@ -51,15 +52,15 @@ class MemoryConsolidator: # No longer inherits from anything.
 
             # 1. Fetch Recent Episodic Memories (Time-Based)
             cutoff_time = datetime.utcnow() - timedelta(days=self.config.max_age_days)
-            cutoff_timestamp = int(cutoff_time.timestamp()) # Convert to int here
+            cutoff_timestamp = int(cutoff_time.timestamp()) #int timestamp
             logger.info(f"Consolidation cutoff timestamp: {cutoff_timestamp}")
 
             query_results = await self.pinecone_service.query_memories(
                 query_vector=[0.0] * self.pinecone_service.embedding_dimension,  # Use correct dimension
-                top_k=1000,  # Reduced from 10000 - still high, but reasonable.
+                top_k=1000, # Fetch many, the filter limits.  Adjust as needed.
                 filter={
                     "memory_type": "EPISODIC",
-                    "created_at": {"$gte": cutoff_timestamp}  # Use integer timestamp
+                    "created_at": {"$gte": cutoff_timestamp}  # Correct time-based filter
                 },
                 include_metadata = True
             )

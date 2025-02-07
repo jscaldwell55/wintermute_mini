@@ -41,6 +41,8 @@ from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
+api_router = APIRouter(prefix="/api/v1")
+
 # 2. Class Definitions
 logger = logging.getLogger(__name__)
 logger.info("Main module loading")
@@ -294,10 +296,10 @@ app.add_middleware(LoggingMiddleware)
 
 # 8. Define ALL API Routes using api_router
 @api_router.post("/consolidate")
-async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):  # Use the dependency
+async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):  # Use dependency injection
     try:
         consolidator = MemoryConsolidator(
-            config=config,  # Pass the config object directly
+            config=config,
             pinecone_service=components.pinecone_service,
             llm_service=components.llm_service
         )
