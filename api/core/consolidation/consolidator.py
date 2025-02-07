@@ -14,7 +14,7 @@ from api.core.memory.models import Memory, MemoryType
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.core.memory.exceptions import MemoryOperationError
-from api.utils.config import get_settings  # Import get_settings
+from api.utils.config import get_settings
 from functools import lru_cache
 
 logger = logging.getLogger(__name__)
@@ -22,11 +22,9 @@ logger = logging.getLogger(__name__)
 @lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
-    # Create ConsolidationConfig directly, using values from settings.
     return ConsolidationConfig(
         min_cluster_size=settings.min_cluster_size,
-        consolidation_prompt=settings.consolidation_prompt,
-        context_length=settings.context_length,
+        # No longer need to pass consolidation_prompt or context_length
     )
 
 class MemoryConsolidator:
@@ -140,13 +138,11 @@ class MemoryConsolidator:
 
         try:
             logger.info(f"Creating semantic memory from {len(cluster_memories)} episodic memories")
-            context = prepare_cluster_context(cluster_memories, self.config.context_length)
-            prompt = self.config.consolidation_prompt.format(
-                memories_context=context,
-                memory_count=len(cluster_memories)
-            )
-            logger.info(f"Generated prompt for LLM: {prompt[:200]}...")
-            consolidated_content = await self.llm_service.generate_response_async(prompt)
+            # Combine the content of the memories.  NO prompt formatting here.
+            combined_content = "\n".join([mem.content for mem in cluster_memories])
+
+            logger.info(f"Combined content for LLM: {combined_content[:200]}...")
+            consolidated_content = await self.llm_service.generate_summary(combined_content) # Use generate_summary
 
             if not consolidated_content:
                 logger.warning("LLM returned empty content for semantic memory. Skipping.")
@@ -162,6 +158,8 @@ class MemoryConsolidator:
                 "memory_type": "SEMANTIC",
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "source_episodic_ids": [mem.id for mem in cluster_memories],
+                "creation_method": "consolidation_hdbscan", # Added creation method
+                "cluster_size": len(cluster_memories) # Added cluster size
             }
 
             await self.pinecone_service.create_memory(
