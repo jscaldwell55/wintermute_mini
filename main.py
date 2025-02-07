@@ -231,16 +231,8 @@ def setup_static_files(app: FastAPI):
             async def serve_spa(full_path: str, request: Request):
                 logger.info(f"Received request for path: {full_path}")
 
-                # Always pass through API endpoints
-                if (
-                    full_path == "health" or
-                    full_path == "memories" or
-                    full_path.startswith("memories/") or
-                    full_path == "ping" or
-                    full_path == "consolidate" or
-                    full_path == "query" or
-                    full_path.startswith("api/", "api/v1/")  # Now only checks api/ - not api/v1, as that's added by the router
-                ):
+                # Always pass through API endpoints.  Use a tuple for startswith.
+                if full_path.startswith(("memories/", "health", "ping", "consolidate", "query", "api/")):
                     logger.info(f"Passing through API request: {full_path}")
                     raise HTTPException(status_code=404, detail="Not found")
 
