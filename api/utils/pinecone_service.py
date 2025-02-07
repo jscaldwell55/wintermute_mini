@@ -186,18 +186,56 @@ class PineconeService(MemoryService):
         filter: Optional[Dict[str, Any]] = None,
         include_metadata: bool = False
     ) -> List[Tuple[Dict[str, Any], float]]:
-        """Queries the Pinecone index, now with include_metadata."""
+        """Queries the Pinecone index, handling created_at filter correctly."""
         try:
-            # Convert datetime filters to timestamps ONLY IF THEY EXIST and are STRINGS
             if filter and 'created_at' in filter and '$gte' in filter['created_at']:
-                if isinstance(filter['created_at']['$gte'], str): # Check it's a string
+                gte_value = filter['created_at']['$gte']
+
+                if isinstance(gte_value, str):
                     try:
-                        dt = datetime.fromisoformat(filter['created_at']['$gte'].replace("Z", "+00:00"))
+                        dt = datetime.fromisoformat(gte_value.replace("Z", "+00:00"))
                         filter['created_at']['$gte'] = int(dt.timestamp())  # Convert to int
-                        logger.info(f"Converted datetime filter to timestamp: {filter['created_at']['$gte']}")
+                        logger.info(f"Converted datetime string filter to timestamp: {filter['created_at']['$gte']}")
                     except Exception as e:
-                        logger.error(f"Failed to convert datetime filter: {e}")
+                        logger.error(f"Failed to convert datetime string filter: {e}")
                         raise PineconeError(f"Invalid datetime filter: {e}") from e
+
+                elif isinstance(gte_value, datetime):
+                    # Convert datetime object to timestamp
+                    filter['created_at']['$gte'] = int(gte_value.timestamp())
+                    logger.info(f"Converted datetime object filter to timestamp: {filter['created_at']['$gte']}")
+
+                elif not isinstance(gte_value, (int, float)):
+                    # Raise an error if the type is not supported
+                    raise PineconeError(f"Invalid type for 'created_at' filter: {type(gte_value)}. Must be string, int, or datetime.")
+
+            logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
+            results = self.index.query(
+                vector=query_vector,
+                top_k=top_k,
+                include_values=True,
+                include_metadata=include_metadata,
+                filter=filter
+            )
+
+            logger.info(f"Raw Pinecone results: {str(results)[:200]}")
+
+            memories_with_scores = []
+            for result in results['matches']:
+                logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
+                memory_data = {
+                    'id': result['id'],
+                    'metadata': result['metadata'],
+                    'vector': result.get('values', [0.0] * self.embedding_dimension),
+                    'content': result['metadata'].get('content', ''),
+                    'memory_type': result['metadata'].get('memory_type', 'EPISODIC')
+                }
+                memories_with_scores.append((memory_data, result['score']))
+            return memories_with_scores
+
+        except Exception as e:
+            logger.error(f"Failed to query memories from Pinecone: {e}")
+            raise PineconeError(f"Failed to query memories: {e}") from e
 
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
