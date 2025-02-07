@@ -3,6 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, Optional
 from functools import lru_cache
 import logging
+#Add
+from api.core.consolidation.models import ConsolidationConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,9 +42,9 @@ class Settings(BaseSettings):
     retry_delay: int = 1
 
     # Frontend Settings (Added a default, important for consistency)
-    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Replace with your actual frontend URL
+    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Replace with your actual frontend URL!
     cors_origins: list[str] = [
-        "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Replace with your frontend URL
+        "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Replace with your frontend URL!
     ]
 
     # Session Settings (You don't seem to be using sessions yet, but keeping for completeness)
@@ -68,9 +70,8 @@ class Settings(BaseSettings):
     timezone: str = "UTC"
     consolidation_batch_size: int = 1000  # How many memories to process per run.
     min_cluster_size: int = 3  # Minimum memories needed to form a cluster.
-    memory_max_age_days: int = 7 #Added
-    # eps: float = 0.5  # Removed
-    consolidation_interval_hours = 24
+    memory_max_age_days: int = 7
+    # eps: float = 0.5  # Removed.
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
@@ -82,3 +83,13 @@ def get_settings() -> Settings:
     """Create and cache settings instance."""
     logger.info("Creating Settings instance")  # Add logging here
     return Settings()
+
+@lru_cache()
+def get_consolidation_config() -> ConsolidationConfig:
+    settings = get_settings()
+    return ConsolidationConfig(
+        min_cluster_size=settings.min_cluster_size,
+        max_age_days=settings.memory_max_age_days,
+        consolidation_interval_hours=settings.consolidation_interval_hours,
+        # eps=settings.eps  # Removed, no longer needed
+    )
