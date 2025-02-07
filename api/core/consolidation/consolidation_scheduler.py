@@ -10,7 +10,7 @@ from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.core.consolidation.consolidator import MemoryConsolidator  # Corrected import
 from api.core.consolidation.models import ConsolidationConfig
-from functools import lru_cache # import
+from functools import lru_cache #import
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,8 @@ def get_consolidation_config() -> ConsolidationConfig:
     return ConsolidationConfig(
         min_cluster_size=settings.min_cluster_size,
         max_age_days=settings.memory_max_age_days,
-        consolidation_interval_hours=settings.consolidation_interval_hours
+        consolidation_interval_hours=settings.consolidation_interval_hours,
+        # eps=settings.eps  # Removed, no longer needed
     )
 
 class ConsolidationScheduler:
@@ -42,9 +43,9 @@ class ConsolidationScheduler:
 
     async def start(self):
         """Start the scheduled consolidation task."""
-        # config = ConsolidationConfig() # REMOVE, use self.config now.
+        # config = ConsolidationConfig()  # REMOVE: Get config from settings
         self.consolidator = MemoryConsolidator( # Use correct class name
-            config=self.config, # Pass the config
+            config=self.config,  # Pass in config
             pinecone_service=self.pinecone_service,
             llm_service=self.llm_service
         )

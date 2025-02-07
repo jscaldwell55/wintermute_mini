@@ -98,9 +98,10 @@ async def main():
         # Get settings
         settings = get_settings()
         logger.info(f"Initializing consolidation scheduler with settings:")
-        logger.info(f"  Run time: {settings.consolidation_hour:02d}:{settings.consolidation_minute:02d}")
-        logger.info(f"  Timezone: {settings.timezone}")
-        logger.info(f"  Batch size: {settings.consolidation_batch_size}")
+        # These are now in config
+        #logger.info(f"  Run time: {settings.consolidation_hour:02d}:{settings.consolidation_minute:02d}")
+        #logger.info(f"  Timezone: {settings.timezone}")
+        #logger.info(f"  Batch size: {settings.consolidation_batch_size}")
 
         # Initialize services
         pinecone_service = PineconeService(

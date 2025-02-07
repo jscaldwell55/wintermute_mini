@@ -175,33 +175,33 @@ class MemoryConsolidator: # No longer inherits from anything.
             logger.error(f"Failed to create semantic memory: {e}")
             raise MemoryOperationError("semantic_memory_creation", str(e))
 
-    #No longer needed
-    #async def _archive_old_memories(self, memories: List[Memory]) -> None:
-        #"""Archive old episodic memories that have been consolidated."""
-        #current_time = datetime.utcnow().replace(tzinfo=timezone.utc)
 
-        #for memory in memories:
-            #try:
-                #created_at_str = memory.created_at
-                #if isinstance(created_at_str, str):
-                    #created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
-                    #if created_at.tzinfo is None:
-                        #created_at = created_at.replace(tzinfo=timezone.utc)
-                #else:
-                   # created_at = created_at_str
+    async def _archive_old_memories(self, memories: List[Memory]) -> None:
+        """Archive old episodic memories that have been consolidated."""
+        current_time = datetime.utcnow().replace(tzinfo=timezone.utc)
 
-                #age_days = (current_time - created_at).days
+        for memory in memories:
+            try:
+                created_at_str = memory.created_at
+                if isinstance(created_at_str, str):
+                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                else:
+                    created_at = created_at_str
 
-                #if age_days > self.config.max_age_days:
-                    #await self.pinecone_service.update_memory(
-                        #memory_id=memory.id,
-                        #vector=memory.semantic_vector, # You can also set this to a zero vector, if you prefer
-                        #metadata={
-                            #**memory.metadata,
-                            #"archived": True,
-                            #"archived_at": current_time.isoformat()
-                        #}
-                    #)
-            #except Exception as e:
-                #logger.warning(f"Failed to archive memory {memory.id}: {e}")
-                #continue
+                age_days = (current_time - created_at).days
+
+                if age_days > self.config.max_age_days:
+                    await self.pinecone_service.update_memory(
+                        memory_id=memory.id,
+                        vector=memory.semantic_vector, # You can also set this to a zero vector, if you prefer
+                        metadata={
+                            **memory.metadata,
+                            "archived": True,
+                            "archived_at": current_time.isoformat()
+                        }
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to archive memory {memory.id}: {e}")
+                continue
