@@ -179,6 +179,7 @@ class PineconeService(MemoryService):
             logger.error(f"Failed to delete memory from Pinecone: {e}")
             raise PineconeError(f"Failed to delete memory: {e}") from e
 
+    
     async def query_memories(
         self,
         query_vector: List[float],
@@ -186,8 +187,30 @@ class PineconeService(MemoryService):
         filter: Optional[Dict[str, Any]] = None,
         include_metadata: bool = False
     ) -> List[Tuple[Dict[str, Any], float]]:
-        """Queries the Pinecone index, now with include_metadata."""
+        """Queries the Pinecone index, correctly handling created_at filter."""
         try:
+            # Convert datetime filters to INTEGER timestamps ONLY IF THEY EXIST
+            if filter and 'created_at' in filter:
+                # Check for different comparison operators
+                if '$gte' in filter['created_at'] and isinstance(filter['created_at']['$gte'], str):
+                    try:
+                        dt = datetime.fromisoformat(filter['created_at']['$gte'].replace("Z", "+00:00"))
+                        filter['created_at']['$gte'] = int(dt.timestamp())  # Convert to INTEGER timestamp
+                        logger.info(f"Converted datetime filter to timestamp: {filter['created_at']['$gte']}")
+                    except Exception as e:
+                        logger.error(f"Failed to convert datetime filter: {e}")
+                        raise PineconeError(f"Invalid datetime filter: {e}") from e
+                # Add handling for other operators if needed ($lt, $lte, $gt, $eq)
+                if '$lte' in filter['created_at'] and isinstance(filter['created_at']['$lte'], str):
+                    try:
+                        dt = datetime.fromisoformat(filter['created_at']['$lte'].replace("Z", "+00:00"))
+                        filter['created_at']['$lte'] = int(dt.timestamp())
+                        logger.info(f"Converted datetime filter to timestamp: {filter['created_at']['$lte']}")
+                    except Exception as e:
+                        logger.error(f"Failed to convert datetime filter: {e}")
+                        raise PineconeError(f"Invalid datetime filter: {e}") from e
+                # You can add similar blocks for $lt, $gt, $eq if you use them.
+
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
                 vector=query_vector,

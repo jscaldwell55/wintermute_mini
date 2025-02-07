@@ -127,24 +127,24 @@ class MemorySystem:
                 operation_type=OperationType.STORE,
                 window_id=request.window_id
             )
-        
+
             logger.info(f"Creating memory from request: {request}")
-    
+
             # Generate memory ID with 'mem_' prefix
             memory_id = f"mem_{uuid.uuid4()}"
-            created_at = datetime.utcnow().isoformat()
+            created_at = datetime.utcnow().isoformat() + "Z" #Correct format for storage
 
             try:
                 # Generate semantic vector
                 semantic_vector = await self.vector_operations.create_semantic_vector(request.content)
-        
+
                 if hasattr(semantic_vector, 'tolist'):
                     semantic_vector = semantic_vector.tolist()
 
                 # Prepare metadata
                 full_metadata = {
                     "content": request.content,
-                    "created_at": created_at,
+                    "created_at": created_at,  # Store as ISO string
                     "memory_type": request.memory_type.value,
                     **(request.metadata or {}),
                 }
@@ -158,7 +158,7 @@ class MemorySystem:
                     content=request.content,
                     memory_type=request.memory_type,
                     semantic_vector=semantic_vector,
-                    created_at=created_at,
+                    created_at=created_at, # Pass in the string
                     metadata=full_metadata,
                     window_id=request.window_id
                 )

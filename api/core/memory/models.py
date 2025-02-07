@@ -1,7 +1,7 @@
 # memory/models.py
 from enum import Enum
 from typing import Dict, List, Optional, Any, Union
-from pydantic import BaseModel, Field, ConfigDict, validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
 from datetime import datetime
 from uuid import uuid4
 from api.utils.config import get_settings
