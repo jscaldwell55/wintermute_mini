@@ -24,7 +24,7 @@ class ConsolidationConfig:
 
         return cls(
             min_cluster_size=settings.min_cluster_size,
-            max_age_days=settings.memory_max_age_days,
+            max_age_days=settings.max_age_days,
             consolidation_interval_hours=settings.consolidation_interval_hours,
             # Removed: eps=settings.eps # No longer needed
             )
