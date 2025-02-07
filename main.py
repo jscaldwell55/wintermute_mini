@@ -558,7 +558,7 @@ async def query_memory(
             top_k=3,
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
-            include_values=False  # We don't need the vectors themselves
+            # include_values=False  <- REMOVE THIS
         )
         semantic_memories = [
             match[0]["metadata"]["content"] for match in semantic_results
@@ -576,7 +576,7 @@ async def query_memory(
                 "created_at": {"$gte": cutoff_time_str},
             },
             include_metadata=True,
-            include_values=False  # We don't need the vectors
+            # include_values=False  <- REMOVE THIS
         )
         episodic_memories = []
         for match in episodic_results:
