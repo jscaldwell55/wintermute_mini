@@ -1,4 +1,4 @@
-# pinecone_service.py
+# api/utils/pinecone_service.py
 import pinecone
 from pinecone import Index, Pinecone, ServerlessSpec
 from typing import List, Dict, Any, Tuple, Optional
@@ -188,7 +188,6 @@ class PineconeService(MemoryService):
     ) -> List[Tuple[Dict[str, Any], float]]:
         """Queries the Pinecone index, now with include_metadata."""
         try:
-
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
                 vector=query_vector,
