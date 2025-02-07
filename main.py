@@ -574,6 +574,7 @@ async def query_memory(
             filter={
                 "memory_type": "EPISODIC",
                 "created_at": {"$gte": cutoff_time_str},
+                "archived": {"$ne": True}
             },
             include_metadata=True,
             # include_values=False  <- REMOVE THIS
