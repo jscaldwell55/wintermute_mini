@@ -240,11 +240,67 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"Failed to query memories from Pinecone: {e}")
             raise PineconeError(f"Failed to query memories: {e}") from e
+        
+async def delete_old_episodic_memories(self, max_age_days: int = 7) -> None:
+        """
+        Deletes episodic memories older than max_age_days.
+
+        Args:
+            max_age_days: The maximum age (in days) of memories to keep.
+        """
+        cutoff_time = datetime.utcnow() - timedelta(days=max_age_days)
+        cutoff_timestamp = int(cutoff_time.timestamp())
+
+        try:
+            # We use a filter to find old episodic memories.  Note the $lt (less than) operator.
+            delete_filter = {
+                "memory_type": "EPISODIC",
+                "created_at": {"$lt": cutoff_timestamp}  # Find memories *older* than the cutoff
+            }
+
+            logger.info(f"Deleting episodic memories older than {cutoff_time.isoformat()} (timestamp: {cutoff_timestamp})")
+
+            # Fetch IDs to delete, to avoid issues with large result sets.  We *don't* need the content.
+            to_delete = await self.query_memories(
+                query_vector=[0.0] * self.embedding_dimension,  # Dummy vector
+                top_k=10000, # Fetch many
+                filter=delete_filter,
+                include_metadata=False, # no need for metadata
+                include_values=False, #no need for values
+            )
+            if to_delete:
+                ids_to_delete = [mem[0]['id'] for mem in to_delete]
+                logger.info(f"Deleting {len(ids_to_delete)} old episodic memories.")
+
+            # The actual deletion is done with the standard 'delete' method
+                if ids_to_delete: # Check that it isn't empty
+                    await self.delete_memories(ids_to_delete) # Use the existing method in main
+                else:
+                    logger.info("No episodic memories matched to be deleted") #If list is empty
+
+            else:
+                logger.info("No episodic memories to delete.")
+
+
+
+        except Exception as e:
+            logger.error(f"Error deleting old episodic memories: {e}")
+            raise PineconeError(f"Failed to delete old episodic memories: {e}") from e
+
+async def delete_memories(self, ids_to_delete: List[str]) -> bool:
+    """Deletes a memory by its ID."""
+    try:
+        self.index.delete(ids=ids_to_delete)
+        logger.info(f"Memories deleted successfully: {ids_to_delete}")
+        return True
+    except Exception as e:
+            logger.error(f"Failed to delete memory from Pinecone: {e}")
+            raise PineconeError(f"Failed to delete memory: {e}") from e
     
 
-    async def close_connections(self):
-        """Closes the Pinecone index connection."""
-        if self._index:
+async def close_connections(self):
+    """Closes the Pinecone index connection."""
+    if self._index:
             self._index = None
 
     async def health_check(self) -> Dict[str, Any]:
