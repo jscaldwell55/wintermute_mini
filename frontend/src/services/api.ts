@@ -7,8 +7,8 @@ const API_URL = (import.meta.env.VITE_API_URL as string) || DEFAULT_API_URL;
 export const queryAPI = async (query: string, windowId?: string): Promise<QueryResponse> => {
   try {
     const requestData: QueryRequest = {
-      query: query,      
-      prompt: query,     // For now, using same text for both   
+      query: query,
+      prompt: query,     // For now, using same text for both
       top_k: 5,         // Add explicit default
       window_id: windowId || crypto.randomUUID(),
       request_metadata: {
@@ -19,19 +19,19 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
     };
 
     console.log('Sending request:', {
-      url: `${API_URL}/query`,
+      url: `${API_URL}/api/v1/query`,  // <--- CHANGED THIS LINE
       data: requestData
     });
 
-    const response = await fetch(`${API_URL}/query`, {
+    const response = await fetch(`${API_URL}/api/v1/query`, { // <--- CHANGED THIS LINE
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
       body: JSON.stringify(requestData)
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error('API Error:', {
@@ -41,7 +41,7 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
       });
       throw new Error(`API Error (${response.status}): ${errorText}`);
     }
-    
+
     return response.json();
   } catch (error) {
     console.error('Query API error:', error);
@@ -51,15 +51,15 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
 
 export const getSystemHealth = async (): Promise<SystemStatus> => {  // Updated return type
   try {
-    const response = await fetch(`${API_URL}/health`, {
+    const response = await fetch(`${API_URL}/api/v1/health`, {  //<--  AND CHANGED THIS LINE
       headers: { 'Accept': 'application/json' }
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`API Error: ${response.statusText} - ${errorText}`);
     }
-    
+
     return response.json();
   } catch (error) {
     console.error('Health check error:', error);
