@@ -624,7 +624,7 @@ async def query_memory(
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="422", message="Validation Error", details=str(e), trace_id=trace_id),
+            error=ErrorDetail(code="422", message="Validation Error", details={"error" : str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
     except MemoryOperationError as e:
@@ -634,7 +634,7 @@ async def query_memory(
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="400", message="Memory Operation Error", details=str(e), trace_id=trace_id),
+            error=ErrorDetail(code="400", message="Memory Operation Error", details={"error" : str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
     except Exception as e:
@@ -644,7 +644,7 @@ async def query_memory(
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="500", message="Internal Server Error", details=str(e), trace_id=trace_id),
+            error=ErrorDetail(code="500", message="Internal Server Error", details={"error" : str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
 
