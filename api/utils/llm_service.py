@@ -21,15 +21,15 @@ class LLMServiceError(Exception):
 
 class LLMService:
     """Service for interacting with OpenAI's LLM APIs."""
-    
+
     MAX_PROMPT_LENGTH = 4000  # Reduced from 4096 to allow for system messages
-    
+
     def __init__(self, settings: Optional[Settings] = None):
         """Initialize the LLM service with configuration and defaults."""
         self.settings = settings or get_settings()
         self.client = AsyncOpenAI(api_key=self.settings.openai_api_key)
         self.model = self.settings.llm_model_id
-        
+
         # Default parameters
         self.default_temperature = 0.7
         self.default_max_tokens = 500
@@ -40,14 +40,14 @@ class LLMService:
     async def validate_prompt(self, prompt: str, minimal: bool = False) -> str:
         """
         Validate and truncate prompt if necessary, preserving meaning.
-        
+
         Args:
             prompt: The input prompt to validate
             minimal: If True, skip complex validation for health checks
-            
+
         Returns:
             Validated and potentially truncated prompt
-            
+
         Raises:
             LLMServiceError: If prompt is invalid
         """
@@ -56,25 +56,25 @@ class LLMService:
                 operation="validate_prompt",
                 details="Invalid prompt: prompt must be a non-empty string"
             )
-            
+
         if minimal:
             return prompt[:self.MAX_PROMPT_LENGTH] if len(prompt) > self.MAX_PROMPT_LENGTH else prompt
-            
+
         if len(prompt) > self.MAX_PROMPT_LENGTH:
             logger.warning(f"Prompt exceeds max length ({len(prompt)} > {self.MAX_PROMPT_LENGTH})")
-            
+
             # Split into sentences and reconstruct within limit
             sentences = prompt.split('. ')
             truncated_prompt = ""
-            
+
             for sentence in sentences:
                 if len(truncated_prompt + sentence + '. ') > self.MAX_PROMPT_LENGTH:
                     break
                 truncated_prompt += sentence + '. '
-            
+
             logger.info(f"Truncated prompt to {len(truncated_prompt)} characters while preserving sentence boundaries")
             return truncated_prompt.strip()
-            
+
         return prompt
 
     @retry(
@@ -85,20 +85,20 @@ class LLMService:
 
     # Add this method to your LLMService class
     async def generate_summary(
-        self, 
-        memories: List[Any], 
+        self,
+        memories: List[Any],
         max_length: int = 500
     ) -> str:
         """
         Generate a summary of the given memories.
-    
+
         Args:
             memories: List of memory objects to summarize
             max_length: Maximum length of the summary in tokens
-        
+
         Returns:
             Generated summary text
-        
+
         Raises:
             LLMServiceError: If summary generation fails
         """
@@ -112,41 +112,42 @@ class LLMService:
                     memory_texts.append(memory['content'])
                 else:
                     logger.warning(f"Skipping memory with unexpected format: {memory}")
-                
+
             if not memory_texts:
                 raise LLMServiceError(
                     operation="generate_summary",
                     details="No valid memory content found to summarize"
              )
-            
+
             combined_content = "\n\n".join(memory_texts)
-        
+
             # Generate summary using ChatGPT
             system_message = (
                 "You are a memory consolidation system. Create a concise summary of the "
                 "following related memories, focusing on key themes and important details. "
                 "The summary should be coherent and maintain contextual relationships."
             )
-        
+            #Use generate_gpt_response_async for summary
             summary = await self.generate_gpt_response_async(
                 prompt=combined_content,
                 system_message=system_message,
                 max_tokens=max_length,
                 temperature=0.5  # Lower temperature for more focused summary
             )
-        
+
             return summary
-        
+
         except Exception as e:
             logger.error(f"Failed to generate summary: {str(e)}")
             raise LLMServiceError(
                 operation="generate_summary",
                 details=str(e)
             )
+
     async def generate_gpt_response_async(
-        self, 
-        prompt: str, 
-        temperature: float = None, 
+        self,
+        prompt: str,
+        temperature: float = None,
         max_tokens: int = None,
         top_p: float = None,
         frequency_penalty: float = None,
@@ -169,48 +170,54 @@ class LLMService:
 
         Returns:
             Generated response text
-            
+
         Raises:
             LLMServiceError: For API or generation errors
         """
+
+        # Log parameters BEFORE the API call
+        logger.info(f"LLMService.generate_gpt_response_async called with prompt: '{prompt[:500]}...' (truncated), temperature: {temperature}, max_tokens: {max_tokens}, top_p: {top_p}, frequency_penalty: {frequency_penalty}, presence_penalty: {presence_penalty}, system_message: '{system_message[:500] if system_message else None}' (truncated), is_health_check: {is_health_check}")
+
         start_time = time.time()
-        request_id = f"req_{int(start_time * 1000)}"  # Unique request ID for tracking
-        
+        request_id = f"req_{int(start_time * 1000)}"  # Unique request ID
+
         try:
             # Validate and potentially truncate the prompt
             validated_prompt = await self.validate_prompt(prompt, minimal=is_health_check)
-            
+
             # Calculate available tokens for response
             estimated_prompt_tokens = len(validated_prompt.split())
             max_response_tokens = min(
-                max_tokens or 2000,
-                4096 - estimated_prompt_tokens - 100  # Reserve 100 tokens for system message
+                max_tokens or self.default_max_tokens,  # Use instance default
+                4096 - estimated_prompt_tokens - 100  # Reserve tokens for system message
             )
-            
+             # Ensure max_response_tokens is not negative
+            max_response_tokens = max(0, max_response_tokens)
+
             # Prepare messages
             messages = []
             if system_message:
                 messages.append({"role": "system", "content": system_message})
             messages.append({"role": "user", "content": validated_prompt})
-            
+
             # Prepare parameters with defaults
             params = {
                 "model": self.model,
                 "messages": messages,
                 "temperature": temperature or self.default_temperature,
-                "max_tokens": max_response_tokens,
+                "max_tokens": max_response_tokens,  # Use calculated value
                 "top_p": top_p or self.default_top_p,
                 "frequency_penalty": frequency_penalty or self.default_frequency_penalty,
                 "presence_penalty": presence_penalty or self.default_presence_penalty
             }
-            
+
             logger.debug(
                 "Sending request to OpenAI",
                 extra={
                     "request_id": request_id,
                     "prompt_length": len(validated_prompt),
                     "model": self.model,
-                    "params": {k: v for k, v in params.items() if k != "messages"}
+                    "params": {k: v for k, v in params.items() if k != "messages"} # Don't log entire message history
                 }
             )
 
@@ -225,7 +232,7 @@ class LLMService:
 
             result = response.choices[0].message.content.strip()
             duration = time.time() - start_time
-            
+
             # Log success metrics
             logger.info(
                 "LLM request completed successfully",
@@ -235,7 +242,7 @@ class LLMService:
                     "prompt_length": len(validated_prompt),
                     "response_length": len(result),
                     "model": self.model,
-                    "total_tokens": response.usage.total_tokens if hasattr(response, 'usage') else None,
+                    "total_tokens": response.usage.total_tokens if response.usage else None,
                 }
             )
 
@@ -246,32 +253,32 @@ class LLMService:
             error_details = {
                 "request_id": request_id,
                 "duration": duration,
-                "prompt_length": len(prompt) if prompt else 0,
+                "prompt_length": len(prompt) if prompt else 0,  # Handle potential None
                 "error_type": type(e).__name__
             }
-            
+
             logger.error(
                 f"LLM request failed: {str(e)}",
                 extra=error_details,
-                exc_info=True
+                exc_info=True  # Include the full traceback in the log
             )
-            
+
+            # Re-raise as LLMServiceError for consistent error handling
             if isinstance(e, LLMServiceError):
-                raise
-            
+                raise # Already the right type
             raise LLMServiceError(
                 operation="generate_response",
                 details=str(e)
-            )
+            ) from e # Include original exception as cause
 
     async def generate_response_async(self, prompt: str, **kwargs) -> str:
         """
         Main method for generating responses, used by other methods.
-        
+
         Args:
             prompt: Input prompt
             **kwargs: Additional parameters to pass to generate_gpt_response_async
-            
+
         Returns:
             Generated response text
         """
@@ -280,7 +287,7 @@ class LLMService:
     async def health_check(self) -> Dict[str, Any]:
         """
         Check the health of the LLM service using a minimal prompt.
-        
+
         Returns:
             Dict containing health status and metrics
         """
@@ -292,7 +299,7 @@ class LLMService:
                 system_message="You are performing a health check. Respond only with 'OK'.",
                 is_health_check=True
             )
-            
+
             return create_response(
                 success=True,
                 message="LLM service is healthy",
