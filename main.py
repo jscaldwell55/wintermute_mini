@@ -27,6 +27,7 @@ from api.core.memory.models import (
     MemoryType,
     OperationType,
     RequestMetadata,
+    ErrorDetail,
 )
 from api.core.memory.memory import MemorySystem, MemoryOperationError
 from api.core.vector.vector_operations import VectorOperationsImpl
@@ -550,15 +551,21 @@ async def query_memory(
         user_query_embedding = await memory_system.vector_operations.create_semantic_vector(
             query.prompt
         )
+
+        # --- Semantic Query ---
         semantic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
             top_k=3,
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
+            include_values=False  # We don't need the vectors themselves
         )
         semantic_memories = [
             match[0]["metadata"]["content"] for match in semantic_results
         ]
+        # We don't need to store the scores separately if we aren't returning them
+
+        # --- Episodic Query ---
         cutoff_time = datetime.utcnow() - timedelta(hours=3)
         cutoff_time_str = cutoff_time.isoformat()
         episodic_results = await memory_system.pinecone_service.query_memories(
@@ -569,10 +576,11 @@ async def query_memory(
                 "created_at": {"$gte": cutoff_time_str},
             },
             include_metadata=True,
+            include_values=False  # We don't need the vectors
         )
         episodic_memories = []
         for match in episodic_results:
-            memory_data, _ = match
+            memory_data, _ = match  # We only care about memory_data, not the score
             created_at = datetime.fromisoformat(
                 memory_data["metadata"]["created_at"].replace("Z", "+00:00")
             )
@@ -586,6 +594,7 @@ async def query_memory(
             else:
                 time_str = f"{int(time_ago / 3600)} hours ago"
             episodic_memories.append(f"[{time_str}] {memory_data['metadata']['content']}")
+
         prompt = response_template.format(
             query=query.prompt,
             semantic_memories=chr(10).join(semantic_memories),
@@ -604,30 +613,39 @@ async def query_memory(
             logger.error(
                 f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True
             )
-        return QueryResponse(
-            response=response, matches=[], trace_id=trace_id
+        return QueryResponse( # Always return a QueryResponse
+            response=response, matches=[], trace_id=trace_id, similarity_scores=[], error=None, #Set error to None
+            metadata={"success": True}
         )
     except ValidationError as e:
         logger.error(f"[{trace_id}] Validation error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "Validation Error", "details": str(e), "trace_id": trace_id},
+        return QueryResponse( # Return QueryResponse for errors
+            response=None,
+            matches=[],
+            trace_id=trace_id,
+            similarity_scores=[],
+            error=ErrorDetail(code="422", message="Validation Error", details=str(e), trace_id=trace_id),
+            metadata={"success": False}
         )
     except MemoryOperationError as e:
         logger.error(f"[{trace_id}] Memory operation error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "Memory Operation Error",
-                "details": str(e),
-                "trace_id": trace_id,
-            },
+        return QueryResponse( # Return QueryResponse for errors
+            response=None,
+            matches=[],
+            trace_id=trace_id,
+            similarity_scores=[],
+            error=ErrorDetail(code="400", message="Memory Operation Error", details=str(e), trace_id=trace_id),
+            metadata={"success": False}
         )
     except Exception as e:
         logger.error(f"[{trace_id}] Unexpected error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "Internal Server Error", "details": str(e), "trace_id": trace_id},
+        return QueryResponse( # Return QueryResponse for errors
+            response=None,
+            matches=[],
+            trace_id=trace_id,
+            similarity_scores=[],
+            error=ErrorDetail(code="500", message="Internal Server Error", details=str(e), trace_id=trace_id),
+            metadata={"success": False}
         )
 
 
