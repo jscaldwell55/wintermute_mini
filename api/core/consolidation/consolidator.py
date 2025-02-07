@@ -1,34 +1,34 @@
 # api/core/consolidation/consolidator.py
+
 import asyncio
 import logging
-logging.basicConfig(level=logging.INFO)
-from datetime import datetime, timedelta, timezone  # Import timezone
+from datetime import datetime, timedelta, timezone
 import numpy as np
-#from sklearn.cluster import DBSCAN # Removed DBSCAN
-import hdbscan  # Import HDBSCAN
+import hdbscan
 from typing import List
 
-#from sklearn.metrics.pairwise import cosine_distances  # Import cosine_distances  -- No longer needed
-
-from api.core.consolidation.models import ConsolidationConfig
+from api.core.consolidation.config import ConsolidationConfig  # Import from the new location
 from api.core.consolidation.utils import prepare_cluster_context, calculate_cluster_centroid
-from api.core.memory.models import Memory, MemoryType  # <--- IMPORT MemoryType
+from api.core.memory.models import Memory, MemoryType
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.core.memory.exceptions import MemoryOperationError
-# Import get_settings, for use in get_consolidation_config
-from api.utils.config import get_settings, Settings
+from api.utils.config import get_settings # Import get_settings
 from functools import lru_cache
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
-# Moved from main.py
 @lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
-    return ConsolidationConfig.from_settings(settings)
+    return ConsolidationConfig(
+        min_cluster_size=settings.min_cluster_size,
+        max_age_days=settings.memory_max_age_days,
+        consolidation_interval_hours=settings.consolidation_interval_hours
+    )
 
-class MemoryConsolidator: # No longer inherits from anything.
+class MemoryConsolidator:  # No longer inherits from anything.
     def __init__(
         self,
         config: ConsolidationConfig,

@@ -296,7 +296,7 @@ app.add_middleware(LoggingMiddleware)
 
 # 8. Define ALL API Routes using api_router
 @api_router.post("/consolidate")
-async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):  # Use dependency injection
+async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):
     try:
         consolidator = MemoryConsolidator(
             config=config,
