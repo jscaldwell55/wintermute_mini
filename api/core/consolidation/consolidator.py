@@ -2,24 +2,21 @@
 import asyncio
 import logging
 logging.basicConfig(level=logging.INFO)
-from datetime import datetime, timedelta, timezone  # Import timezone
+from datetime import datetime, timedelta, timezone
 import numpy as np
-#from sklearn.cluster import DBSCAN # Removed DBSCAN
 import hdbscan  # Import HDBSCAN
 from typing import List
 
-#from sklearn.metrics.pairwise import cosine_distances  # Import cosine_distances  -- No longer needed
-
 from api.core.consolidation.models import ConsolidationConfig
 from api.core.consolidation.utils import prepare_cluster_context, calculate_cluster_centroid
-from api.core.memory.models import Memory, MemoryType  # <--- IMPORT MemoryType
+from api.core.memory.models import Memory, MemoryType
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.core.memory.exceptions import MemoryOperationError
 
 logger = logging.getLogger(__name__)
 
-class MemoryConsolidator: # No longer inherits from anything.
+class MemoryConsolidator:
     def __init__(
         self,
         config: ConsolidationConfig,
@@ -43,7 +40,7 @@ class MemoryConsolidator: # No longer inherits from anything.
 
             # 1. Fetch Recent Episodic Memories (Time-Based)
             cutoff_time = datetime.utcnow() - timedelta(days=self.config.max_age_days)
-            cutoff_timestamp = int(cutoff_time.timestamp())
+            cutoff_timestamp = cutoff_time.isoformat() + "Z" # use string format, add Z
             logger.info(f"Consolidation cutoff timestamp: {cutoff_timestamp}") #LOG THE CUTOFF
 
             query_results = await self.pinecone_service.query_memories(
@@ -62,24 +59,29 @@ class MemoryConsolidator: # No longer inherits from anything.
                 memory_data = mem[0]
                 logger.info(f"Processing memory {i}: {memory_data['id']}") # LOG EACH MEMORY ID
 
+                # Log the raw metadata *before* any processing:
+                logger.info(f"Raw metadata: {memory_data.get('metadata', {})}")
+
                 created_at = memory_data.get('metadata', {}).get('created_at')
                 # No change needed here, your existing code is good.
                 if isinstance(created_at, datetime):
                     created_at = created_at.isoformat()
                 elif not created_at:
                     created_at = datetime.utcnow().isoformat()
+                # Log the created_at value *after* processing:
+                logger.info(f"Processed created_at: {created_at}")
 
                 try: # ADD ERROR HANDLING HERE
-                    memory = Memory(
-                        id=memory_data['id'],
-                        content=memory_data['metadata']['content'],
-                        memory_type=MemoryType(memory_data['metadata']['memory_type']), # Trust the metadata
-                        semantic_vector=memory_data.get('vector', [0.0] * 1536), # Provide a default
-                        metadata=memory_data.get('metadata', {}),
-                        created_at=created_at,
-                        window_id=memory_data.get('metadata', {}).get('window_id')
-                    )
-                    episodic_memories.append(memory)
+                  memory = Memory(
+                      id=memory_data['id'],
+                      content=memory_data['metadata']['content'],
+                      memory_type=MemoryType(memory_data['metadata']['memory_type']), # Trust the metadata
+                      semantic_vector=memory_data.get('vector', [0.0] * 1536), # Provide a default
+                      metadata=memory_data.get('metadata', {}),
+                      created_at=created_at,  # Use the parsed datetime object
+                      window_id=memory_data.get('metadata', {}).get('window_id')
+                  )
+                  episodic_memories.append(memory)
                 except Exception as e:
                     logger.error(f"Error creating Memory object from Pinecone result: {e}") # LOG ERRORS HERE
                     logger.error(f"Problematic memory data: {memory_data}") # Log the *entire* memory data
@@ -90,10 +92,6 @@ class MemoryConsolidator: # No longer inherits from anything.
                 logger.info("No episodic memories found for consolidation")
                 return
 
-            # --- Adjust clustering parameters (if using AdaptiveConsolidator) ---
-            #if isinstance(self, AdaptiveConsolidator): # No longer needed
-            #    await self.adjust_clustering_params(episodic_memories)
-
             # 2. Prepare Vectors
             vectors = np.array([mem.semantic_vector for mem in episodic_memories])
             logger.info(f"Shape of vectors array: {vectors.shape}") # LOG THE SHAPE
@@ -101,7 +99,7 @@ class MemoryConsolidator: # No longer inherits from anything.
                 logger.info("No vectors to cluster.")
                 return
             if len(vectors.shape) == 1:
-                logger.info("Only one vector, reshaping.")  # THIS SHOULDN'T HAPPEN NOW, but good to keep
+                logger.info("Only one vector, reshaping.")
                 vectors = vectors.reshape(1, -1)
 
             # 3. Perform Clustering (HDBSCAN)
@@ -159,14 +157,14 @@ class MemoryConsolidator: # No longer inherits from anything.
                     "source_memories": [mem.id for mem in cluster_memories],
                     "creation_method": "consolidation_hdbscan",  # Indicate the method, changed to hdbscan
                     "cluster_size": len(cluster_memories),
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.utcnow().isoformat() + "Z",
                     # No window_id for semantic memories (for MVE simplicity)
                 }
             }
 
             # --- Store using query-compatible format ---
             await self.pinecone_service.create_memory(
-                memory_id=f"sem_{datetime.utcnow().timestamp()}",  # Use a prefix
+                memory_id=f"sem_{datetime.utcnow().timestamp()}",  # Use a prefix and timestamp
                 vector=centroid,
                 metadata=memory_data
             )
@@ -174,34 +172,3 @@ class MemoryConsolidator: # No longer inherits from anything.
         except Exception as e:
             logger.error(f"Failed to create semantic memory: {e}")
             raise MemoryOperationError("semantic_memory_creation", str(e))
-
-
-    async def _archive_old_memories(self, memories: List[Memory]) -> None:
-        """Archive old episodic memories that have been consolidated."""
-        current_time = datetime.utcnow().replace(tzinfo=timezone.utc)
-
-        for memory in memories:
-            try:
-                created_at_str = memory.created_at
-                if isinstance(created_at_str, str):
-                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
-                    if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=timezone.utc)
-                else:
-                    created_at = created_at_str
-
-                age_days = (current_time - created_at).days
-
-                if age_days > self.config.max_age_days:
-                    await self.pinecone_service.update_memory(
-                        memory_id=memory.id,
-                        vector=memory.semantic_vector, # You can also set this to a zero vector, if you prefer
-                        metadata={
-                            **memory.metadata,
-                            "archived": True,
-                            "archived_at": current_time.isoformat()
-                        }
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to archive memory {memory.id}: {e}")
-                continue

@@ -213,9 +213,9 @@ async def get_vector_operations() -> VectorOperations:
         )
     return components.vector_operations
 
-@lru_cache()  # Cache the config
+@lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
-    settings = get_settings()  # Get the main settings
+    settings = get_settings()
     return ConsolidationConfig.from_settings(settings) # Use from_settings
 
 # 4. Static File Setup Function Definition (but don't call it yet)
@@ -585,13 +585,13 @@ async def query_memory(
 
         # --- Episodic Query ---
         cutoff_time = datetime.utcnow() - timedelta(hours=3)
-        cutoff_time_str = cutoff_time.isoformat()
+        cutoff_time_str = cutoff_time.isoformat() + "Z" # use string format, add Z
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
             top_k=5,
             filter={
                 "memory_type": "EPISODIC",
-                "created_at": {"$gte": cutoff_time_str},
+                "created_at": {"$gte": cutoff_time_str}, # string compare
             },
             include_metadata=True,
             #include_values=False  # We don't need the vectors
