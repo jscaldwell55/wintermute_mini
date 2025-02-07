@@ -1,18 +1,16 @@
-// src/components/WintermuteInterface.tsx
-import React, { useState, useEffect } from 'react'; // Add useEffect
+import React, { useState, useEffect } from 'react'; // useEffect is already imported
 import { Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { queryAPI } from '../services/api'; // Import the API function
-import { QueryResponse } from '../types'; // Import the type
+import { queryAPI } from '../services/api';
+import { QueryResponse } from '../types';
 
 const WintermuteInterface: React.FC = () => {
   const [query, setQuery] = useState<string>('');
-  const [response, setResponse] = useState<QueryResponse | null>(null);
+  const [response, setResponse] = useState<string | null>(null); // Store only the response string
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [windowId, setWindowId] = useState<string>(''); // Add windowId state
+  const [windowId, setWindowId] = useState<string>('');
 
-  // Generate windowId on component mount
   useEffect(() => {
     setWindowId(crypto.randomUUID());
   }, []);
@@ -22,16 +20,27 @@ const WintermuteInterface: React.FC = () => {
 
     setLoading(true);
     setError(null);
+    setResponse(null); // Clear previous response
 
     try {
-      const data = await queryAPI(query, windowId); // Use the queryAPI function!
-      setResponse(data);
+      const data: QueryResponse = await queryAPI(query, windowId);
+      if (data.error) {
+        // Handle API errors
+        setError(data.error.message || 'An API error occurred.');
+      } else if (data.response) {
+        // Handle successful response
+        setResponse(data.response);
+      } else {
+        // Handle no response case
+        setResponse("No response from the AI."); // Or any other suitable message
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      setError(err instanceof Error ? err.message : 'An unknown error occurred.');
     } finally {
       setLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -78,16 +87,11 @@ const WintermuteInterface: React.FC = () => {
               )}
 
               {/* Display Query Response */}
+                {/*  Display the response string */}
               {response && (
                 <div className="mt-6 p-4 bg-white rounded-lg border">
                   <h3 className="font-semibold mb-2">Response:</h3>
-                  <div className="whitespace-pre-wrap">{response.response}</div>
-                  {response.metadata && (
-                    <div className="mt-4 text-sm text-gray-500">
-                      <p>Memories accessed: {response.metadata.memories_accessed}</p>
-                      <p>Processing time: {response.metadata.processing_time}ms</p>
-                    </div>
-                  )}
+                  <div className="whitespace-pre-wrap">{response}</div>
                 </div>
               )}
             </div>
