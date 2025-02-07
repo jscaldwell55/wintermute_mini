@@ -51,19 +51,14 @@ class MemoryConsolidator:  # No longer inherits from anything.
             logger.info("Starting memory consolidation process")
 
             # 1. Fetch Recent Episodic Memories (Time-Based)
-            cutoff_time = datetime.now(timezone.utc) - timedelta(days=self.config.max_age_days)
-            cutoff_timestamp = int(cutoff_time.timestamp()) #int timestamp
-            logger.info(f"Consolidation cutoff timestamp: {cutoff_timestamp}")
-
             query_results = await self.pinecone_service.query_memories(
-                query_vector=[0.0] * self.pinecone_service.embedding_dimension,  # Use correct dimension
-                top_k=1000, # Fetch many, the filter limits.  Adjust as needed.
+                query_vector=[0.0] * self.pinecone_service.embedding_dimension,
+                top_k=1000,
                 filter={
                     "memory_type": "EPISODIC",
-                    "created_at": {"$gte": cutoff_timestamp}  # Correct time-based filter
-                },
-                include_metadata = True
-            )
+    },
+    include_metadata=True
+)
 
             logger.info(f"Pinecone query results: {len(query_results)} memories")
             episodic_memories = []

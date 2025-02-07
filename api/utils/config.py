@@ -70,7 +70,6 @@ class Settings(BaseSettings):
     timezone: str = "UTC"
     consolidation_batch_size: int = 1000  # How many memories to process per run.
     min_cluster_size: int = 3  # Minimum memories needed to form a cluster.
-    memory_max_age_days: int = 7
     consolidation_interval_hours: int = 24
     # eps: float = 0.5  # Removed.
 
@@ -94,6 +93,5 @@ def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
     return ConsolidationConfig(
         min_cluster_size=settings.min_cluster_size,
-        max_age_days=settings.memory_max_age_days,
         consolidation_interval_hours=settings.consolidation_interval_hours,
     )
