@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     timezone: str = "UTC"
     consolidation_batch_size: int = 1000  # How many memories to process per run
     min_cluster_size: int = 3  # Minimum memories needed to form a cluster
-    memory_max_age_days: int = 7  # ADD THIS LINE.  Default to 7 days.
+    memory_max_age_days: int = 365  # ADD THIS LINE.  Default to 7 days.
     eps: float = 0.5 # Add eps here with a default value
 
     model_config = SettingsConfigDict(
