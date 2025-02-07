@@ -1,6 +1,6 @@
-# pinecone_service.py
+# api/utils/pinecone_service.py
 import pinecone
-from pinecone import Index, Pinecone, ServerlessSpec
+from pinecone import Index, Pinecone, ServerlessSpec, PodSpec
 from typing import List, Dict, Any, Tuple, Optional
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.exceptions import PineconeError, MemoryOperationError
@@ -11,7 +11,6 @@ logging.basicConfig(level=logging.INFO)
 import time
 from datetime import datetime, timedelta
 import asyncio
-
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +107,7 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"❌ Failed to create memory: {e}")
             raise PineconeError(f"Failed to create memory: {e}") from e
-    
+
     async def batch_upsert_memories(self, vectors: List[Tuple[str, List[float], Dict[str, Any]]]) -> None:
         """Upserts a batch of memories to Pinecone.
 
@@ -180,7 +179,6 @@ class PineconeService(MemoryService):
             logger.error(f"Failed to delete memory from Pinecone: {e}")
             raise PineconeError(f"Failed to delete memory: {e}") from e
 
-    
     async def query_memories(
         self,
         query_vector: List[float],
@@ -188,9 +186,9 @@ class PineconeService(MemoryService):
         filter: Optional[Dict[str, Any]] = None,
         include_metadata: bool = False
     ) -> List[Tuple[Dict[str, Any], float]]:
-        """Queries the Pinecone index, correctly handling created_at filter."""
+        """Queries the Pinecone index, now with include_metadata."""
         try:
-            # NO CONVERSION HERE.  Pass the filter directly.
+          
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
                 vector=query_vector,
@@ -204,23 +202,16 @@ class PineconeService(MemoryService):
 
             memories_with_scores = []
             for result in results['matches']:
-                #Pinecone stores the metadata as strings, even if we sent numbers.
-                #So, we must convert the created_at back to ISO format here.
-                metadata = result['metadata']
-                if 'created_at' in metadata and isinstance(metadata['created_at'], (int, float)):
-                    metadata['created_at'] = datetime.fromtimestamp(metadata['created_at'], tz=timezone.utc).isoformat() + "Z"
-
                 logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
                 memory_data = {
                     'id': result['id'],
-                    'metadata': metadata,  # Use the modified metadata
+                    'metadata': result['metadata'],
                     'vector': result.get('values', [0.0] * self.embedding_dimension),
                     'content': result['metadata'].get('content', ''),
                     'memory_type': result['metadata'].get('memory_type', 'EPISODIC')
                 }
                 memories_with_scores.append((memory_data, result['score']))
             return memories_with_scores
-
 
         except Exception as e:
             logger.error(f"Failed to query memories from Pinecone: {e}")

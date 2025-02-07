@@ -216,7 +216,7 @@ async def get_vector_operations() -> VectorOperations:
 @lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
-    return ConsolidationConfig.from_settings(settings) # Use from_settings
+    return ConsolidationConfig.from_settings(settings)
 
 # 4. Static File Setup Function Definition (but don't call it yet)
 def setup_static_files(app: FastAPI):
@@ -373,7 +373,7 @@ async def list_memories(
         if window_id:
             filter_dict["window_id"] = window_id
         if memory_type:
-            filter_dict["memory_type"] = memory_type.value
+            filter_dict["memory_type"] = memory_type.value.upper() # added uppercase
         query_text = "Retrieve all memories"
         query_vector = await memory_system.vector_operations.create_semantic_vector(
             query_text
@@ -585,13 +585,13 @@ async def query_memory(
 
         # --- Episodic Query ---
         cutoff_time = datetime.utcnow() - timedelta(hours=3)
-        cutoff_time_str = cutoff_time.isoformat() + "Z" # use string format, add Z
+        cutoff_time_str = cutoff_time.isoformat()
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
             top_k=5,
             filter={
                 "memory_type": "EPISODIC",
-                "created_at": {"$gte": cutoff_time_str}, # string compare
+                "created_at": {"$gte": cutoff_time_str},
             },
             include_metadata=True,
             #include_values=False  # We don't need the vectors

@@ -3,28 +3,23 @@ from dataclasses import dataclass
 from typing import Optional
 from api.utils.config import get_settings, Settings # Import Settings
 
-
 @dataclass
 class ConsolidationConfig:
     min_cluster_size: int = 3  # Minimum memories in a cluster
     max_age_days: int = 7       # Archive episodic memories older than this
     consolidation_interval_hours: int = 24 # How often to run in hours
     # Removed eps, as it's not used by HDBSCAN
-    # eps: float = 0.3            # Initial DBSCAN epsilon (will be adjusted)
 
     # Add a method to get settings from the config file.
     @classmethod
     def from_settings(cls, settings: Settings) -> 'ConsolidationConfig':
         """
-        Creates a ConsolidationConfig instance from a Settings object,
-        overriding default values with those from Settings if present.
+        Creates a ConsolidationConfig instance from a Settings object.
+        Allows overriding default values with those from Settings.
         """
-        # if settings is None:  <-- This was unnecessary and causing problems.
-        #   settings = get_settings()
-
         return cls(
             min_cluster_size=settings.min_cluster_size,
-            max_age_days=settings.max_age_days,
+            max_age_days=settings.memory_max_age_days,
             consolidation_interval_hours=settings.consolidation_interval_hours,
-            # Removed: eps=settings.eps # No longer needed
-            )
+            # eps=settings.eps # Removed
+        )

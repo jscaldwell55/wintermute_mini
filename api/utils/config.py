@@ -39,10 +39,10 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_delay: int = 1
 
-    # Frontend Settings (Not strictly necessary for the backend, but good to have)
-    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com" # I ADDED A DEFAULT URL.
+    # Frontend Settings (Added a default, important for consistency)
+    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Replace with your actual frontend URL
     cors_origins: list[str] = [
-        "https://wintermute-staging-x-49dd432d3500.herokuapp.com"
+        "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Replace with your frontend URL
     ]
 
     # Session Settings (You don't seem to be using sessions yet, but keeping for completeness)
@@ -56,8 +56,8 @@ class Settings(BaseSettings):
     # Memory Retrieval Settings (for querying)
     max_memories_per_query: int = 20  # Hard limit on memories to retrieve
     default_memories_per_query: int = 5  # Default if not specified
-    min_similarity_threshold: float = 0.6  # Minimum similarity score
-    time_weight_ratio: float = 0.2 # time weight
+    min_similarity_threshold: float = 0.6  # Minimum similarity score to include memory
+    time_weight_ratio: float = 0.2  # How much to weight recency (0.0 to 1.0)
 
     # When fetching for filtering, how many extra to get
     initial_fetch_multiplier: float = 2.0  # Will fetch max_memories_per_query * multiplier
@@ -67,14 +67,14 @@ class Settings(BaseSettings):
     consolidation_minute: int = 0
     timezone: str = "UTC"
     consolidation_batch_size: int = 1000  # How many memories to process per run.
-    min_cluster_size: int = 3
-    max_age_days: int = 7
-    consolidation_interval_hours: int = 24
+    min_cluster_size: int = 3  # Minimum memories needed to form a cluster.
+    memory_max_age_days: int = 7 #Added
     # eps: float = 0.5  # Removed
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
     )
+
 
 @lru_cache()
 def get_settings() -> Settings:
