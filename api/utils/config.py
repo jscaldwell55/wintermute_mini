@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     consolidation_batch_size: int = 1000  # How many memories to process per run.
     min_cluster_size: int = 3  # Minimum memories needed to form a cluster.
     memory_max_age_days: int = 7
+    consolidation_interval_hours: int = 24
     # eps: float = 0.5  # Removed.
 
     model_config = SettingsConfigDict(
