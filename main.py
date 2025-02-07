@@ -1,5 +1,5 @@
-#main.py:
-# 1. Imports
+# main.py (MINIMAL CHANGES)
+# ... other imports ...
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -318,6 +318,9 @@ async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidatio
 async def ping():
     return {"message": "pong"}
 
+# main.py (MINIMAL CHANGES - Continued)
+
+# ... (previous parts of main.py, including imports, middleware, etc.) ...
 @api_router.get("/health")
 async def health_check():
     services_status = {}
@@ -547,8 +550,6 @@ async def debug_query(request: Request):
         },
     }
 
-
-
 @api_router.post("/query", response_model=QueryResponse)
 async def query_memory(
     request: Request,
@@ -574,29 +575,21 @@ async def query_memory(
             top_k=3,
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
-            # include_values=False  # We don't need the vectors themselves
         )
         semantic_memories = [
             match[0]["metadata"]["content"] for match in semantic_results
         ]
-        # We don't need to store the scores separately if we aren't returning them
 
-        # --- Episodic Query ---
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=3)
-        cutoff_time_str = cutoff_time.isoformat() + "Z"
+        # --- Episodic Query --- (NO TIME FILTER)
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
             top_k=5,
-            filter={
-                "memory_type": "EPISODIC",
-                "created_at": {"$gte": cutoff_time_str},
-            },
+            filter={"memory_type": "EPISODIC"},  # ONLY filter by type
             include_metadata=True,
-            #include_values=False  # We don't need the vectors
         )
         episodic_memories = []
         for match in episodic_results:
-            memory_data, _ = match  # We only care about memory_data, not the score
+            memory_data, _ = match
             created_at = datetime.fromisoformat(
                 memory_data["metadata"]["created_at"].replace("Z", "+00:00")
             )
@@ -616,7 +609,7 @@ async def query_memory(
             semantic_memories=chr(10).join(semantic_memories),
             episodic_memories=chr(10).join(episodic_memories),
         )
-        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt}")  # Added this line
+        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt}")
         response = await llm_service.generate_response_async(prompt)
         logger.info(f"[{trace_id}] Generated response successfully")
         try:
@@ -630,13 +623,13 @@ async def query_memory(
             logger.error(
                 f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True
             )
-        return QueryResponse( # Always return a QueryResponse
-            response=response, matches=[], trace_id=trace_id, similarity_scores=[], error=None, #Set error to None
+        return QueryResponse(
+            response=response, matches=[], trace_id=trace_id, similarity_scores=[], error=None,
             metadata={"success": True}
         )
     except ValidationError as e:
         logger.error(f"[{trace_id}] Validation error: {str(e)}", exc_info=True)
-        return QueryResponse( # Return QueryResponse for errors
+        return QueryResponse(
             response=None,
             matches=[],
             trace_id=trace_id,
@@ -646,7 +639,7 @@ async def query_memory(
         )
     except MemoryOperationError as e:
         logger.error(f"[{trace_id}] Memory operation error: {str(e)}", exc_info=True)
-        return QueryResponse( # Return QueryResponse for errors
+        return QueryResponse(
             response=None,
             matches=[],
             trace_id=trace_id,
@@ -656,7 +649,7 @@ async def query_memory(
         )
     except Exception as e:
         logger.error(f"[{trace_id}] Unexpected error: {str(e)}", exc_info=True)
-        return QueryResponse( # Return QueryResponse for errors
+        return QueryResponse(
             response=None,
             matches=[],
             trace_id=trace_id,
