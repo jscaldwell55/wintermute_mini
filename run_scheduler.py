@@ -1,18 +1,23 @@
-# api/core/consolidation/scheduler.py
+# run_scheduler.py
 import asyncio
 import sys
-from datetime import datetime, time
+from datetime import time
 import pytz
 import logging
-logging.basicConfig(level=logging.INFO)
-from api.utils.config import get_settings, Settings #Import settings
+from api.utils.config import get_settings, Settings #add settings import
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
-from api.core.consolidation.consolidator import MemoryConsolidator  # Corrected import
+from api.core.consolidation.consolidator import MemoryConsolidator
 from api.core.consolidation.models import ConsolidationConfig
-from functools import lru_cache # import
+from functools import lru_cache #import
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  # Set log level for this script
+handler = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 @lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
@@ -20,7 +25,8 @@ def get_consolidation_config() -> ConsolidationConfig:
     return ConsolidationConfig(
         min_cluster_size=settings.min_cluster_size,
         max_age_days=settings.memory_max_age_days,
-        consolidation_interval_hours=settings.consolidation_interval_hours
+        consolidation_interval_hours=settings.consolidation_interval_hours,
+        # eps=settings.eps  # Removed, no longer needed
     )
 
 class ConsolidationScheduler:
@@ -42,9 +48,9 @@ class ConsolidationScheduler:
 
     async def start(self):
         """Start the scheduled consolidation task."""
-        # config = ConsolidationConfig() # REMOVE, use self.config now.
+        # config = ConsolidationConfig()  # REMOVE: Get config from settings
         self.consolidator = MemoryConsolidator( # Use correct class name
-            config=self.config, # Pass the config
+            config=self.config,  # Pass in config
             pinecone_service=self.pinecone_service,
             llm_service=self.llm_service
         )
@@ -84,3 +90,53 @@ class ConsolidationScheduler:
                 logger.error(f"Error in consolidation schedule: {e}")
                 # Wait an hour before retrying on error
                 await asyncio.sleep(3600)
+
+
+async def main():
+    """Main function to run the scheduler."""
+    try:
+        # Get settings
+        settings = get_settings()
+        logger.info(f"Initializing consolidation scheduler with settings:")
+        logger.info(f"  Run time: {settings.consolidation_hour:02d}:{settings.consolidation_minute:02d}")
+        logger.info(f"  Timezone: {settings.timezone}")
+        logger.info(f"  Batch size: {settings.consolidation_batch_size}")
+
+        # Initialize services
+        pinecone_service = PineconeService(
+            api_key=settings.pinecone_api_key,
+            environment=settings.pinecone_environment,
+            index_name=settings.pinecone_index_name
+        )
+        llm_service = LLMService()
+        config = get_consolidation_config() # get config
+
+        # Initialize scheduler
+        scheduler = ConsolidationScheduler(
+            config=config, # pass in config
+            pinecone_service=pinecone_service,
+            llm_service=llm_service,
+            run_time=time(hour=settings.consolidation_hour,
+                         minute=settings.consolidation_minute),
+            timezone=settings.timezone
+        )
+
+        logger.info("Starting consolidation scheduler...")
+        await scheduler.start()
+
+        # Keep the process running
+        while True:
+            await asyncio.sleep(3600)  # Check every hour
+
+    except Exception as e:
+        logger.error(f"Fatal scheduler error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    # Set up logging (if not already configured elsewhere)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    asyncio.run(main())
