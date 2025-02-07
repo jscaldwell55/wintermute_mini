@@ -300,7 +300,7 @@ async def consolidate_now(settings: Settings = Depends(lambda: components.settin
             min_cluster_size=settings.min_cluster_size,
             eps=settings.eps if hasattr(settings, "eps") else 0.5,
         )
-        consolidator = AdaptiveConsolidator(
+        consolidator = MemoryConsolidator(
             config, components.pinecone_service, components.llm_service
         )
         await consolidator.consolidate_memories()
