@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta
 import asyncio
 
+
 logger = logging.getLogger(__name__)
 
 class PineconeService(MemoryService):
@@ -196,13 +197,13 @@ class PineconeService(MemoryService):
                     if op in filter['created_at'] and isinstance(filter['created_at'][op], str):
                         try:
                             dt = datetime.fromisoformat(filter['created_at'][op].replace("Z", "+00:00"))
-                            filter['created_at'][op] = int(dt.timestamp())  # Convert to INTEGER timestamp
+                            filter['created_at'][op] = dt.isoformat( + 'Z')  # Convert to INTEGER timestamp
                             logger.info(f"Converted datetime filter to timestamp: {filter['created_at'][op]}")
                         except Exception as e:
                             logger.error(f"Failed to convert datetime filter: {e}")
                             raise PineconeError(f"Invalid datetime filter: {e}") from e
-                # You might also want to handle the case where a datetime object is passed directly.
-                # This makes the function more flexible.
+                        
+                        
                 if isinstance(filter['created_at'].get('$gte'), datetime):
                      filter['created_at']['$gte'] = int(filter['created_at']['$gte'].timestamp())
 
