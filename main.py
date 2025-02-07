@@ -1,13 +1,12 @@
-# project_root/main.py
-from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query
+# 1. Imports
+from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 import logging
-from datetime import datetime, timedelta, timezone  
-logging.basicConfig(level=logging.INFO)
+from datetime import datetime, timedelta, timezone
 import asyncio
 from datetime import datetime, timedelta, timezone
 import sys
@@ -33,16 +32,17 @@ from api.core.memory.memory import MemorySystem, MemoryOperationError
 from api.core.vector.vector_operations import VectorOperationsImpl
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
-from api.utils.config import get_settings, Settings  # Keep Settings import
+from api.utils.config import get_settings, Settings
 from api.core.consolidation.models import ConsolidationConfig
 from api.core.consolidation.consolidator import AdaptiveConsolidator
 from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
+# 2. Class Definitions
 logger = logging.getLogger(__name__)
 logger.info("Main module loading")
-
+logging.basicConfig(level=logging.INFO)
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: FastAPI, rate_limit: int = 100, window: int = 60):
@@ -107,7 +107,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             except asyncio.CancelledError:
                 pass
 
-
 class SystemComponents:
     def __init__(self):
         self.memory_system = None
@@ -166,7 +165,7 @@ class SystemComponents:
             logger.info("🔧 Running system cleanup...")
 
             if self.pinecone_service:
-                await self.pinecone_service.close_connections()  # Ensure we use a close function.
+                await self.pinecone_service.close_connections()
                 self.pinecone_service = None
                 logger.info("✅ Pinecone service connections closed")
 
@@ -178,11 +177,17 @@ class SystemComponents:
             raise
 
 
-# Create global components instance
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        duration = time.time() - start_time
+        logger.info(f"Request {request.method} {request.url.path} completed in {duration:.2f}s")
+        return response
+
+# 3. Global Instance & Dependencies
 components = SystemComponents()
 
-
-# Define dependencies
 async def get_memory_system() -> MemorySystem:
     if not components._initialized:
         raise HTTPException(
@@ -190,7 +195,6 @@ async def get_memory_system() -> MemorySystem:
             detail="System initializing, please try again in a moment",
         )
     return components.memory_system
-
 
 async def get_pinecone_service() -> MemoryService:
     if not components._initialized:
@@ -200,7 +204,6 @@ async def get_pinecone_service() -> MemoryService:
         )
     return components.pinecone_service
 
-
 async def get_vector_operations() -> VectorOperations:
     if not components._initialized:
         raise HTTPException(
@@ -209,7 +212,7 @@ async def get_vector_operations() -> VectorOperations:
         )
     return components.vector_operations
 
-
+# 4. Static File Setup Function Definition (but don't call it yet)
 def setup_static_files(app: FastAPI):
     """Configure static files serving with fallback for SPA routing"""
     try:
@@ -225,28 +228,28 @@ def setup_static_files(app: FastAPI):
 
             # Add catch-all route for SPA routing
             @app.get("/{full_path:path}")
-            async def serve_spa(full_path: str):
-                # Don't catch API routes
-                if full_path.startswith(
-                    (
-                        "api/",
-                        "query",
-                        "memories",
-                        "health",
-                        "ping",
-                        "test",
-                        "routes",
-                        "debug-query",
-                        "consolidate",
-                    )
+            async def serve_spa(full_path: str, request: Request):
+                logger.info(f"Received request for path: {full_path}")
+
+                # Always pass through API endpoints
+                if (
+                    full_path == "health" or
+                    full_path == "memories" or
+                    full_path.startswith("memories/") or
+                    full_path == "ping" or
+                    full_path == "consolidate" or
+                    full_path == "query" or
+                    full_path.startswith("api/", "api/v1/")  # Now only checks api/ - not api/v1, as that's added by the router
                 ):
+                    logger.info(f"Passing through API request: {full_path}")
                     raise HTTPException(status_code=404, detail="Not found")
 
+                logger.info(f"Serving static file for path: {full_path}")
                 static_file = os.path.join(static_dir, "index.html")
                 if os.path.exists(static_file):
-                    logger.info(f"Serving static file: {static_file}")
                     return FileResponse(static_file)
                 raise HTTPException(status_code=404, detail="Not found")
+
 
             @app.get("/")
             async def serve_root():
@@ -262,7 +265,7 @@ def setup_static_files(app: FastAPI):
         logger.error(f"Error setting up static files: {e}")
         raise
 
-
+# 5. Lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -271,8 +274,7 @@ async def lifespan(app: FastAPI):
     finally:
         await components.cleanup()
 
-
-# Create the FastAPI instance at module level
+# 6. Create FastAPI App
 app = FastAPI(
     title="Project Wintermute Memory System",
     description="An AI assistant with semantic memory capabilities",
@@ -280,33 +282,30 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add middleware
+# --- API Router Setup ---
+api_router = APIRouter(prefix="/api/v1")
+
+# 7. Add Middleware (ONCE)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Temporarily allow all origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 app.add_middleware(RateLimitMiddleware, rate_limit=100, window=60)
-class LoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        start_time = time.time()
-        response = await call_next(request)
-        duration = time.time() - start_time
-        logger.info(f"Request {request.method} {request.url.path} completed in {duration:.2f}s")
-        return response
+app.add_middleware(LoggingMiddleware)
 
-# --- Manual Consolidation Endpoint (Temporary - for Development) ---
-@app.post("/consolidate")
+
+# 8. Define ALL API Routes using api_router
+@api_router.post("/consolidate")
 async def consolidate_now(settings: Settings = Depends(lambda: components.settings)):
     try:
         config = ConsolidationConfig(
-            consolidation_interval_hours=24,  # Use your default settings
+            consolidation_interval_hours=24,
             max_age_days=settings.memory_max_age_days,
-            min_cluster_size=settings.min_cluster_size,  # Get from settings
-            eps=settings.eps if hasattr(settings, "eps") else 0.5,  # Get from settings
+            min_cluster_size=settings.min_cluster_size,
+            eps=settings.eps if hasattr(settings, "eps") else 0.5,
         )
         consolidator = AdaptiveConsolidator(
             config, components.pinecone_service, components.llm_service
@@ -314,103 +313,59 @@ async def consolidate_now(settings: Settings = Depends(lambda: components.settin
         await consolidator.consolidate_memories()
         logger.info("Manual consolidation completed successfully")
         return {"message": "Consolidation triggered"}
-        
+
     except Exception as e:
         logger.error(f"Manual consolidation failed: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Consolidation failed: {str(e)}"
         )
-            
 
-
-@app.get("/ping")
+@api_router.get("/ping")
 async def ping():
     return {"message": "pong"}
 
-
-@app.options("/query")
-async def query_options():
-    return {"message": "Options request successful"}
-
-
-@app.post("/test")
-async def test_post(request: Request):
-    """Test endpoint to verify POST requests are working"""
+@api_router.get("/health")
+async def health_check():
+    services_status = {}
+    is_initialized = False
+    error_message = None
     try:
-        body = await request.json()
-        return {
-            "message": "POST request successful",
-            "received_data": body,
-            "method": request.method,
-            "headers": dict(request.headers),
-        }
+        is_initialized = getattr(components, "_initialized", False)
+        if is_initialized:
+            try:
+                pinecone_health = await components.pinecone_service.health_check()
+                services_status["pinecone"] = pinecone_health
+            except Exception as e:
+                services_status["pinecone"] = {"status": "unhealthy", "error": str(e)}
+                is_initialized = False
+            services_status.update({
+                "vector_operations": {
+                    "status": "healthy",
+                    "model": components.settings.embedding_model
+                },
+                "memory_service": {
+                    "status": "healthy"
+                }
+            })
     except Exception as e:
-        logger.error(f"Test endpoint error: {e}")
-        return {"error": str(e)}
-
-
-@app.get("/routes")
-async def list_routes():
-    """List all registered routes"""
-    try:
-        routes = []
-        for route in app.routes:
-            route_info = {"path": route.path, "name": route.name}
-            # Check if the route has methods (mounted routes don't)
-            if hasattr(route, 'methods'):
-                route_info["methods"] = list(route.methods)
-            else:
-                route_info["type"] = "mount" if isinstance(route, Mount) else "other"
-            routes.append(route_info)
-            
-        logger.info(f"Successfully retrieved {len(routes)} routes")
-        return {"routes": routes}
-    except Exception as e:
-        logger.error(f"Error listing routes: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Error listing routes: {str(e)}"
-        )
-
-
-
-@app.post("/debug-query")
-async def debug_query(request: Request):
-    """Debug endpoint to echo back request data"""
-    body = await request.json()
-    return {
-        "received": {
-            "method": request.method,
-            "headers": dict(request.headers),
-            "body": body,
-        },
+        logger.error(f"Health check failed: {str(e)}")
+        error_message = str(e)
+        is_initialized = False
+    status = {
+        "status": "ready" if is_initialized else "initializing",
+        "initialization_complete": is_initialized,
+        "environment": components.settings.environment,
+        "services": services_status
     }
+    if error_message:
+        status.update({
+            "status": "error",
+            "error": error_message
+        })
+    return status
 
-# Set up static files AFTER all API routes are defined
-setup_static_files(app)
-
-# Your existing routes
-
-
-@app.post("/memories", response_model=MemoryResponse)
-async def add_memory(
-    request: CreateMemoryRequest, memory_system: MemorySystem = Depends(get_memory_system)
-):
-    try:
-        memory_result = await memory_system.create_memory_from_request(request)
-        if isinstance(memory_result, Memory):
-            return memory_result.to_response()
-        return memory_result
-    except MemoryOperationError as e:
-        logger.error(f"Memory operation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error adding memory: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/memories", response_model=List[MemoryResponse])
+@api_router.get("/memories")
 async def list_memories(
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -424,20 +379,16 @@ async def list_memories(
             filter_dict["window_id"] = window_id
         if memory_type:
             filter_dict["memory_type"] = memory_type.value
-
-        # Use a meaningful query, even for a broad request.
-        query_text = "Retrieve all memories"  # Or "Show all memories", etc.
+        query_text = "Retrieve all memories"
         query_vector = await memory_system.vector_operations.create_semantic_vector(
             query_text
         )
-
         results = await memory_system.pinecone_service.query_memories(
             query_vector=query_vector,
             top_k=limit,
             filter=filter_dict if filter_dict else None,
-            include_metadata=True,  # Always include metadata
+            include_metadata=True,
         )
-
         memories = []
         for memory_data, _ in results:
             try:
@@ -454,10 +405,8 @@ async def list_memories(
             except Exception as e:
                 logger.error(f"Error converting memory {memory_data['id']}: {e}")
                 continue
-
         memories = memories[offset:]
         return memories
-
     except MemoryOperationError as e:
         logger.error(f"Memory operation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -465,19 +414,34 @@ async def list_memories(
         logger.error(f"Error listing memories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.post("/memories", response_model=MemoryResponse)
+async def add_memory(
+    request: CreateMemoryRequest, memory_system: MemorySystem = Depends(get_memory_system)
+):
+    try:
+        memory_result = await memory_system.create_memory_from_request(request)
+        if isinstance(memory_result, Memory):
+            return memory_result.to_response()
+        return memory_result
+    except MemoryOperationError as e:
+        logger.error(f"Memory operation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error adding memory: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/memories/{memory_id}", response_model=MemoryResponse)
+
+
+@api_router.get("/memories/{memory_id}", response_model=MemoryResponse)
 async def get_memory(memory_id: str, memory_system: MemorySystem = Depends(get_memory_system)):
     try:
         memory = await memory_system.get_memory_by_id(memory_id)
         if not memory:
             raise HTTPException(status_code=404, detail="Memory not found")
-
         if isinstance(memory, Memory):
             return memory.to_response()
         if isinstance(memory, MemoryResponse):
             return memory
-
         return MemoryResponse(
             id=memory.id,
             content=memory.content,
@@ -494,8 +458,7 @@ async def get_memory(memory_id: str, memory_system: MemorySystem = Depends(get_m
         logger.error(f"Error retrieving memory: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.delete("/memories/{memory_id}")
+@api_router.delete("/memories/{memory_id}")
 async def delete_memory(
     memory_id: str, memory_system: MemorySystem = Depends(get_memory_system)
 ):
@@ -509,106 +472,115 @@ async def delete_memory(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/health")
-async def health_check():
-    services_status = {}
-    is_initialized = False
-    error_message = None
 
+@api_router.options("/query")
+async def query_options():
+    return {"message": "Options request successful"}
+
+@api_router.post("/test")
+async def test_post(request: Request):
+    """Test endpoint to verify POST requests are working"""
     try:
-        is_initialized = getattr(components, "_initialized", False)
-
-        if is_initialized:
-            try:
-                pinecone_health = await components.pinecone_service.health_check()
-                services_status["pinecone"] = pinecone_health
-            except Exception as e:
-                services_status["pinecone"] = {"status": "unhealthy", "error": str(e)}
-                is_initialized = False
-
-            services_status.update({
-                "vector_operations": {
-                    "status": "healthy",
-                    "model": components.settings.embedding_model
-                },
-                "memory_service": {
-                    "status": "healthy"
-                }
-            })
-
+        body = await request.json()
+        return {
+            "message": "POST request successful",
+            "received_data": body,
+            "method": request.method,
+            "headers": dict(request.headers),
+        }
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        error_message = str(e)
-        is_initialized = False
+        logger.error(f"Test endpoint error: {e}")
+        return {"error": str(e)}
 
-    status = {
-        "status": "ready" if is_initialized else "initializing",
-        "initialization_complete": is_initialized,
-        "environment": components.settings.environment,
-        "services": services_status
+@api_router.get("/routes")
+async def list_routes():
+    """List all registered routes"""
+    try:
+        routes = []
+        for route in app.routes:
+            route_info = {"path": route.path, "name": route.name}
+            # Check if the route has methods (mounted routes don't)
+            if hasattr(route, 'methods'):
+                route_info["methods"] = list(route.methods)
+            else:
+                route_info["type"] = "mount" if isinstance(route, Mount) else "other"
+            routes.append(route_info)
+
+        logger.info(f"Successfully retrieved {len(routes)} routes")
+
+        # Remove duplicates based on 'path' and 'type'
+        unique_routes = []
+        seen_routes = set()
+        for route in routes:
+            route_key = (route['path'], route.get('type'))  # Use get for 'type' which might be missing
+            if route_key not in seen_routes:
+                unique_routes.append(route)
+                seen_routes.add(route_key)
+
+
+        return {"routes": unique_routes}
+    except Exception as e:
+        logger.error(f"Error listing routes: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing routes: {str(e)}"
+        )
+
+@api_router.post("/debug-query")
+async def debug_query(request: Request):
+    """Debug endpoint to echo back request data"""
+    body = await request.json()
+    return {
+        "received": {
+            "method": request.method,
+            "headers": dict(request.headers),
+            "body": body,
+        },
     }
 
-    if error_message:
-        status.update({
-            "status": "error",
-            "error": error_message
-        })
-
-    return status
 
 
-@app.post("/query", response_model=QueryResponse)
+@api_router.post("/query", response_model=QueryResponse)
 async def query_memory(
     request: Request,
     query: QueryRequest,
     memory_system: MemorySystem = Depends(get_memory_system),
-    llm_service: LLMService = Depends(lambda: components.llm_service)  # Use the service
+    llm_service: LLMService = Depends(lambda: components.llm_service)
 ):
-    # Add request metadata
     trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     query.request_metadata = RequestMetadata(
         operation_type=OperationType.QUERY,
         window_id=query.window_id,
         trace_id=trace_id
     )
-
     try:
-        # Log incoming request with trace ID
         logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
-
-        # --- 1. Hybrid Retrieval ---
         user_query_embedding = await memory_system.vector_operations.create_semantic_vector(
             query.prompt
         )
-
-        # --- 1a. Semantic Retrieval ---
         semantic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
-            top_k=3,  # Top 3 semantic memories (configurable later)
-            filter={"memory_type": "SEMANTIC"},  # Filter for semantic memories
-            include_metadata=True,  # Ensure metadata is included
+            top_k=3,
+            filter={"memory_type": "SEMANTIC"},
+            include_metadata=True,
         )
         semantic_memories = [
             match[0]["metadata"]["content"] for match in semantic_results
-        ]  # Extract just the content
-
-        # --- 1b. Episodic Retrieval ---
-        cutoff_time = datetime.utcnow() - timedelta(hours=3)  # Last 3 hours (configurable)
+        ]
+        cutoff_time = datetime.utcnow() - timedelta(hours=3)
         cutoff_time_str = cutoff_time.isoformat()
-
         episodic_results = await memory_system.pinecone_service.query_memories(
-            query_vector=user_query_embedding,  # Use the query embedding
-            top_k=5,  # Top 5 episodic memories
+            query_vector=user_query_embedding,
+            top_k=5,
             filter={
                 "memory_type": "EPISODIC",
-                "created_at": {"$gte": cutoff_time_str},  # Time-based filter
+                "created_at": {"$gte": cutoff_time_str},
             },
             include_metadata=True,
         )
-        # Format episodic memories with recency
         episodic_memories = []
         for match in episodic_results:
-            memory_data, _ = match  # Corrected unpacking
+            memory_data, _ = match
             created_at = datetime.fromisoformat(
                 memory_data["metadata"]["created_at"].replace("Z", "+00:00")
             )
@@ -621,41 +593,28 @@ async def query_memory(
                 time_str = f"{int(time_ago / 60)} minutes ago"
             else:
                 time_str = f"{int(time_ago / 3600)} hours ago"
-
             episodic_memories.append(f"[{time_str}] {memory_data['metadata']['content']}")
-
-        # --- 2. Combine Results (Simple Concatenation) --- (No longer needed, handled by prompt template)
-
-        # --- 3. Prompt Construction (Simplified) ---
         prompt = response_template.format(
             query=query.prompt,
-            semantic_memories=chr(10).join(semantic_memories),  # Join with newlines
-            episodic_memories=chr(10).join(episodic_memories),  # Join with newlines
+            semantic_memories=chr(10).join(semantic_memories),
+            episodic_memories=chr(10).join(episodic_memories),
         )
-
-        # --- 4. LLM Call ---
         response = await llm_service.generate_response_async(prompt)
         logger.info(f"[{trace_id}] Generated response successfully")
-
-        # --- 5. Store Interaction (as Episodic Memory) ---
         try:
             await memory_system.store_interaction(
                 query=query.prompt,
                 response=response,
-                window_id=query.window_id,  # Use the provided window_id
+                window_id=query.window_id,
             )
             logger.info(f"[{trace_id}] Interaction stored successfully")
         except Exception as e:
-            # Log error but don't fail the request (for now)
             logger.error(
                 f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True
             )
-
-        # --- 6. Return Response ---
         return QueryResponse(
             response=response, matches=[], trace_id=trace_id
-        )  # Return trace_id.  Matches is now empty
-
+        )
     except ValidationError as e:
         logger.error(f"[{trace_id}] Validation error: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -672,7 +631,6 @@ async def query_memory(
                 "trace_id": trace_id,
             },
         )
-
     except Exception as e:
         logger.error(f"[{trace_id}] Unexpected error: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -681,30 +639,21 @@ async def query_memory(
         )
 
 
+# --- Include Router and Setup Static Files ---
+app.include_router(api_router)
+# 9. Setup Static Files (LAST, ONCE)
+setup_static_files(app)
 
-# Add middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Temporarily allow all origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(RateLimitMiddleware, rate_limit=100, window=60)
-setup_static_files(app) #Calling the static file setup
-
+# 10. Main Block
 if __name__ == "__main__":
-    # we don't need to re initialize components here
     try:
         port = int(os.getenv("PORT", 8000))
         host = os.getenv("HOST", "0.0.0.0")
         reload = os.getenv("RELOAD", "true").lower() == "true"
-
         log_config = uvicorn.config.LOGGING_CONFIG
         log_config["formatters"]["default"][
             "fmt"
         ] = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
         uvicorn.run("main:app", host=host, port=port, reload=reload, log_config=log_config)
     except Exception as e:
         logger.error(f"Failed to start server: {str(e)}")
