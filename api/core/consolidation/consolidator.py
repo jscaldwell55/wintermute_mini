@@ -1,4 +1,4 @@
-# api/core/consolidation/consolidator.py
+# api/core/consolidation/consolidator.py (Using Euclidean Distance with Normalization)
 import asyncio
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import hdbscan
 from typing import List
+from sklearn.preprocessing import normalize  # Import normalize
 import uuid
 
 from api.core.consolidation.config import ConsolidationConfig
@@ -24,7 +25,6 @@ def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
     return ConsolidationConfig(
         min_cluster_size=settings.min_cluster_size,
-        # No longer need to pass consolidation_prompt or context_length
     )
 
 class MemoryConsolidator:
@@ -102,11 +102,15 @@ class MemoryConsolidator:
                 logger.info("Only one vector, reshaping.")
                 vectors = vectors.reshape(1, -1)
 
+            # --- Normalize the vectors ---
+            vectors = normalize(vectors)
+
+
             # 3. Perform Clustering (HDBSCAN)
             logger.info(f"Running HDBSCAN with min_cluster_size: {self.config.min_cluster_size}")
             clusterer = hdbscan.HDBSCAN(
                 min_cluster_size=self.config.min_cluster_size,
-                metric='cosine',
+                metric='euclidean',  # Use Euclidean distance
             )
             clusters = clusterer.fit_predict(vectors)
             logger.info(f"HDBSCAN clusters: {clusters}")
@@ -138,11 +142,10 @@ class MemoryConsolidator:
 
         try:
             logger.info(f"Creating semantic memory from {len(cluster_memories)} episodic memories")
-            # Combine the content of the memories.  NO prompt formatting here.
             combined_content = "\n".join([mem.content for mem in cluster_memories])
 
             logger.info(f"Combined content for LLM: {combined_content[:200]}...")
-            consolidated_content = await self.llm_service.generate_summary(combined_content) # Use generate_summary
+            consolidated_content = await self.llm_service.generate_summary(combined_content)
 
             if not consolidated_content:
                 logger.warning("LLM returned empty content for semantic memory. Skipping.")
@@ -151,6 +154,9 @@ class MemoryConsolidator:
             logger.info(f"LLM generated content: {consolidated_content[:200]}...")
 
             centroid_vector = calculate_cluster_centroid(cluster_memories)
+            # --- Normalize the centroid ---
+            centroid_vector = normalize(centroid_vector.reshape(1, -1))[0] # Reshape and normalize
+
 
             semantic_memory_id = str(uuid.uuid4())
             metadata = {
@@ -158,13 +164,13 @@ class MemoryConsolidator:
                 "memory_type": "SEMANTIC",
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "source_episodic_ids": [mem.id for mem in cluster_memories],
-                "creation_method": "consolidation_hdbscan", # Added creation method
-                "cluster_size": len(cluster_memories) # Added cluster size
+                "creation_method": "consolidation_hdbscan",
+                "cluster_size": len(cluster_memories)
             }
 
             await self.pinecone_service.create_memory(
                 memory_id=semantic_memory_id,
-                vector=centroid_vector.tolist(),
+                vector=centroid_vector.tolist(),  # tolist() after normalization
                 metadata=metadata
             )
             logger.info(f"Semantic memory '{semantic_memory_id}' created successfully.")
