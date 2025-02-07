@@ -118,6 +118,16 @@ class SystemComponents:
         self._initialized = False
         self.settings = get_settings()  # Get settings *once* here.
 
+    class SystemComponents:
+        def __init__(self):
+            self.memory_system = None
+            self.vector_operations = None
+            self.pinecone_service = None
+            self.llm_service = None
+            self.consolidator = None
+            self._initialized = False
+            self.settings = get_settings()  # Get settings *once* here.
+
     async def initialize(self):
         if not self._initialized:
             try:
@@ -133,14 +143,14 @@ class SystemComponents:
                 )
 
                 try:
-                    _ = self.pinecone_service.index
+                    _ = self.pinecone_service.index #check the connection
                     logger.info("✅ Pinecone service initialized successfully")
                 except Exception as e:
                     logger.error(f"Failed to initialize Pinecone service: {e}")
                     raise
 
                 logger.info(
-                    f"✅ Pinecone index '{self.pinecone_service.index_name}' initialized successfully!"
+                    f"✅ Pinecone index '{self.pinecone_service.index_name}' initialized successfully!" #changed
                 )
 
                 self.llm_service = LLMService()
@@ -158,7 +168,7 @@ class SystemComponents:
 
             except Exception as e:
                 logger.error(f"🚨 Error initializing system components: {e}")
-                await self.cleanup()
+                await self.cleanup() #cleanup if init fails
                 raise
 
     async def cleanup(self):

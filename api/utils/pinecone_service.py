@@ -43,6 +43,24 @@ class PineconeService(MemoryService):
 
         return self._index
 
+    def __init__(self, api_key: str, environment: str, index_name: str):
+        self.api_key = api_key
+        self.environment = environment
+        self.index_name = index_name
+        self.pc = None
+        self._index = None
+        self.initialized = False
+        self.embedding_dimension = 1536  # Default embedding dimension
+
+        logger.info(f"PineconeService init: api_key={api_key}, environment={environment}, index_name={index_name}") # Add logging
+
+        # Call initialize during init but handle failures gracefully
+        try:
+            self._initialize_pinecone()
+        except Exception as e:
+            logger.error(f"Failed to initialize Pinecone during service creation: {e}")
+            # Don't raise here - let the service be created but not initialized
+
     def _initialize_pinecone(self):
         """Initializes the Pinecone client and index with error handling."""
         try:
@@ -51,9 +69,12 @@ class PineconeService(MemoryService):
 
             logger.info("Initializing Pinecone client...")
             self.pc = Pinecone(api_key=self.api_key)
+            logger.info(f"Pinecone client initialized: {self.pc}") # Log the client object
+
 
             # Check existing indexes and create if needed
             existing_indexes = self.pc.list_indexes().names()
+            logger.info(f"Existing indexes = {existing_indexes}") #Log the existing indexes
             if self.index_name not in existing_indexes:
                 logger.warning(f"Index '{self.index_name}' not found. Creating it...")
                 self.pc.create_index(
@@ -62,9 +83,13 @@ class PineconeService(MemoryService):
                     metric="cosine",
                     spec=pinecone.PodSpec(environment=self.environment) # Changed to PodSpec
                 )
+                logger.info(f"Index '{self.index_name}' created.") #log
+            else: #Log if index already created
+                logger.info("Index already exists")
 
             # Initialize the index and test connection
             self._index = self.pc.Index(self.index_name)
+            logger.info(f"Pinecone index initialized: {self._index}")# Log the index object
             if self._index is None:
                 raise RuntimeError("Pinecone index creation failed!")
 

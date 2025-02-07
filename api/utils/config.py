@@ -81,8 +81,12 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     """Create and cache settings instance."""
-    logger.info("Creating Settings instance")  # Add logging here
-    return Settings()
+    logger.info("Creating Settings instance")
+    settings = Settings()
+    logger.info(f"Pinecone API Key: {settings.pinecone_api_key}")  # Log the key
+    logger.info(f"Pinecone Environment: {settings.pinecone_environment}")  # Log the environment
+    logger.info(f"Pinecone Index Name: {settings.pinecone_index_name}")  # Log the index name
+    return settings
 
 @lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
