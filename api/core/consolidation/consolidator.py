@@ -2,21 +2,26 @@
 import asyncio
 import logging
 logging.basicConfig(level=logging.INFO)
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone  # Import timezone
 import numpy as np
+#from sklearn.cluster import DBSCAN # Removed DBSCAN
 import hdbscan  # Import HDBSCAN
 from typing import List
 
+#from sklearn.metrics.pairwise import cosine_distances  # Import cosine_distances  -- No longer needed
+
 from api.core.consolidation.models import ConsolidationConfig
 from api.core.consolidation.utils import prepare_cluster_context, calculate_cluster_centroid
-from api.core.memory.models import Memory, MemoryType
+from api.core.memory.models import Memory, MemoryType  # <--- IMPORT MemoryType
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.core.memory.exceptions import MemoryOperationError
+# Import get_settings #FIX
+from api.utils.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-class MemoryConsolidator:
+class MemoryConsolidator: # No longer inherits from anything.
     def __init__(
         self,
         config: ConsolidationConfig,
@@ -44,8 +49,8 @@ class MemoryConsolidator:
             logger.info(f"Consolidation cutoff timestamp: {cutoff_timestamp}") #LOG THE CUTOFF
 
             query_results = await self.pinecone_service.query_memories(
-                query_vector=[0.0] * 1536,  # Dummy vector; metadata filter will do the work.
-                top_k=10000, # Fetch many, the filter limits.  Adjust as needed.
+                query_vector=[0.0] * self.pinecone_service.embedding_dimension,  # Use correct dimension
+                top_k=1000, # Fetch many, the filter limits.  Adjust as needed.  REDUCED from 10000
                 filter={
                     "memory_type": "EPISODIC",
                     "created_at": {"$gte": cutoff_timestamp}  # Correct time-based filter
@@ -76,7 +81,7 @@ class MemoryConsolidator:
                       id=memory_data['id'],
                       content=memory_data['metadata']['content'],
                       memory_type=MemoryType(memory_data['metadata']['memory_type']), # Trust the metadata
-                      semantic_vector=memory_data.get('vector', [0.0] * 1536), # Provide a default
+                      semantic_vector=memory_data.get('vector', [0.0] * self.pinecone_service.embedding_dimension), # Provide a default, and use correct dimension
                       metadata=memory_data.get('metadata', {}),
                       created_at=created_at,  # Use the parsed datetime object
                       window_id=memory_data.get('metadata', {}).get('window_id')
@@ -92,6 +97,10 @@ class MemoryConsolidator:
                 logger.info("No episodic memories found for consolidation")
                 return
 
+            # --- Adjust clustering parameters (if using AdaptiveConsolidator) ---
+            #if isinstance(self, AdaptiveConsolidator): # No longer needed
+            #    await self.adjust_clustering_params(episodic_memories)
+
             # 2. Prepare Vectors
             vectors = np.array([mem.semantic_vector for mem in episodic_memories])
             logger.info(f"Shape of vectors array: {vectors.shape}") # LOG THE SHAPE
@@ -99,7 +108,7 @@ class MemoryConsolidator:
                 logger.info("No vectors to cluster.")
                 return
             if len(vectors.shape) == 1:
-                logger.info("Only one vector, reshaping.")
+                logger.info("Only one vector, reshaping.")  # THIS SHOULDN'T HAPPEN NOW, but good to keep
                 vectors = vectors.reshape(1, -1)
 
             # 3. Perform Clustering (HDBSCAN)
