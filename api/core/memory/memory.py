@@ -11,6 +11,8 @@ from tenacity import retry, stop_after_attempt, wait_fixed, RetryError, before_s
 from collections import OrderedDict
 import time
 import math
+from datetime import datetime, timedelta, timezone  # Import timezone
+
 
 # Updated imports:
 from api.utils.config import Settings
@@ -127,24 +129,24 @@ class MemorySystem:
                 operation_type=OperationType.STORE,
                 window_id=request.window_id
             )
-
+        
             logger.info(f"Creating memory from request: {request}")
-
+    
             # Generate memory ID with 'mem_' prefix
             memory_id = f"mem_{uuid.uuid4()}"
-            created_at = datetime.utcnow().isoformat() + "Z" #Correct format for storage
+            created_at_timestamp = int(datetime.utcnow().timestamp()) # Get integer timestamp NOW
 
             try:
                 # Generate semantic vector
                 semantic_vector = await self.vector_operations.create_semantic_vector(request.content)
-
+        
                 if hasattr(semantic_vector, 'tolist'):
                     semantic_vector = semantic_vector.tolist()
 
-                # Prepare metadata
+                # Prepare metadata - Use the INTEGER timestamp here.
                 full_metadata = {
                     "content": request.content,
-                    "created_at": created_at,  # Store as ISO string
+                    "created_at": created_at_timestamp,  # <--- Store as INTEGER timestamp
                     "memory_type": request.memory_type.value,
                     **(request.metadata or {}),
                 }
@@ -152,13 +154,13 @@ class MemorySystem:
                 if request.window_id:
                     full_metadata["window_id"] = request.window_id
 
-                # Create memory object
+                # Create memory object -- The string conversion happens HERE
                 memory = Memory(
                     id=memory_id,
                     content=request.content,
                     memory_type=request.memory_type,
                     semantic_vector=semantic_vector,
-                    created_at=created_at, # Pass in the string
+                    created_at=datetime.fromtimestamp(created_at_timestamp, tz=timezone.utc).isoformat() + "Z", #to string
                     metadata=full_metadata,
                     window_id=request.window_id
                 )
@@ -167,7 +169,7 @@ class MemorySystem:
                 success = await self.pinecone_service.create_memory(
                     memory_id=memory.id,
                     vector=semantic_vector,
-                    metadata=memory.metadata,
+                    metadata=memory.metadata, #metadata passed to pinecone
                 )
 
                 if not success:
@@ -175,24 +177,16 @@ class MemorySystem:
 
                 logger.info(f"Successfully created memory with ID: {memory_id}")
 
-                return MemoryResponse(
-                    id=memory.id,
-                    content=memory.content,
-                    memory_type=memory.memory_type,
-                    created_at=memory.created_at,
-                    metadata=memory.metadata,
-                    window_id=memory.window_id,
-                    semantic_vector=memory.semantic_vector,
-                    trace_id=request.request_metadata.trace_id
-                )
+                return MemoryResponse.from_memory(memory) # Use class method for conversion
+
 
             except Exception as e:
                 logger.error(f"Error during memory creation process: {e}")
                 raise MemoryOperationError(f"Failed to add memory during vector creation or upsertion: {e}")
 
-        except Exception as e:
+        except Exception as e:  # This outer exception seems redundant
             logger.error(f"Error creating memory from request: {e}", exc_info=True)
-            return MemoryResponse(
+            return MemoryResponse( #I dont think you ever hit this because of the inner exception.
                 error=ErrorDetail(
                     code="MEMORY_CREATION_FAILED",
                     message=str(e),

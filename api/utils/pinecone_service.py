@@ -189,27 +189,23 @@ class PineconeService(MemoryService):
     ) -> List[Tuple[Dict[str, Any], float]]:
         """Queries the Pinecone index, correctly handling created_at filter."""
         try:
-            # Convert datetime filters to INTEGER timestamps ONLY IF THEY EXIST
+            # Convert datetime filters to integer timestamps ONLY IF THEY EXIST
+            # and are STRINGS.  Handle ALL comparison operators.
             if filter and 'created_at' in filter:
-                # Check for different comparison operators
-                if '$gte' in filter['created_at'] and isinstance(filter['created_at']['$gte'], str):
-                    try:
-                        dt = datetime.fromisoformat(filter['created_at']['$gte'].replace("Z", "+00:00"))
-                        filter['created_at']['$gte'] = int(dt.timestamp())  # Convert to INTEGER timestamp
-                        logger.info(f"Converted datetime filter to timestamp: {filter['created_at']['$gte']}")
-                    except Exception as e:
-                        logger.error(f"Failed to convert datetime filter: {e}")
-                        raise PineconeError(f"Invalid datetime filter: {e}") from e
-                # Add handling for other operators if needed ($lt, $lte, $gt, $eq)
-                if '$lte' in filter['created_at'] and isinstance(filter['created_at']['$lte'], str):
-                    try:
-                        dt = datetime.fromisoformat(filter['created_at']['$lte'].replace("Z", "+00:00"))
-                        filter['created_at']['$lte'] = int(dt.timestamp())
-                        logger.info(f"Converted datetime filter to timestamp: {filter['created_at']['$lte']}")
-                    except Exception as e:
-                        logger.error(f"Failed to convert datetime filter: {e}")
-                        raise PineconeError(f"Invalid datetime filter: {e}") from e
-                # You can add similar blocks for $lt, $gt, $eq if you use them.
+                for op in ['$gte', '$gt', '$lte', '$lt', '$eq']:
+                    if op in filter['created_at'] and isinstance(filter['created_at'][op], str):
+                        try:
+                            dt = datetime.fromisoformat(filter['created_at'][op].replace("Z", "+00:00"))
+                            filter['created_at'][op] = int(dt.timestamp())  # Convert to INTEGER timestamp
+                            logger.info(f"Converted datetime filter to timestamp: {filter['created_at'][op]}")
+                        except Exception as e:
+                            logger.error(f"Failed to convert datetime filter: {e}")
+                            raise PineconeError(f"Invalid datetime filter: {e}") from e
+                # You might also want to handle the case where a datetime object is passed directly.
+                # This makes the function more flexible.
+                if isinstance(filter['created_at'].get('$gte'), datetime):
+                     filter['created_at']['$gte'] = int(filter['created_at']['$gte'].timestamp())
+
 
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
@@ -224,16 +220,23 @@ class PineconeService(MemoryService):
 
             memories_with_scores = []
             for result in results['matches']:
+                #Pinecone stores the metadata as strings, even if we sent numbers.
+                #So, we must convert the created_at back to ISO format here.
+                metadata = result['metadata']
+                if 'created_at' in metadata and isinstance(metadata['created_at'], (int, float)):
+                    metadata['created_at'] = datetime.fromtimestamp(metadata['created_at'], tz=timezone.utc).isoformat() + "Z"
+
                 logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
                 memory_data = {
                     'id': result['id'],
-                    'metadata': result['metadata'],
+                    'metadata': metadata,  # Use the modified metadata
                     'vector': result.get('values', [0.0] * self.embedding_dimension),
                     'content': result['metadata'].get('content', ''),
                     'memory_type': result['metadata'].get('memory_type', 'EPISODIC')
                 }
                 memories_with_scores.append((memory_data, result['score']))
             return memories_with_scores
+
 
         except Exception as e:
             logger.error(f"Failed to query memories from Pinecone: {e}")
