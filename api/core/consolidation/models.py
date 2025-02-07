@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 from api.utils.config import get_settings, Settings # Import Settings
 
+
 @dataclass
 class ConsolidationConfig:
     min_cluster_size: int = 3  # Minimum memories in a cluster
@@ -11,14 +12,14 @@ class ConsolidationConfig:
     # Removed eps, as it's not used by HDBSCAN
     # eps: float = 0.3            # Initial DBSCAN epsilon (will be adjusted)
 
-    @classmethod  # This is a class method
-    def from_settings(cls, settings: Settings = None) -> 'ConsolidationConfig':
+    # Add a method to get settings from the config file.
+    @classmethod
+    def from_settings(cls, settings: Settings) -> 'ConsolidationConfig': #Removed default value
         """
-        Creates a ConsolidationConfig instance from a Settings object.
-        Allows overriding default values with those from the Settings.
+        Creates a ConsolidationConfig instance from a Settings object,
+        overriding default values with those from Settings if present.
         """
-        if settings is None:
-           settings = get_settings() # ensure there is always settings.
+
         return cls(
             min_cluster_size=settings.min_cluster_size,
             max_age_days=settings.memory_max_age_days,

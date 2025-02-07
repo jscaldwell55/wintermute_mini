@@ -55,16 +55,21 @@ class Settings(BaseSettings):
 
     # Memory Retrieval Settings (for querying)
     max_memories_per_query: int = 20  # Hard limit on memories to retrieve
-    default_memories_per_query: int = 5
+    default_memories_per_query: int = 5  # Default if not specified
+    min_similarity_threshold: float = 0.6  # Minimum similarity score to include memory
+    time_weight_ratio: float = 0.2  # How much to weight recency (0.0 to 1.0)
 
-    # Consolidation Settings (These are used *indirectly* via ConsolidationConfig)
-    consolidation_hour: int = 2       # 2 AM
-    consolidation_minute: int = 0
+    # When fetching for filtering, how many extra to get
+    initial_fetch_multiplier: float = 2.0  # Will fetch max_memories_per_query * multiplier
+
+     # Consolidation Settings
+    consolidation_hour: int = 2  # 2 AM default
+    consolidation_minute: int = 0  # 0 minutes default
     timezone: str = "UTC"
-    memory_max_age_days: int = 7       # Archive episodic memories older than this
-    min_cluster_size: int = 3  # Minimum memories needed to form a cluster
-    # Removed: eps - not directly used in settings, part of ConsolidationConfig
-    consolidation_batch_size: int = 1000 # Added.
+    consolidation_batch_size: int = 1000  # How many memories to process per run
+    min_cluster_size: int = 3  # Minimum memories needed to form a cluster.  Now part of Settings
+    memory_max_age_days: int = 7
+    # eps: float = 0.5  # Removed.  HDBSCAN doesn't use eps like DBSCAN.
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
