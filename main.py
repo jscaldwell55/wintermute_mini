@@ -213,11 +213,10 @@ async def get_vector_operations() -> VectorOperations:
         )
     return components.vector_operations
 
-@lru_cache()
+@lru_cache()  # Cache the config
 def get_consolidation_config() -> ConsolidationConfig:
-    settings = get_settings()
-    return ConsolidationConfig.from_settings(settings)
-
+    settings = get_settings()  # Get the main settings
+    return ConsolidationConfig.from_settings(settings) # Use from_settings
 # 4. Static File Setup Function Definition (but don't call it yet)
 def setup_static_files(app: FastAPI):
     """Configure static files serving with fallback for SPA routing"""
