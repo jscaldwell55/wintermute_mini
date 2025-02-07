@@ -17,12 +17,7 @@ logger = logging.getLogger(__name__)
 @lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
-    return ConsolidationConfig(
-        min_cluster_size=settings.min_cluster_size,
-        max_age_days=settings.memory_max_age_days,
-        consolidation_interval_hours=settings.consolidation_interval_hours,
-        # eps=settings.eps  # Removed, no longer needed
-    )
+    return ConsolidationConfig.from_settings(settings) #Corrected
 
 class ConsolidationScheduler:
     def __init__(
@@ -85,3 +80,48 @@ class ConsolidationScheduler:
                 logger.error(f"Error in consolidation schedule: {e}")
                 # Wait an hour before retrying on error
                 await asyncio.sleep(3600)
+async def main():
+    """Main function to run the scheduler."""
+    try:
+        # Get settings
+        settings = get_settings()
+        logger.info(f"Initializing consolidation scheduler with settings:")
+        #These are now in config
+        #logger.info(f"  Run time: {settings.consolidation_hour:02d}:{settings.consolidation_minute:02d}")
+        #logger.info(f"  Timezone: {settings.timezone}")
+        #logger.info(f"  Batch size: {settings.consolidation_batch_size}")
+
+        # Initialize services
+        pinecone_service = PineconeService(
+            api_key=settings.pinecone_api_key,
+            environment=settings.pinecone_environment,
+            index_name=settings.pinecone_index_name
+        )
+        llm_service = LLMService()
+        config = get_consolidation_config() #get config
+
+        # Initialize scheduler
+        scheduler = ConsolidationScheduler(
+            config=config, #pass config
+            pinecone_service=pinecone_service,
+            llm_service=llm_service,
+            run_time=time(hour=settings.consolidation_hour,
+                         minute=settings.consolidation_minute),
+            timezone=settings.timezone
+        )
+
+        logger.info("Starting consolidation scheduler...")
+        await scheduler.start()
+
+        # Keep the process running
+        while True:
+            await asyncio.sleep(3600)  # Check every hour
+
+    except Exception as e:
+        logger.error(f"Fatal scheduler error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
