@@ -603,6 +603,8 @@ async def query_memory(
         logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt}")
         response = await llm_service.generate_response_async(prompt)
         logger.info(f"[{trace_id}] Generated response successfully")
+        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt}")
+        response = await llm_service.generate_response_async(prompt)
         try:
             await memory_system.store_interaction(
                 query=query.prompt,

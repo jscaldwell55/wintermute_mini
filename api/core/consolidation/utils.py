@@ -1,5 +1,4 @@
 # api/core/consolidation/utils.py
-# No changes needed for the MVE simplification
 
 from typing import List
 import numpy as np
