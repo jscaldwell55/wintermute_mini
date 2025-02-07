@@ -39,6 +39,7 @@ from api.core.consolidation.consolidator import MemoryConsolidator
 from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
+from api.core.consolidation.models import ConsolidationConfig
 
 # 2. Class Definitions
 logger = logging.getLogger(__name__)
@@ -213,15 +214,10 @@ async def get_vector_operations() -> VectorOperations:
         )
     return components.vector_operations
 
-@lru_cache()  # Cache the config
+@lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
-    settings = get_settings()  # Get the main settings
-    return ConsolidationConfig(
-        min_cluster_size=settings.min_cluster_size,
-        max_age_days=settings.memory_max_age_days,
-        consolidation_interval_hours=settings.consolidation_interval_hours,
-        #eps=settings.eps #removed, since we are using HDBSCAN now
-        )
+    settings = get_settings()
+    return ConsolidationConfig.from_settings(settings) 
 
 # 4. Static File Setup Function Definition (but don't call it yet)
 def setup_static_files(app: FastAPI):
@@ -303,7 +299,7 @@ app.add_middleware(LoggingMiddleware)
 
 # 8. Define ALL API Routes using api_router
 @api_router.post("/consolidate")
-async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):  # Use the dependency
+async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):   # Use the dependency
     try:
         consolidator = MemoryConsolidator(
             config=config,  # Pass the config object directly
