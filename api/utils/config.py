@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     min_cluster_size: int = 3  # Minimum memories needed to form a cluster.
     memory_max_age_days: int = 7 #Added
     # eps: float = 0.5  # Removed
+    consolidation_interval_hours = 24
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
