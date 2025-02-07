@@ -8,7 +8,7 @@ from api.utils.config import get_settings, Settings #add settings import
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.core.consolidation.consolidator import MemoryConsolidator
-from api.core.consolidation.models import ConsolidationConfig
+from api.core.consolidation.config import ConsolidationConfig
 from functools import lru_cache #import
 from datetime import datetime
 

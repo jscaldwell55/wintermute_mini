@@ -1,14 +1,14 @@
 # api/core/consolidation/scheduler.py
 import asyncio
 import sys
-from datetime import datetime, time  # Import time separately
+from datetime import datetime, time, timedelta  # Import time separately
 import pytz
 import logging
 from api.utils.config import get_settings, Settings # Import settings
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config  # Corrected import
-from api.core.consolidation.models import ConsolidationConfig # Import config
+from api.core.consolidation.config import ConsolidationConfig # Import config
 
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from functools import lru_cache
 import logging
 #Add
-from api.core.consolidation.models import ConsolidationConfig
+from api.core.consolidation.config import ConsolidationConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -95,5 +95,4 @@ def get_consolidation_config() -> ConsolidationConfig:
         min_cluster_size=settings.min_cluster_size,
         max_age_days=settings.memory_max_age_days,
         consolidation_interval_hours=settings.consolidation_interval_hours,
-        # eps=settings.eps  # Removed, no longer needed
     )

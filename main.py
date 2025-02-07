@@ -35,7 +35,7 @@ from api.core.vector.vector_operations import VectorOperationsImpl
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
-from api.core.consolidation.models import ConsolidationConfig
+from api.core.consolidation.config import ConsolidationConfig
 from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config #CORRECTED
 from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
