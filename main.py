@@ -1,5 +1,5 @@
 # 1. Imports
-from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query
+from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -228,35 +228,28 @@ def setup_static_files(app: FastAPI):
 
             # Add catch-all route for SPA routing
             @app.get("/{full_path:path}")
-            async def serve_spa(full_path: str):
-                # Don't catch API routes - more explicit path handling
+            async def serve_spa(full_path: str, request: Request):
+                logger.info(f"Received request for path: {full_path}")
+
+                # Always pass through API endpoints
                 if (
-                    full_path.startswith(("api/", "memories/", "query/")) or  # Path prefixes
-                    full_path in {  # Exact matches
-                        "query",
-                        "memories",
-                        "health",
-                        "ping",
-                        "test",
-                        "routes",
-                        "debug-query",
-                        "consolidate"
-                    } or
-                    any(full_path.startswith(f"{path}/") for path in [  # Path patterns
-                        "memories",
-                        "query",
-                        "health",
-                        "consolidate"
-                    ])
+                    full_path == "health" or
+                    full_path == "memories" or
+                    full_path.startswith("memories/") or
+                    full_path == "ping" or
+                    full_path == "consolidate" or
+                    full_path == "query" or
+                    full_path.startswith("api/", "api/v1/")  # Now only checks api/ - not api/v1, as that's added by the router
                 ):
-                    logger.error(f"API path {full_path} not found or not properly routed")  # Add here
                     logger.info(f"Passing through API request: {full_path}")
                     raise HTTPException(status_code=404, detail="Not found")
+
+                logger.info(f"Serving static file for path: {full_path}")
                 static_file = os.path.join(static_dir, "index.html")
                 if os.path.exists(static_file):
-                    logger.info(f"Serving static file: {static_file}")
                     return FileResponse(static_file)
                 raise HTTPException(status_code=404, detail="Not found")
+
 
             @app.get("/")
             async def serve_root():
@@ -289,6 +282,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# --- API Router Setup ---
+api_router = APIRouter(prefix="/api/v1")
+
 # 7. Add Middleware (ONCE)
 app.add_middleware(
     CORSMiddleware,
@@ -301,8 +297,8 @@ app.add_middleware(RateLimitMiddleware, rate_limit=100, window=60)
 app.add_middleware(LoggingMiddleware)
 
 
-# 8. Define ALL API Routes
-@app.post("/consolidate")
+# 8. Define ALL API Routes using api_router
+@api_router.post("/consolidate")
 async def consolidate_now(settings: Settings = Depends(lambda: components.settings)):
     try:
         config = ConsolidationConfig(
@@ -325,81 +321,51 @@ async def consolidate_now(settings: Settings = Depends(lambda: components.settin
             detail=f"Consolidation failed: {str(e)}"
         )
 
-@app.get("/ping")
+@api_router.get("/ping")
 async def ping():
     return {"message": "pong"}
 
-@app.options("/query")
-async def query_options():
-    return {"message": "Options request successful"}
-
-@app.post("/test")
-async def test_post(request: Request):
-    """Test endpoint to verify POST requests are working"""
+@api_router.get("/health")
+async def health_check():
+    services_status = {}
+    is_initialized = False
+    error_message = None
     try:
-        body = await request.json()
-        return {
-            "message": "POST request successful",
-            "received_data": body,
-            "method": request.method,
-            "headers": dict(request.headers),
-        }
+        is_initialized = getattr(components, "_initialized", False)
+        if is_initialized:
+            try:
+                pinecone_health = await components.pinecone_service.health_check()
+                services_status["pinecone"] = pinecone_health
+            except Exception as e:
+                services_status["pinecone"] = {"status": "unhealthy", "error": str(e)}
+                is_initialized = False
+            services_status.update({
+                "vector_operations": {
+                    "status": "healthy",
+                    "model": components.settings.embedding_model
+                },
+                "memory_service": {
+                    "status": "healthy"
+                }
+            })
     except Exception as e:
-        logger.error(f"Test endpoint error: {e}")
-        return {"error": str(e)}
-
-@app.get("/routes")
-async def list_routes():
-    """List all registered routes"""
-    try:
-        routes = []
-        for route in app.routes:
-            route_info = {"path": route.path, "name": route.name}
-            # Check if the route has methods (mounted routes don't)
-            if hasattr(route, 'methods'):
-                route_info["methods"] = list(route.methods)
-            else:
-                route_info["type"] = "mount" if isinstance(route, Mount) else "other"
-            routes.append(route_info)
-
-        logger.info(f"Successfully retrieved {len(routes)} routes")
-        return {"routes": routes}
-    except Exception as e:
-        logger.error(f"Error listing routes: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error listing routes: {str(e)}"
-        )
-
-@app.post("/debug-query")
-async def debug_query(request: Request):
-    """Debug endpoint to echo back request data"""
-    body = await request.json()
-    return {
-        "received": {
-            "method": request.method,
-            "headers": dict(request.headers),
-            "body": body,
-        },
+        logger.error(f"Health check failed: {str(e)}")
+        error_message = str(e)
+        is_initialized = False
+    status = {
+        "status": "ready" if is_initialized else "initializing",
+        "initialization_complete": is_initialized,
+        "environment": components.settings.environment,
+        "services": services_status
     }
+    if error_message:
+        status.update({
+            "status": "error",
+            "error": error_message
+        })
+    return status
 
-@app.post("/memories", response_model=MemoryResponse)
-async def add_memory(
-    request: CreateMemoryRequest, memory_system: MemorySystem = Depends(get_memory_system)
-):
-    try:
-        memory_result = await memory_system.create_memory_from_request(request)
-        if isinstance(memory_result, Memory):
-            return memory_result.to_response()
-        return memory_result
-    except MemoryOperationError as e:
-        logger.error(f"Memory operation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error adding memory: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/memories", response_model=List[MemoryResponse])
+@api_router.get("/memories")
 async def list_memories(
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -448,7 +414,25 @@ async def list_memories(
         logger.error(f"Error listing memories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/memories/{memory_id}", response_model=MemoryResponse)
+@api_router.post("/memories", response_model=MemoryResponse)
+async def add_memory(
+    request: CreateMemoryRequest, memory_system: MemorySystem = Depends(get_memory_system)
+):
+    try:
+        memory_result = await memory_system.create_memory_from_request(request)
+        if isinstance(memory_result, Memory):
+            return memory_result.to_response()
+        return memory_result
+    except MemoryOperationError as e:
+        logger.error(f"Memory operation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error adding memory: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@api_router.get("/memories/{memory_id}", response_model=MemoryResponse)
 async def get_memory(memory_id: str, memory_system: MemorySystem = Depends(get_memory_system)):
     try:
         memory = await memory_system.get_memory_by_id(memory_id)
@@ -474,7 +458,7 @@ async def get_memory(memory_id: str, memory_system: MemorySystem = Depends(get_m
         logger.error(f"Error retrieving memory: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/memories/{memory_id}")
+@api_router.delete("/memories/{memory_id}")
 async def delete_memory(
     memory_id: str, memory_system: MemorySystem = Depends(get_memory_system)
 ):
@@ -487,47 +471,76 @@ async def delete_memory(
         logger.error(f"Error deleting memory: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/health")
-async def health_check():
-    services_status = {}
-    is_initialized = False
-    error_message = None
-    try:
-        is_initialized = getattr(components, "_initialized", False)
-        if is_initialized:
-            try:
-                pinecone_health = await components.pinecone_service.health_check()
-                services_status["pinecone"] = pinecone_health
-            except Exception as e:
-                services_status["pinecone"] = {"status": "unhealthy", "error": str(e)}
-                is_initialized = False
-            services_status.update({
-                "vector_operations": {
-                    "status": "healthy",
-                    "model": components.settings.embedding_model
-                },
-                "memory_service": {
-                    "status": "healthy"
-                }
-            })
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        error_message = str(e)
-        is_initialized = False
-    status = {
-        "status": "ready" if is_initialized else "initializing",
-        "initialization_complete": is_initialized,
-        "environment": components.settings.environment,
-        "services": services_status
-    }
-    if error_message:
-        status.update({
-            "status": "error",
-            "error": error_message
-        })
-    return status
 
-@app.post("/query", response_model=QueryResponse)
+
+@api_router.options("/query")
+async def query_options():
+    return {"message": "Options request successful"}
+
+@api_router.post("/test")
+async def test_post(request: Request):
+    """Test endpoint to verify POST requests are working"""
+    try:
+        body = await request.json()
+        return {
+            "message": "POST request successful",
+            "received_data": body,
+            "method": request.method,
+            "headers": dict(request.headers),
+        }
+    except Exception as e:
+        logger.error(f"Test endpoint error: {e}")
+        return {"error": str(e)}
+
+@api_router.get("/routes")
+async def list_routes():
+    """List all registered routes"""
+    try:
+        routes = []
+        for route in app.routes:
+            route_info = {"path": route.path, "name": route.name}
+            # Check if the route has methods (mounted routes don't)
+            if hasattr(route, 'methods'):
+                route_info["methods"] = list(route.methods)
+            else:
+                route_info["type"] = "mount" if isinstance(route, Mount) else "other"
+            routes.append(route_info)
+
+        logger.info(f"Successfully retrieved {len(routes)} routes")
+
+        # Remove duplicates based on 'path' and 'type'
+        unique_routes = []
+        seen_routes = set()
+        for route in routes:
+            route_key = (route['path'], route.get('type'))  # Use get for 'type' which might be missing
+            if route_key not in seen_routes:
+                unique_routes.append(route)
+                seen_routes.add(route_key)
+
+
+        return {"routes": unique_routes}
+    except Exception as e:
+        logger.error(f"Error listing routes: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing routes: {str(e)}"
+        )
+
+@api_router.post("/debug-query")
+async def debug_query(request: Request):
+    """Debug endpoint to echo back request data"""
+    body = await request.json()
+    return {
+        "received": {
+            "method": request.method,
+            "headers": dict(request.headers),
+            "body": body,
+        },
+    }
+
+
+
+@api_router.post("/query", response_model=QueryResponse)
 async def query_memory(
     request: Request,
     query: QueryRequest,
@@ -625,6 +638,9 @@ async def query_memory(
             detail={"error": "Internal Server Error", "details": str(e), "trace_id": trace_id},
         )
 
+
+# --- Include Router and Setup Static Files ---
+app.include_router(api_router)
 # 9. Setup Static Files (LAST, ONCE)
 setup_static_files(app)
 
