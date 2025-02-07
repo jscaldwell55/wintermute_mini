@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     retry_delay: int = 1
 
     # Frontend Settings (Not strictly necessary for the backend, but good to have)
-    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"
+    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com" # I ADDED A DEFAULT URL.
     cors_origins: list[str] = [
         "https://wintermute-staging-x-49dd432d3500.herokuapp.com"
     ]
@@ -56,25 +56,24 @@ class Settings(BaseSettings):
     # Memory Retrieval Settings (for querying)
     max_memories_per_query: int = 20  # Hard limit on memories to retrieve
     default_memories_per_query: int = 5  # Default if not specified
-    min_similarity_threshold: float = 0.6  # Minimum similarity score to include memory
-    time_weight_ratio: float = 0.2  # How much to weight recency (0.0 to 1.0)
+    min_similarity_threshold: float = 0.6  # Minimum similarity score
+    time_weight_ratio: float = 0.2 # time weight
 
     # When fetching for filtering, how many extra to get
     initial_fetch_multiplier: float = 2.0  # Will fetch max_memories_per_query * multiplier
 
-     # Consolidation Settings
-    consolidation_hour: int = 2  # 2 AM default
-    consolidation_minute: int = 0  # 0 minutes default
+     # Consolidation Settings.  THESE ARE NOW PART OF THE MAIN SETTINGS.
+    consolidation_hour: int = 2   # 2 AM default
+    consolidation_minute: int = 0
     timezone: str = "UTC"
-    consolidation_batch_size: int = 1000  # How many memories to process per run
-    min_cluster_size: int = 3  # Minimum memories needed to form a cluster.  Now part of Settings
+    consolidation_batch_size: int = 1000  # How many memories to process per run.
+    min_cluster_size: int = 3
     memory_max_age_days: int = 7
-    # eps: float = 0.5  # Removed.  HDBSCAN doesn't use eps like DBSCAN.
+    # eps: float = 0.5  # Removed
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
     )
-
 
 @lru_cache()
 def get_settings() -> Settings:

@@ -14,14 +14,17 @@ class ConsolidationConfig:
 
     # Add a method to get settings from the config file.
     @classmethod
-    def from_settings(cls, settings: Settings) -> 'ConsolidationConfig': #Removed default value
+    def from_settings(cls, settings: Settings) -> 'ConsolidationConfig':
         """
         Creates a ConsolidationConfig instance from a Settings object,
         overriding default values with those from Settings if present.
         """
+        # if settings is None:  <-- This was unnecessary and causing problems.
+        #   settings = get_settings()
 
         return cls(
             min_cluster_size=settings.min_cluster_size,
             max_age_days=settings.memory_max_age_days,
-            consolidation_interval_hours=settings.consolidation_interval_hours
+            consolidation_interval_hours=settings.consolidation_interval_hours,
+            # Removed: eps=settings.eps # No longer needed
             )
