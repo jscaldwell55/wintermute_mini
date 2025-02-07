@@ -107,6 +107,28 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"❌ Failed to create memory: {e}")
             raise PineconeError(f"Failed to create memory: {e}") from e
+    
+    async def batch_upsert_memories(self, vectors: List[Tuple[str, List[float], Dict[str, Any]]]) -> None:
+        """Upserts a batch of memories to Pinecone.
+
+        Args:
+            vectors: A list of tuples.  Each tuple should contain:
+                (memory_id: str, vector: List[float], metadata: Dict[str, Any]).
+        """
+        try:
+            if self.index is None:
+                raise PineconeError("Pinecone index is not initialized.")
+
+            # The Pinecone 'upsert' method *already* handles batching efficiently.
+            # We just need to make sure the data is in the correct format.
+            logger.info(f"📝 Upserting batch of {len(vectors)} memories to Pinecone.")
+            self.index.upsert(vectors=vectors) # Changed to 'vectors'
+            logger.info("✅ Batch upsert successful.")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to batch upsert memories: {e}")
+            raise PineconeError(f"Failed to batch upsert memories: {e}") from e
+
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
         try:
@@ -171,7 +193,7 @@ class PineconeService(MemoryService):
                 # If there's a $gte operator with a datetime string
                 if '$gte' in filter['created_at'] and isinstance(filter['created_at']['$gte'], str):
                     try:
-                        dt = datetime.fromisoformat(filter['created_at']['$gte'].replace('Z', '+00:00'))
+                        dt = datetime.fromisoformat(filter['created_at']['$gte'].replace("Z", "+00:00"))
                         filter['created_at']['$gte'] = int(dt.timestamp())
                         logger.info(f"Converted datetime filter to timestamp: {filter['created_at']['$gte']}")
                     except Exception as e:
@@ -206,6 +228,7 @@ class PineconeService(MemoryService):
             logger.error(f"Failed to query memories from Pinecone: {e}")
             raise PineconeError(f"Failed to query memories: {e}") from e
     
+
     async def close_connections(self):
         """Closes the Pinecone index connection."""
         if self._index:

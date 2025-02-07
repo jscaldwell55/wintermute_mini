@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 import logging
 from datetime import datetime, timedelta, timezone
 import asyncio
-from datetime import datetime, timedelta, timezone
 import sys
 import os
 from typing import AsyncGenerator, List, Optional, Dict, Any
@@ -35,7 +34,7 @@ from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.models import ConsolidationConfig
-from api.core.consolidation.consolidator import MemoryConsolidator
+from api.core.consolidation.consolidator import MemoryConsolidator #CORRECTED
 from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
@@ -237,6 +236,7 @@ def setup_static_files(app: FastAPI):
                     logger.info(f"Passing through API request: {full_path}")
                     raise HTTPException(status_code=404, detail="Not found")
 
+
                 logger.info(f"Serving static file for path: {full_path}")
                 static_file = os.path.join(static_dir, "index.html")
                 if os.path.exists(static_file):
@@ -294,14 +294,19 @@ app.add_middleware(LoggingMiddleware)
 @api_router.post("/consolidate")
 async def consolidate_now(settings: Settings = Depends(lambda: components.settings)):
     try:
+        # Get consolidation config from settings
         config = ConsolidationConfig(
-            consolidation_interval_hours=24,
+            consolidation_interval_hours=settings.consolidation_interval_hours,
             max_age_days=settings.memory_max_age_days,
             min_cluster_size=settings.min_cluster_size,
-            eps=settings.eps if hasattr(settings, "eps") else 0.5,
+            # eps=settings.eps  # Removed since HDBSCAN is used
         )
+
+        # Use MemoryConsolidator, not AdaptiveConsolidator
         consolidator = MemoryConsolidator(
-            config, components.pinecone_service, components.llm_service
+            config=config,
+            pinecone_service=components.pinecone_service,
+            llm_service=components.llm_service
         )
         await consolidator.consolidate_memories()
         logger.info("Manual consolidation completed successfully")
@@ -385,11 +390,22 @@ async def list_memories(
         memories = []
         for memory_data, _ in results:
             try:
+                # Get 'created_at' safely, provide a default if missing.
+                created_at_str = memory_data["metadata"].get("created_at")
+                if created_at_str:
+                     # Ensure timezone awareness
+                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+
+                else:
+                    created_at = None  # Or some default datetime if appropriate
+                    logger.warning(f"Memory {memory_data['id']} missing created_at")
+
+
                 memory = Memory(
                     id=memory_data["id"],
                     content=memory_data["metadata"]["content"],
                     memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                    created_at=memory_data["metadata"]["created_at"],
+                    created_at=created_at,  # Use the parsed value
                     metadata=memory_data["metadata"],
                     window_id=memory_data["metadata"].get("window_id"),
                     semantic_vector=memory_data.get("vector"),
@@ -412,6 +428,11 @@ async def add_memory(
     request: CreateMemoryRequest, memory_system: MemorySystem = Depends(get_memory_system)
 ):
     try:
+        # Add created_at to the metadata *before* creating the memory
+        if request.metadata is None:
+            request.metadata = {}
+        request.metadata["created_at"] = datetime.utcnow().isoformat() + "Z"
+
         memory_result = await memory_system.create_memory_from_request(request)
         if isinstance(memory_result, Memory):
             return memory_result.to_response()
@@ -558,7 +579,7 @@ async def query_memory(
             top_k=3,
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
-            # include_values=False  <- REMOVE THIS
+            # include_values=False  # We don't need the vectors themselves
         )
         semantic_memories = [
             match[0]["metadata"]["content"] for match in semantic_results
@@ -574,10 +595,9 @@ async def query_memory(
             filter={
                 "memory_type": "EPISODIC",
                 "created_at": {"$gte": cutoff_time_str},
-                "archived": {"$ne": True}
             },
             include_metadata=True,
-            # include_values=False  <- REMOVE THIS
+            # include_values=False  # We don't need the vectors
         )
         episodic_memories = []
         for match in episodic_results:
@@ -601,11 +621,9 @@ async def query_memory(
             semantic_memories=chr(10).join(semantic_memories),
             episodic_memories=chr(10).join(episodic_memories),
         )
-        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt}")
+        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt}")  # Added this line
         response = await llm_service.generate_response_async(prompt)
         logger.info(f"[{trace_id}] Generated response successfully")
-        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt}")
-        response = await llm_service.generate_response_async(prompt)
         try:
             await memory_system.store_interaction(
                 query=query.prompt,
@@ -651,7 +669,6 @@ async def query_memory(
             error=ErrorDetail(code="500", message="Internal Server Error", details={"error" : str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
-
 
 # --- Include Router and Setup Static Files ---
 app.include_router(api_router)
