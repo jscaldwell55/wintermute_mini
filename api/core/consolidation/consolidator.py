@@ -51,7 +51,7 @@ class MemoryConsolidator:  # No longer inherits from anything.
             logger.info("Starting memory consolidation process")
 
             # 1. Fetch Recent Episodic Memories (Time-Based)
-            cutoff_time = datetime.utcnow() - timedelta(days=self.config.max_age_days)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=self.config.max_age_days)
             cutoff_timestamp = int(cutoff_time.timestamp()) #int timestamp
             logger.info(f"Consolidation cutoff timestamp: {cutoff_timestamp}")
 
@@ -79,7 +79,8 @@ class MemoryConsolidator:  # No longer inherits from anything.
                 if isinstance(created_at, datetime):
                     created_at = created_at.isoformat()
                 elif not created_at:
-                    created_at = datetime.utcnow().isoformat()
+                    created_at = datetime.now(timezone.utc).isoformat()
+
                 # Log the created_at value *after* processing:
                 logger.info(f"Processed created_at: {created_at}")
 
@@ -167,14 +168,14 @@ class MemoryConsolidator:  # No longer inherits from anything.
                     "source_memories": [mem.id for mem in cluster_memories],
                     "creation_method": "consolidation_hdbscan",  # Indicate the method, changed to hdbscan
                     "cluster_size": len(cluster_memories),
-                    "created_at": int(datetime.utcnow().timestamp()), #<-- Storing as integer timestamp
+                    "created_at": int(datetime.now(timezone.utc).timestamp())
                     # No window_id for semantic memories (for MVE simplicity)
                 }
             }
 
             # --- Store using query-compatible format ---
             await self.pinecone_service.create_memory(
-                memory_id=f"sem_{datetime.utcnow().timestamp()}",  # Use a prefix and timestamp
+                memory_id=f"sem_{datetime.now(timezone.utc).timestamp()}",
                 vector=centroid,
                 metadata=memory_data
             )

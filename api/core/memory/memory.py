@@ -93,7 +93,7 @@ class MemorySystem:
 
                     metadata = {
                         "content": req.content,
-                        "created_at": datetime.utcnow().isoformat(),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
                         "memory_type": req.memory_type.value,
                         **(req.metadata or {}),
                     }
@@ -133,7 +133,7 @@ class MemorySystem:
 
             # Generate memory ID with 'mem_' prefix
             memory_id = f"mem_{uuid.uuid4()}"
-            created_at_timestamp = int(datetime.utcnow().timestamp()) # Get integer timestamp NOW
+            created_at_timestamp = int(datetime.now(timezone.utc).timestamp())
 
             try:
                 # Generate semantic vector
@@ -249,7 +249,7 @@ class MemorySystem:
             # Process and filter results
             matches = []
             similarity_scores = []
-            current_time = datetime.utcnow()
+            current_time = datetime.now(timezone.utc)
 
             for memory_data, similarity_score in semantic_results:
                 # Basic similarity threshold
@@ -335,7 +335,7 @@ class MemorySystem:
                         "query": query,
                         "response": response,
                         "trace_id": trace_id,
-                        "stored_at": datetime.utcnow().isoformat()
+                        "stored_at": datetime.now(timezone.utc).isoformat()
                     },
                     window_id=window_id
                 )

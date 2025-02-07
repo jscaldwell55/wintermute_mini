@@ -426,7 +426,7 @@ async def add_memory(
         # Add created_at to the metadata *before* creating the memory
         if request.metadata is None:
             request.metadata = {}
-        request.metadata["created_at"] = datetime.utcnow().isoformat() + "Z"
+        request.metadata["created_at"] = datetime.now(timezone.utc).isoformat() + "Z"
 
         memory_result = await memory_system.create_memory_from_request(request)
         if isinstance(memory_result, Memory):
@@ -582,7 +582,7 @@ async def query_memory(
         # We don't need to store the scores separately if we aren't returning them
 
         # --- Episodic Query ---
-        cutoff_time = datetime.utcnow() - timedelta(hours=3)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=3)
         cutoff_time_str = cutoff_time.isoformat() + "Z"
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
@@ -601,7 +601,7 @@ async def query_memory(
                 memory_data["metadata"]["created_at"].replace("Z", "+00:00")
             )
             time_ago = (
-                datetime.utcnow().replace(tzinfo=timezone.utc) - created_at
+                datetime.now(timezone.utc) - created_at
             ).total_seconds()
             if time_ago < 60:
                 time_str = f"{int(time_ago)} seconds ago"
