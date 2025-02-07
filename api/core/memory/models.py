@@ -1,7 +1,7 @@
-# memory/models.py
+# api/core/memory/models.py
 from enum import Enum
 from typing import Dict, List, Optional, Any, Union
-from pydantic import BaseModel, Field, ConfigDict, field_validator, validator
+from pydantic import BaseModel, Field, validator, field_validator
 from datetime import datetime
 from uuid import uuid4
 from api.utils.config import get_settings
@@ -35,7 +35,7 @@ class CreateMemoryRequest(BaseModel):
     window_id: Optional[str] = Field(None, description="Optional window ID for context grouping")
     request_metadata: Optional[RequestMetadata] = None
 
-    @validator('content')
+    @field_validator('content')  # Use field_validator for Pydantic v2+
     def validate_content_length(cls, v):
         if not v:
             raise ValueError("Content cannot be empty")
@@ -47,7 +47,7 @@ class Memory(BaseModel):
     id: str
     content: str
     memory_type: MemoryType
-    created_at: Union[str, datetime]
+    created_at: str  # Changed back to str
     metadata: Dict[str, Any]
     window_id: Optional[str] = None
     semantic_vector: Optional[List[float]] = None
@@ -79,7 +79,7 @@ class MemoryResponse(BaseModel):
     id: str
     content: str
     memory_type: MemoryType
-    created_at: str
+    created_at: str  # Changed back to str
     metadata: Dict[str, Any]
     window_id: Optional[str] = None
     semantic_vector: Optional[List[float]] = None
@@ -119,6 +119,7 @@ class QueryResponse(BaseModel):
     response: Optional[str] = Field(None, description="Generated response from the LLM")
     trace_id: Optional[str] = None
     error: Optional[ErrorDetail] = None
+    metadata: Optional[Dict[str, Any]] = None # to contain success: bool
 
 class BatchOperationResponse(BaseModel):
     """Response model for batch operations"""

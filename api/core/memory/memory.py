@@ -118,7 +118,6 @@ class MemorySystem:
         reraise=True,
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
-    
     async def create_memory_from_request(
         self,
         request: CreateMemoryRequest
@@ -129,9 +128,9 @@ class MemorySystem:
                 operation_type=OperationType.STORE,
                 window_id=request.window_id
             )
-        
+
             logger.info(f"Creating memory from request: {request}")
-    
+
             # Generate memory ID with 'mem_' prefix
             memory_id = f"mem_{uuid.uuid4()}"
             created_at_timestamp = int(datetime.utcnow().timestamp()) # Get integer timestamp NOW
@@ -139,7 +138,7 @@ class MemorySystem:
             try:
                 # Generate semantic vector
                 semantic_vector = await self.vector_operations.create_semantic_vector(request.content)
-        
+
                 if hasattr(semantic_vector, 'tolist'):
                     semantic_vector = semantic_vector.tolist()
 

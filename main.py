@@ -1,3 +1,4 @@
+#main.py:
 # 1. Imports
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,7 +36,7 @@ from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.models import ConsolidationConfig
-from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
+from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config #CORRECTED
 from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
@@ -118,16 +119,6 @@ class SystemComponents:
         self._initialized = False
         self.settings = get_settings()  # Get settings *once* here.
 
-    class SystemComponents:
-        def __init__(self):
-            self.memory_system = None
-            self.vector_operations = None
-            self.pinecone_service = None
-            self.llm_service = None
-            self.consolidator = None
-            self._initialized = False
-            self.settings = get_settings()  # Get settings *once* here.
-
     async def initialize(self):
         if not self._initialized:
             try:
@@ -143,14 +134,14 @@ class SystemComponents:
                 )
 
                 try:
-                    _ = self.pinecone_service.index #check the connection
+                    _ = self.pinecone_service.index
                     logger.info("✅ Pinecone service initialized successfully")
                 except Exception as e:
                     logger.error(f"Failed to initialize Pinecone service: {e}")
                     raise
 
                 logger.info(
-                    f"✅ Pinecone index '{self.pinecone_service.index_name}' initialized successfully!" #changed
+                    f"✅ Pinecone index '{self.pinecone_service.index_name}' initialized successfully!"
                 )
 
                 self.llm_service = LLMService()
@@ -168,7 +159,7 @@ class SystemComponents:
 
             except Exception as e:
                 logger.error(f"🚨 Error initializing system components: {e}")
-                await self.cleanup() #cleanup if init fails
+                await self.cleanup()
                 raise
 
     async def cleanup(self):
@@ -223,10 +214,6 @@ async def get_vector_operations() -> VectorOperations:
         )
     return components.vector_operations
 
-@lru_cache()
-def get_consolidation_config() -> ConsolidationConfig:
-    settings = get_settings()
-    return ConsolidationConfig.from_settings(settings) # Use from_settings
 # 4. Static File Setup Function Definition (but don't call it yet)
 def setup_static_files(app: FastAPI):
     """Configure static files serving with fallback for SPA routing"""
@@ -307,8 +294,7 @@ app.add_middleware(LoggingMiddleware)
 
 # 8. Define ALL API Routes using api_router
 @api_router.post("/consolidate")
-@api_router.post("/consolidate")
-async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):
+async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):  # Use the dependency
     try:
         consolidator = MemoryConsolidator(
             config=config,  # Pass the config object directly
@@ -595,7 +581,7 @@ async def query_memory(
 
         # --- Episodic Query ---
         cutoff_time = datetime.utcnow() - timedelta(hours=3)
-        cutoff_time_str = cutoff_time.isoformat()
+        cutoff_time_str = cutoff_time.isoformat() + "Z"
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
             top_k=5,

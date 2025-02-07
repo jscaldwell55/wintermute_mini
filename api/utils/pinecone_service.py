@@ -213,7 +213,6 @@ class PineconeService(MemoryService):
     ) -> List[Tuple[Dict[str, Any], float]]:
         """Queries the Pinecone index, now with include_metadata."""
         try:
-          
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
                 vector=query_vector,
