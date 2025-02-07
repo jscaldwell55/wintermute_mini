@@ -188,6 +188,17 @@ class PineconeService(MemoryService):
     ) -> List[Tuple[Dict[str, Any], float]]:
         """Queries the Pinecone index, now with include_metadata."""
         try:
+            # Convert datetime filters to timestamps ONLY IF THEY EXIST and are STRINGS
+            if filter and 'created_at' in filter and '$gte' in filter['created_at']:
+                if isinstance(filter['created_at']['$gte'], str): # Check it's a string
+                    try:
+                        dt = datetime.fromisoformat(filter['created_at']['$gte'].replace("Z", "+00:00"))
+                        filter['created_at']['$gte'] = int(dt.timestamp())  # Convert to int
+                        logger.info(f"Converted datetime filter to timestamp: {filter['created_at']['$gte']}")
+                    except Exception as e:
+                        logger.error(f"Failed to convert datetime filter: {e}")
+                        raise PineconeError(f"Invalid datetime filter: {e}") from e
+
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
                 vector=query_vector,
