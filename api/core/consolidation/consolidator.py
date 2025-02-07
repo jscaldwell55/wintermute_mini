@@ -6,8 +6,7 @@ from datetime import datetime, timedelta, timezone  # Import timezone
 import numpy as np
 #from sklearn.cluster import DBSCAN # Removed DBSCAN
 import hdbscan  # Import HDBSCAN
-from typing import List
-
+from typing import List, Optional
 #from sklearn.metrics.pairwise import cosine_distances  # Import cosine_distances  -- No longer needed
 
 from api.core.consolidation.models import ConsolidationConfig
@@ -43,8 +42,8 @@ class MemoryConsolidator: # No longer inherits from anything.
 
             # 1. Fetch Recent Episodic Memories (Time-Based)
             cutoff_time = datetime.utcnow() - timedelta(days=self.config.max_age_days)
-            cutoff_iso = cutoff_time.isoformat() + 'Z'
-            logger.info(f"Consolidation cutoff time: {cutoff_iso}")
+            cutoff_timestamp = cutoff_time.isoformat() + "Z"  # ISO 8601 string
+            logger.info(f"Consolidation cutoff timestamp: {cutoff_timestamp}")  
             
             query_results = await self.pinecone_service.query_memories(
                 query_vector=[0.0] * self.pinecone_service.embedding_dimension,  # Use correct dimension
