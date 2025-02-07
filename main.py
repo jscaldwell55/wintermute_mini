@@ -35,7 +35,7 @@ from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.models import ConsolidationConfig
-from api.core.consolidation.consolidator import MemoryConsolidator
+from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
 from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
@@ -297,7 +297,8 @@ app.add_middleware(LoggingMiddleware)
 
 # 8. Define ALL API Routes using api_router
 @api_router.post("/consolidate")
-async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):  # Use the dependency
+@api_router.post("/consolidate")
+async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):
     try:
         consolidator = MemoryConsolidator(
             config=config,  # Pass the config object directly

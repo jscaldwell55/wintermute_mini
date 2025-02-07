@@ -16,8 +16,16 @@ from api.core.memory.models import Memory, MemoryType  # <--- IMPORT MemoryType
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.core.memory.exceptions import MemoryOperationError
+#new import
+from api.utils.config import get_settings, Settings
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
+
+@lru_cache()
+def get_consolidation_config() -> ConsolidationConfig:
+    settings = get_settings()
+    return ConsolidationConfig.from_settings(settings)
 
 class MemoryConsolidator: # No longer inherits from anything.
     def __init__(
