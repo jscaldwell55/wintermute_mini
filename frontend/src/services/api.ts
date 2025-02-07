@@ -4,6 +4,12 @@ import { QueryResponse, QueryRequest, OperationType, SystemStatus } from '../typ
 const DEFAULT_API_URL = 'https://wintermute-staging-x-49dd432d3500.herokuapp.com';
 const API_URL = (import.meta.env.VITE_API_URL as string) || DEFAULT_API_URL;
 
+// Add a trailing slash to the base URL if it's not already there,
+// *and* prepend /api/v1/.  This makes the URL construction much
+// more robust and less error-prone.
+const BASE_URL = (API_URL.endsWith('/') ? API_URL : API_URL + '/') + 'api/v1/';
+
+
 export const queryAPI = async (query: string, windowId?: string): Promise<QueryResponse> => {
   try {
     const requestData: QueryRequest = {
@@ -19,11 +25,12 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
     };
 
     console.log('Sending request:', {
-      url: `${API_URL}/api/v1/query`,  // <--- CHANGED THIS LINE
+      url: `${BASE_URL}query`,  // Use BASE_URL here
       data: requestData
     });
 
-    const response = await fetch(`${API_URL}/api/v1/query`, { // <--- CHANGED THIS LINE
+
+    const response = await fetch(`${BASE_URL}query`, { // Use BASE_URL
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -49,9 +56,9 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
   }
 };
 
-export const getSystemHealth = async (): Promise<SystemStatus> => {  // Updated return type
+export const getSystemHealth = async (): Promise<SystemStatus> => {
   try {
-    const response = await fetch(`${API_URL}/api/v1/health`, {  //<--  AND CHANGED THIS LINE
+    const response = await fetch(`${BASE_URL}health`, { // Use BASE_URL
       headers: { 'Accept': 'application/json' }
     });
 
