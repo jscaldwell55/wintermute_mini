@@ -600,6 +600,7 @@ async def query_memory(
             semantic_memories=chr(10).join(semantic_memories),
             episodic_memories=chr(10).join(episodic_memories),
         )
+        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt}")
         response = await llm_service.generate_response_async(prompt)
         logger.info(f"[{trace_id}] Generated response successfully")
         try:
