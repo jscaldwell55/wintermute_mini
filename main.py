@@ -16,6 +16,7 @@ from pydantic import ValidationError
 import uuid
 import time
 from starlette.routing import Mount
+from functools import lru_cache #import for caching
 
 from api.core.memory.models import (
     CreateMemoryRequest,
@@ -34,7 +35,7 @@ from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.models import ConsolidationConfig
-from api.core.consolidation.consolidator import MemoryConsolidator #CORRECTED
+from api.core.consolidation.consolidator import MemoryConsolidator
 from api.utils.prompt_templates import response_template
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
@@ -212,6 +213,16 @@ async def get_vector_operations() -> VectorOperations:
         )
     return components.vector_operations
 
+@lru_cache()  # Cache the config
+def get_consolidation_config() -> ConsolidationConfig:
+    settings = get_settings()  # Get the main settings
+    return ConsolidationConfig(
+        min_cluster_size=settings.min_cluster_size,
+        max_age_days=settings.memory_max_age_days,
+        consolidation_interval_hours=settings.consolidation_interval_hours,
+        #eps=settings.eps #removed, since we are using HDBSCAN now
+        )
+
 # 4. Static File Setup Function Definition (but don't call it yet)
 def setup_static_files(app: FastAPI):
     """Configure static files serving with fallback for SPA routing"""
@@ -292,19 +303,10 @@ app.add_middleware(LoggingMiddleware)
 
 # 8. Define ALL API Routes using api_router
 @api_router.post("/consolidate")
-async def consolidate_now(settings: Settings = Depends(lambda: components.settings)):
+async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):  # Use the dependency
     try:
-        # Get consolidation config from settings
-        config = ConsolidationConfig(
-            consolidation_interval_hours=settings.consolidation_interval_hours,
-            max_age_days=settings.memory_max_age_days,
-            min_cluster_size=settings.min_cluster_size,
-            # eps=settings.eps  # Removed since HDBSCAN is used
-        )
-
-        # Use MemoryConsolidator, not AdaptiveConsolidator
         consolidator = MemoryConsolidator(
-            config=config,
+            config=config,  # Pass the config object directly
             pinecone_service=components.pinecone_service,
             llm_service=components.llm_service
         )
@@ -579,7 +581,7 @@ async def query_memory(
             top_k=3,
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
-            # include_values=False  # We don't need the vectors themselves
+            include_values=False  # We don't need the vectors themselves
         )
         semantic_memories = [
             match[0]["metadata"]["content"] for match in semantic_results
@@ -597,7 +599,7 @@ async def query_memory(
                 "created_at": {"$gte": cutoff_time_str},
             },
             include_metadata=True,
-            # include_values=False  # We don't need the vectors
+            include_values=False  # We don't need the vectors
         )
         episodic_memories = []
         for match in episodic_results:
