@@ -25,12 +25,11 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
     };
 
     console.log('Sending request:', {
-      url: `${BASE_URL}query`,  // Use BASE_URL here
+      url: `${BASE_URL}query`,
       data: requestData
     });
 
-
-    const response = await fetch(`${BASE_URL}query`, { // Use BASE_URL
+    const response = await fetch(`${BASE_URL}query`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -46,19 +45,33 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
         statusText: response.statusText,
         errorText
       });
+      // We *still* throw an error, but we include more context.
       throw new Error(`API Error (${response.status}): ${errorText}`);
     }
 
-    return response.json();
+    // IMPORTANT: Parse the JSON *before* checking for success
+    const data = await response.json();
+
+    // Check for the 'success' field in the API response
+    if (data.success === false) {
+        // Handle API-level errors (e.g., validation errors)
+        throw new Error(`API Error: ${data.message} - ${data.error}`);
+    }
+
+    // If we get here, the API call was successful *and* the
+    // response indicates success.  Now we can safely cast to QueryResponse.
+    return data as QueryResponse;
+
+
   } catch (error) {
     console.error('Query API error:', error);
-    throw error;
+    throw error; // Re-throw the error so the calling function can handle it
   }
 };
-
+// getSystemHealth corrected too
 export const getSystemHealth = async (): Promise<SystemStatus> => {
   try {
-    const response = await fetch(`${BASE_URL}health`, { // Use BASE_URL
+    const response = await fetch(`${BASE_URL}health`, {
       headers: { 'Accept': 'application/json' }
     });
 
@@ -66,8 +79,16 @@ export const getSystemHealth = async (): Promise<SystemStatus> => {
       const errorText = await response.text();
       throw new Error(`API Error: ${response.statusText} - ${errorText}`);
     }
+     const data = await response.json();
 
-    return response.json();
+    // Check for the 'success' field in the API response
+    if (data.success === false) {
+        // Handle API-level errors (e.g., validation errors)
+        throw new Error(`API Error: ${data.message} - ${data.error}`);
+    }
+
+    return data as SystemStatus;
+
   } catch (error) {
     console.error('Health check error:', error);
     throw error;
