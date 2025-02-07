@@ -213,9 +213,9 @@ async def get_vector_operations() -> VectorOperations:
         )
     return components.vector_operations
 
-@lru_cache()  # Cache the config
+@lru_cache()
 def get_consolidation_config() -> ConsolidationConfig:
-    settings = get_settings()  # Get the main settings
+    settings = get_settings()
     return ConsolidationConfig.from_settings(settings) # Use from_settings
 # 4. Static File Setup Function Definition (but don't call it yet)
 def setup_static_files(app: FastAPI):

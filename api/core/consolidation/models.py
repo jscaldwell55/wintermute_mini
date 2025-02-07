@@ -1,7 +1,8 @@
 # api/core/consolidation/models.py
 from dataclasses import dataclass
 from typing import Optional
-#removed Settings import, not needed here.
+from api.utils.config import get_settings, Settings # Import Settings
+
 
 @dataclass
 class ConsolidationConfig:
@@ -11,4 +12,16 @@ class ConsolidationConfig:
     # Removed eps, as it's not used by HDBSCAN
     # eps: float = 0.3            # Initial DBSCAN epsilon (will be adjusted)
 
-    # Removed from_settings. This is now handled in config.py
+    # Add a method to get settings from the config file.
+    @classmethod
+    def from_settings(cls, settings: Settings) -> 'ConsolidationConfig':
+        """
+        Creates a ConsolidationConfig instance from a Settings object,
+        overriding default values with those from Settings if present.
+        """
+        return cls(
+            min_cluster_size=settings.min_cluster_size,
+            max_age_days=settings.memory_max_age_days,
+            consolidation_interval_hours=settings.consolidation_interval_hours,
+            # eps=settings.eps #removed, since we are using HDBSCAN now
+        )
