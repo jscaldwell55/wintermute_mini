@@ -24,7 +24,6 @@ def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
     return ConsolidationConfig(
         min_cluster_size=settings.min_cluster_size,
-        max_age_days=settings.memory_max_age_days,
         consolidation_interval_hours=settings.consolidation_interval_hours
     )
 
