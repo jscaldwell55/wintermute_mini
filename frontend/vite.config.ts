@@ -1,3 +1,4 @@
+// vite.config.ts (FINAL CORRECT VERSION)
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -17,21 +18,19 @@ export default defineConfig({
     ],
     resolve: {
         alias: {
-            '@': path.resolve(__dirname, './src'),
+            '@': path.resolve(__dirname, './src'), // Correct alias for src
         },
     },
     build: {
-        outDir: '../dist', // Output to project root's dist/
+        outDir: '../dist', // Output to the project root's dist/
         sourcemap: false,
         rollupOptions: {
-            // No need for manual input if index.html is in the root.
-            // Vite will find it automatically
+            // NO input option here. Let Vite handle index.html
             output: {
                 manualChunks: {
                     vendor: [
                         'react',
                         'react-dom',
-                        'recharts',
                         'lucide-react',
                     ],
                 },
@@ -46,13 +45,13 @@ export default defineConfig({
             },
         },
     },
-    optimizeDeps: {
-        include: ['react', 'react-dom', 'recharts', 'lucide-react'],
+     optimizeDeps: {
+        include: ['react', 'react-dom', 'lucide-react'],
     },
     server: {
         port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
         host: '0.0.0.0',
         strictPort: true,
     },
-    root: './', // Add this to point to project root
+     root: '../', // Set the root to the project root.  CRUCIAL.
 });
