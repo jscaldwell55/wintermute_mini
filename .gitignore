@@ -102,6 +102,7 @@ changes.patch
 
 # Ignore React specific folders
 build/
+background.py
 
 # Python cache
 *.py[cod]
