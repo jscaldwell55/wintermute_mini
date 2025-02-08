@@ -21,12 +21,11 @@ export default defineConfig({
         },
     },
     build: {
-        outDir: 'dist',
+        outDir: '../dist', // Output to project root's dist/
         sourcemap: false,
         rollupOptions: {
-            input: {
-                main: path.resolve(__dirname, 'index.html'),
-            },
+            // No need for manual input if index.html is in the root.
+            // Vite will find it automatically
             output: {
                 manualChunks: {
                     vendor: [
@@ -38,7 +37,6 @@ export default defineConfig({
                 },
             },
         },
-        // Add chunk size optimizations
         chunkSizeWarningLimit: 1000,
         minify: 'terser',
         terserOptions: {
@@ -48,7 +46,6 @@ export default defineConfig({
             },
         },
     },
-    // Optimize memory usage
     optimizeDeps: {
         include: ['react', 'react-dom', 'recharts', 'lucide-react'],
     },
@@ -57,4 +54,5 @@ export default defineConfig({
         host: '0.0.0.0',
         strictPort: true,
     },
+    root: './', // Add this to point to project root
 });
