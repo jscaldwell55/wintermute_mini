@@ -21,8 +21,8 @@ export default defineConfig({
         },
     },
     build: {
-        outDir: '../dist',
-        emptyOutDir: true, // Add this to handle the warning about outDir
+        outDir: '../dist', // Correct: Outputs to project root's dist/
+        emptyOutDir: true, // Good practice: Cleans the output directory
         sourcemap: false,
         rollupOptions: {
             output: {
@@ -52,6 +52,5 @@ export default defineConfig({
         host: '0.0.0.0',
         strictPort: true,
     },
-    // Remove the root: '../' line or set it to:
-    root: './',  // This will use the frontend directory as root
+     root: './', //  Correct: frontend is the root for vite
 });
