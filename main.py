@@ -550,6 +550,7 @@ async def debug_query(request: Request):
         },
     }
 
+#main.py
 @api_router.post("/query", response_model=QueryResponse)
 async def query_memory(
     request: Request,
@@ -590,9 +591,13 @@ async def query_memory(
         episodic_memories = []
         for match in episodic_results:
             memory_data, _ = match
+            created_at_str = memory_data["metadata"]["created_at"]
+            if not created_at_str.endswith("Z"):
+                created_at_str += "Z"
             created_at = datetime.fromisoformat(
-                memory_data["metadata"]["created_at"].replace("Z", "+00:00")
+                created_at_str.replace("Z", "+00:00")
             )
+
             time_ago = (
                 datetime.now(timezone.utc) - created_at
             ).total_seconds()
