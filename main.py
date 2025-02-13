@@ -591,12 +591,21 @@ async def query_memory(
         episodic_memories = []
         for match in episodic_results:
             memory_data, _ = match
-            created_at_str = memory_data["metadata"]["created_at"]
-            if not created_at_str.endswith("Z"):
-                created_at_str += "Z"
-            created_at = datetime.fromisoformat(
-                created_at_str.replace("Z", "+00:00")
-            )
+            created_at_raw = memory_data["metadata"]["created_at"]
+
+            if isinstance(created_at_raw, str):
+                # Handle ISO 8601 strings (with or without 'Z')
+                if not created_at_raw.endswith("Z"):
+                    created_at_raw += "Z"
+                created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+            elif isinstance(created_at_raw, (int, float)):
+                # Handle numeric timestamps (assume seconds since epoch)
+                created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
+            else:
+                # Handle unexpected types (shouldn't happen, but be safe)
+                logger.warning(f"Unexpected created_at type: {type(created_at_raw)} in memory {memory_data['id']}")
+                created_at = datetime.now(timezone.utc) # Use current time as fallback
+
 
             time_ago = (
                 datetime.now(timezone.utc) - created_at
