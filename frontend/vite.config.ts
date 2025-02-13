@@ -1,4 +1,3 @@
-// vite.config.ts (FINAL CORRECT VERSION)
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -18,14 +17,14 @@ export default defineConfig({
     ],
     resolve: {
         alias: {
-            '@': path.resolve(__dirname, './src'), // Correct alias for src
+            '@': path.resolve(__dirname, './src'),
         },
     },
     build: {
-        outDir: '../dist', // Output to the project root's dist/
+        outDir: '../dist',
+        emptyOutDir: true, // Add this to handle the warning about outDir
         sourcemap: false,
         rollupOptions: {
-            // NO input option here. Let Vite handle index.html
             output: {
                 manualChunks: {
                     vendor: [
@@ -45,7 +44,7 @@ export default defineConfig({
             },
         },
     },
-     optimizeDeps: {
+    optimizeDeps: {
         include: ['react', 'react-dom', 'lucide-react'],
     },
     server: {
@@ -53,5 +52,6 @@ export default defineConfig({
         host: '0.0.0.0',
         strictPort: true,
     },
-     root: '../', // Set the root to the project root.  CRUCIAL.
+    // Remove the root: '../' line or set it to:
+    root: './',  // This will use the frontend directory as root
 });

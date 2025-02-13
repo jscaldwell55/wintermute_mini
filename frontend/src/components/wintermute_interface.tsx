@@ -39,7 +39,7 @@ const WintermuteInterface: React.FC = () => {
 
     return (
         <div className="flex flex-col items-center justify-start w-full h-full p-8 space-y-6">
-            <h1 className="text-4xl font-bold">Wintermute</h1>
+            <h1 className="text-4xl font-bold">wintermute ai system</h1>
             <textarea
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
