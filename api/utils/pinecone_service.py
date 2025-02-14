@@ -1,7 +1,7 @@
-# api/utils/pinecone_service.py (MINIMAL CHANGES)
+# api/utils/pinecone_service.py
 
 import pinecone
-from pinecone import Index, Pinecone, ServerlessSpec, PodSpec
+from pinecone import Index, Pinecone, PodSpec  # Corrected import
 from typing import List, Dict, Any, Tuple, Optional
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.exceptions import PineconeError, MemoryOperationError
@@ -45,9 +45,6 @@ class PineconeService(MemoryService):
             raise PineconeError("Pinecone index failed to initialize.")
 
         return self._index
-      
-    #Remove duplicate init
-    # def __init__(self, api_key: str, environment: str, index_name: str):
 
     def _initialize_pinecone(self):
         """Initializes the Pinecone client and index with error handling."""
@@ -69,7 +66,7 @@ class PineconeService(MemoryService):
                     name=self.index_name,
                     dimension=self.embedding_dimension,
                     metric="cosine",
-                    spec=pinecone.PodSpec(environment=self.environment)
+                    spec=pinecone.PodSpec(environment=self.environment)  # Corrected
                 )
                 logger.info(f"Index '{self.index_name}' created.")
             else:
@@ -112,7 +109,7 @@ class PineconeService(MemoryService):
                 elif isinstance(value, list) and all(isinstance(x, str) for x in value):
                     cleaned_metadata[key] = value
                 else:
-                    cleaned_metadata[key] = str(value)
+                    cleaned_metadata[key] = str(value)  # Convert to string
 
             logger.info(f"📝 Creating memory in Pinecone: {memory_id}")
             self.index.upsert(vectors=[(memory_id, vector, cleaned_metadata)])
@@ -137,19 +134,20 @@ class PineconeService(MemoryService):
 
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
+        """Fetches a memory from Pinecone by its ID."""
         try:
             if self.index is None:
                 logger.error("❌ Pinecone index is None! Cannot fetch memory.")
                 return None
 
             logger.info(f"🔍 Fetching memory from Pinecone: {memory_id}")
-            response = self.index.fetch(ids=[memory_id])
+            response = self.index.fetch(ids=[memory_id]) #removed the await since this isn't async
 
             if response is None:
                 logger.error(f"❌ Pinecone returned None for memory_id '{memory_id}'")
                 return None
 
-            if memory_id in response['vectors']:
+            if 'vectors' in response and memory_id in response['vectors']:
                 vector_data = response['vectors'][memory_id]
                 return {
                     'id': memory_id,
@@ -163,14 +161,15 @@ class PineconeService(MemoryService):
             logger.error(f"❌ Failed to retrieve memory from Pinecone: {e}")
             raise PineconeError(f"Failed to retrieve memory: {e}") from e
 
-
     async def update_memory(self, memory_id: str, vector: List[float], metadata: Dict[str, Any]) -> bool:
         """Updates an existing memory in Pinecone."""
         try:
-            self.index.update(id=memory_id, values=vector, set_metadata=metadata)
+            # Use the 'upsert' method, which acts as an update if the ID already exists
+            self.index.upsert(vectors=[(memory_id, vector, metadata)])
+            logger.info(f"📝 Memory updated in Pinecone: {memory_id}")
             return True
         except Exception as e:
-            logger.error(f"Failed to update memory in Pinecone: {e}")
+            logger.error(f"❌ Failed to update memory in Pinecone: {e}")
             raise PineconeError(f"Failed to update memory: {e}") from e
 
     async def delete_memory(self, memory_id: str) -> bool:
@@ -183,49 +182,43 @@ class PineconeService(MemoryService):
             logger.error(f"Failed to delete memory from Pinecone: {e}")
             raise PineconeError(f"Failed to delete memory: {e}") from e
 
-    # api/utils/pinecone_service.py
-async def query_memories(
+
+    async def query_memories(
         self,
         query_vector: List[float],
         top_k: int = 10,
         filter: Optional[Dict[str, Any]] = None,
-        include_metadata: bool = False
+        include_metadata: bool = True #default to True
     ) -> List[Tuple[Dict[str, Any], float]]:
-    """Queries the Pinecone index."""
-    try:
-        logger.info(f"Querying Pinecone with vector: {query_vector[:10]}..., top_k: {top_k}, filter: {filter}, include_metadata: {include_metadata}")  # Log inputs
+        """Queries the Pinecone index."""
+        try:
+            logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
+            results = self.index.query(
+                vector=query_vector,
+                top_k=top_k,
+                include_values=True, #always include values
+                include_metadata=include_metadata,
+                filter=filter
+            )
 
-        results = self.index.query(
-            vector=query_vector,
-            top_k=top_k,
-            include_values=True,  # We need the vectors
-            include_metadata=include_metadata,
-            filter=filter
-        )
+            logger.info(f"Raw Pinecone results: {str(results)[:200]}")  # Log first 200 chars
 
-        logger.info(f"Raw Pinecone results: {str(results)[:500]}")  # Log *full* results (first 500 chars)
-
-        memories_with_scores = []
-        for result in results['matches']:
-            logger.info(f"Processing result: {result}")  # Log each individual result
-            try:
+            memories_with_scores = []
+            for result in results['matches']:
+                logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
                 memory_data = {
                     'id': result['id'],
                     'metadata': result['metadata'],
-                    'vector': result.get('values', [0.0] * self.embedding_dimension),  # Provide default
-                    'content': result['metadata'].get('content', ''),  # Provide default
-                    'memory_type': result['metadata'].get('memory_type', 'EPISODIC') # Provide default
+                    'vector': result.get('values', [0.0] * self.embedding_dimension),
+                    'content': result['metadata'].get('content', ''),
+                    'memory_type': result['metadata'].get('memory_type', 'EPISODIC')
                 }
                 memories_with_scores.append((memory_data, result['score']))
-            except Exception as e:
-                logger.error(f"Error processing result: {e}", exc_info=True)
-                raise
-        logger.info(f"Returning {len(memories_with_scores)} memories with scores")
-        return memories_with_scores
+            return memories_with_scores
 
-    except Exception as e:
-        logger.error(f"Failed to query memories from Pinecone: {e}", exc_info=True)
-        raise PineconeError(f"Failed to query memories: {e}") from e
+        except Exception as e:
+            logger.error(f"Failed to query memories from Pinecone: {e}")
+            raise PineconeError(f"Failed to query memories: {e}") from e
 
     async def delete_all_episodic_memories(self) -> None:
         """Deletes ALL episodic memories."""
