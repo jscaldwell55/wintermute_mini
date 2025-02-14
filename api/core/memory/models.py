@@ -2,10 +2,9 @@
 from enum import Enum
 from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel, Field, validator, field_validator
-from datetime import datetime
+from datetime import datetime  # Import datetime
 from uuid import uuid4
-from api.utils.config import get_settings
-
+# from api.utils.config import get_settings # Removed, not needed here
 
 class MemoryType(str, Enum):
     EPISODIC = "EPISODIC"
@@ -39,7 +38,7 @@ class CreateMemoryRequest(BaseModel):
     def validate_content_length(cls, v):
         if not v:
             raise ValueError("Content cannot be empty")
-        if len(v) > 32000:
+        if len(v) > 32000:  # You might want a smaller limit
             raise ValueError("Content exceeds maximum length of 32000 characters")
         return v
 
@@ -47,7 +46,7 @@ class Memory(BaseModel):
     id: str
     content: str
     memory_type: MemoryType
-    created_at: str  # Changed back to str
+    created_at: datetime  # Changed to datetime object
     metadata: Dict[str, Any]
     window_id: Optional[str] = None
     semantic_vector: Optional[List[float]] = None
@@ -59,7 +58,7 @@ class Memory(BaseModel):
             id=self.id,
             content=self.content,
             memory_type=self.memory_type,
-            created_at=self.created_at,
+            created_at=self.created_at.isoformat() + "Z",  # Format as ISO string with Z here
             metadata=self.metadata,
             window_id=self.window_id,
             semantic_vector=self.semantic_vector,
@@ -79,12 +78,12 @@ class MemoryResponse(BaseModel):
     id: str
     content: str
     memory_type: MemoryType
-    created_at: str  # Changed back to str
+    created_at: str  # Keep as string in the *response*
     metadata: Dict[str, Any]
     window_id: Optional[str] = None
     semantic_vector: Optional[List[float]] = None
     trace_id: Optional[str] = None
-    error: Optional[ErrorDetail] = None
+    error: Optional[ErrorDetail] = None #allow for errors
 
     @classmethod
     def from_memory(cls, memory: Memory) -> 'MemoryResponse':
@@ -101,7 +100,7 @@ class MemoryResponse(BaseModel):
         )
 
 class QueryRequest(BaseModel):
-    query: str
+    #query: str  <- REMOVE THIS.  You're using "prompt"
     prompt: str = Field(..., description="The query prompt")
     top_k: int = Field(
         default=5,  # Default to 5
@@ -114,12 +113,14 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     """Response model for memory queries"""
-    matches: List[MemoryResponse] = Field(..., description="List of matching memories")
-    similarity_scores: List[float] = Field(..., description="Similarity scores for each match")
+    matches: List[MemoryResponse] = Field(default_factory=list)  # Initialize as empty list
+    similarity_scores: List[float] = Field(default_factory=list)   # Initialize as empty list
     response: Optional[str] = Field(None, description="Generated response from the LLM")
     trace_id: Optional[str] = None
     error: Optional[ErrorDetail] = None
     metadata: Optional[Dict[str, Any]] = None # to contain success: bool
+
+
 
 class BatchOperationResponse(BaseModel):
     """Response model for batch operations"""

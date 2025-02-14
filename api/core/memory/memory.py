@@ -301,15 +301,15 @@ class MemorySystem:
         """Stores a user interaction (query + response) as a new episodic memory."""
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
-            # Create a semantic vector for the interaction.  Consider combining query + response.
+            # Combine query and response into a SINGLE string:
             interaction_text = f"{query} {response}"
             semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
 
             memory_id = f"mem_{uuid.uuid4().hex}"
             metadata = {
-                "content": interaction_text,
+                "content": interaction_text,  # Store the COMBINED text
                 "memory_type": "EPISODIC",
-                "created_at": datetime.now(timezone.utc).isoformat() + "Z",
+                "created_at": datetime.now(timezone.utc).isoformat() + "Z", # Use consistent format
                 "window_id": window_id,
                 "source": "user_interaction"  # Indicate the source of this memory
             }
@@ -321,7 +321,6 @@ class MemorySystem:
             )
             logger.info(f"Episodic memory stored successfully: {memory_id}")
 
-            # Construct and return the Memory object (important for consistency)
             return Memory(
                 id=memory_id,
                 content=interaction_text,
