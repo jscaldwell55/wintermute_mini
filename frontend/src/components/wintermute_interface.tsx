@@ -22,9 +22,13 @@ const WintermuteInterface: React.FC = () => {
         setLoading(true);
         setError(null);
         setResponse(null);
+        const submittedQuery = query; //capture query
+        setQuery(''); // Clear the input field *before* the API call
+
 
         try {
-            const data: QueryResponse = await queryAPI(query, windowId);
+            //const data: QueryResponse = await queryAPI(query, windowId); // Use captured query
+            const data: QueryResponse = await queryAPI(submittedQuery, windowId); // Use captured query
             if (data.error) {
                 setError(data.error);
             } else if (data.response) {
