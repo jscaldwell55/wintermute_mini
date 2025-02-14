@@ -45,7 +45,6 @@ const WintermuteInterface: React.FC = () => {
 
     return (
         <div className="flex flex-col items-center justify-start w-full h-full p-8 space-y-6">
-            <h1 className="text-4xl font-bold">wintermute ai</h1>
             <textarea
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -63,14 +62,14 @@ const WintermuteInterface: React.FC = () => {
 
             {error && (
                 <div className="w-full max-w-md p-4 text-red-500 bg-red-900 border border-red-500 rounded-lg">
-                <p className="font-bold">{error.code}</p>
-                <p>{error.message}</p>
-                {error.details && (
-                    <pre className="mt-2 text-sm">
-                        {JSON.stringify(error.details, null, 2)}
-                    </pre>
-                )}
-            </div>
+                    <p className="font-bold">{error.code}</p>
+                    <p>{error.message}</p>
+                    {error.details && (
+                        <pre className="mt-2 text-sm">
+                            {JSON.stringify(error.details, null, 2)}
+                        </pre>
+                    )}
+                </div>
             )}
 
             {response && (
