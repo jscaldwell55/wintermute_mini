@@ -1,5 +1,4 @@
-# main.py (MINIMAL CHANGES)
-# ... other imports ...
+# main.py
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -17,7 +16,7 @@ from pydantic import ValidationError
 import uuid
 import time
 from starlette.routing import Mount
-from functools import lru_cache #import for caching
+from functools import lru_cache
 
 from api.core.memory.models import (
     CreateMemoryRequest,
@@ -36,18 +35,18 @@ from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.config import ConsolidationConfig
-from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config #CORRECTED
-from api.utils.prompt_templates import response_template
+from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
+from api.utils.prompt_templates import response_template  # Assuming you still have this
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
 api_router = APIRouter(prefix="/api/v1")
 
-# 2. Class Definitions
 logger = logging.getLogger(__name__)
 logger.info("Main module loading")
 logging.basicConfig(level=logging.INFO)
 
+# ... (RateLimitMiddleware, SystemComponents - No changes needed) ...
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: FastAPI, rate_limit: int = 100, window: int = 60):
         super().__init__(app)
@@ -136,7 +135,7 @@ class SystemComponents:
                 )
 
                 try:
-                    _ = self.pinecone_service.index
+                    _ = self.pinecone_service.index  # Force initialization
                     logger.info("✅ Pinecone service initialized successfully")
                 except Exception as e:
                     logger.error(f"Failed to initialize Pinecone service: {e}")
@@ -179,8 +178,6 @@ class SystemComponents:
         except Exception as e:
             logger.error(f"🚨 Error during system cleanup: {e}")
             raise
-
-
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
@@ -215,54 +212,29 @@ async def get_vector_operations() -> VectorOperations:
             detail="System initializing, please try again in a moment",
         )
     return components.vector_operations
+# ... (RateLimitMiddleware, SystemComponents - No changes) ...
 
-# 4. Static File Setup Function Definition (but don't call it yet)
+# Static File Setup (Corrected Path)
 def setup_static_files(app: FastAPI):
     """Configure static files serving with fallback for SPA routing"""
     try:
-        # First try to serve from the production build directory
-        static_dir = os.path.join(os.getcwd(), "frontend", "dist")
+        # Serve from the project root's 'dist' directory
+        static_dir = os.path.join(os.getcwd(), "dist") # Corrected path
         if os.path.exists(static_dir):
             logger.info(f"Mounting static files from: {static_dir}")
-            # Mount specific directories first
-            assets_dir = os.path.join(static_dir, "assets")
-            if os.path.exists(assets_dir):
-                app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-                logger.info(f"Mounted assets directory: {assets_dir}")
+            app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
-            # Add catch-all route for SPA routing
-            @app.get("/{full_path:path}")
-            async def serve_spa(full_path: str, request: Request):
-                logger.info(f"Received request for path: {full_path}")
+            # No need for a separate /assets mount, Vite handles that
+            # No need for catch-all routes, StaticFiles(..., html=True) handles SPA routing
 
-                # Always pass through API endpoints.  Use a tuple for startswith.
-                if full_path.startswith(("memories/", "health", "ping", "consolidate", "query", "api/")):
-                    logger.info(f"Passing through API request: {full_path}")
-                    raise HTTPException(status_code=404, detail="Not found")
-
-
-                logger.info(f"Serving static file for path: {full_path}")
-                static_file = os.path.join(static_dir, "index.html")
-                if os.path.exists(static_file):
-                    return FileResponse(static_file)
-                raise HTTPException(status_code=404, detail="Not found")
-
-
-            @app.get("/")
-            async def serve_root():
-                static_file = os.path.join(static_dir, "index.html")
-                if os.path.exists(static_file):
-                    logger.info(f"Serving root: {static_file}")
-                    return FileResponse(static_file)
-                raise HTTPException(status_code=404, detail="Not found")
         else:
-            logger.warning("No static files directory found")
+            logger.warning("No static files directory found at: %s", static_dir) # More specific warning
 
     except Exception as e:
         logger.error(f"Error setting up static files: {e}")
         raise
 
-# 5. Lifespan
+# ... (lifespan, app creation - No changes) ...
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -271,7 +243,6 @@ async def lifespan(app: FastAPI):
     finally:
         await components.cleanup()
 
-# 6. Create FastAPI App
 app = FastAPI(
     title="Project Wintermute Memory System",
     description="An AI assistant with semantic memory capabilities",
@@ -279,10 +250,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# --- API Router Setup ---
 api_router = APIRouter(prefix="/api/v1")
 
-# 7. Add Middleware (ONCE)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -293,8 +262,6 @@ app.add_middleware(
 app.add_middleware(RateLimitMiddleware, rate_limit=100, window=60)
 app.add_middleware(LoggingMiddleware)
 
-
-# 8. Define ALL API Routes using api_router
 @api_router.post("/consolidate")
 async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):
     try:
@@ -317,10 +284,8 @@ async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidatio
 @api_router.get("/ping")
 async def ping():
     return {"message": "pong"}
+# ... (health_check - No changes needed) ...
 
-# main.py (MINIMAL CHANGES - Continued)
-
-# ... (previous parts of main.py, including imports, middleware, etc.) ...
 @api_router.get("/health")
 async def health_check():
     services_status = {}
@@ -374,36 +339,46 @@ async def list_memories(
         if window_id:
             filter_dict["window_id"] = window_id
         if memory_type:
-            filter_dict["memory_type"] = memory_type.value.upper() # added uppercase
-        query_text = "Retrieve all memories"
+            filter_dict["memory_type"] = memory_type.value.upper()  # Use uppercase for consistency
+        query_text = "Retrieve all memories"  # Placeholder for vector creation
         query_vector = await memory_system.vector_operations.create_semantic_vector(
             query_text
         )
+        logger.info(f"Querying Pinecone with filter: {filter_dict}")  # Log the filter
+
         results = await memory_system.pinecone_service.query_memories(
             query_vector=query_vector,
             top_k=limit,
             filter=filter_dict if filter_dict else None,
             include_metadata=True,
         )
+
+        logger.info(f"Pinecone query returned {len(results)} results.")  # Log results count
+
         memories = []
         for memory_data, _ in results:
             try:
-                # Get 'created_at' safely, provide a default if missing.
-                created_at_str = memory_data["metadata"].get("created_at")
-                if created_at_str:
-                     # Ensure timezone awareness
-                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                created_at_raw = memory_data["metadata"].get("created_at")
 
+                # Handle different possible types for created_at
+                if isinstance(created_at_raw, str):
+                    if not created_at_raw.endswith("Z"):
+                        created_at_raw += "Z"  # Ensure 'Z' suffix
+                    created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+                elif isinstance(created_at_raw, (int, float)):
+                     created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
+                elif created_at_raw is None: #explicitly handle
+                    created_at = datetime.now(timezone.utc)
+                    logger.warning(f"Memory {memory_data['id']} is missing created_at, using current time.")
                 else:
-                    created_at = None  # Or some default datetime if appropriate
-                    logger.warning(f"Memory {memory_data['id']} missing created_at")
-
+                    logger.warning(f"Memory {memory_data['id']} has invalid created_at type: {type(created_at_raw)}")
+                    created_at = datetime.now(timezone.utc)
 
                 memory = Memory(
                     id=memory_data["id"],
                     content=memory_data["metadata"]["content"],
                     memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                    created_at=created_at,  # Use the parsed value
+                    created_at=created_at.isoformat() + "Z",  # Store as ISO string with Z
                     metadata=memory_data["metadata"],
                     window_id=memory_data["metadata"].get("window_id"),
                     semantic_vector=memory_data.get("vector"),
@@ -413,7 +388,9 @@ async def list_memories(
                 logger.error(f"Error converting memory {memory_data['id']}: {e}")
                 continue
         memories = memories[offset:]
+        logger.info(f"Returning {len(memories)} memories.")  # Log returned count
         return memories
+
     except MemoryOperationError as e:
         logger.error(f"Memory operation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -483,8 +460,6 @@ async def delete_memory(
         logger.error(f"Error deleting memory: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
 @api_router.options("/query")
 async def query_options():
     return {"message": "Options request successful"}
@@ -549,8 +524,6 @@ async def debug_query(request: Request):
             "body": body,
         },
     }
-
-#main.py
 @api_router.post("/query", response_model=QueryResponse)
 async def query_memory(
     request: Request,
@@ -580,6 +553,8 @@ async def query_memory(
         semantic_memories = [
             match[0]["metadata"]["content"] for match in semantic_results
         ]
+        logger.info(f"[{trace_id}] Semantic memories retrieved: {semantic_memories}")
+
 
         # --- Episodic Query --- (NO TIME FILTER)
         episodic_results = await memory_system.pinecone_service.query_memories(
@@ -588,28 +563,25 @@ async def query_memory(
             filter={"memory_type": "EPISODIC"},  # ONLY filter by type
             include_metadata=True,
         )
+        logger.info(f"[{trace_id}] Episodic memories retrieved: {len(episodic_results)}")
+
         episodic_memories = []
         for match in episodic_results:
-            memory_data, _ = match
+            memory_data, _ = match  # We only care about memory_data, not the score
             created_at_raw = memory_data["metadata"]["created_at"]
+            logger.info(f"[{trace_id}] Raw created_at: {created_at_raw}, type: {type(created_at_raw)}")
 
             if isinstance(created_at_raw, str):
-                # Handle ISO 8601 strings (with or without 'Z')
                 if not created_at_raw.endswith("Z"):
                     created_at_raw += "Z"
                 created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
             elif isinstance(created_at_raw, (int, float)):
-                # Handle numeric timestamps (assume seconds since epoch)
                 created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
             else:
-                # Handle unexpected types (shouldn't happen, but be safe)
-                logger.warning(f"Unexpected created_at type: {type(created_at_raw)} in memory {memory_data['id']}")
-                created_at = datetime.now(timezone.utc) # Use current time as fallback
+                logger.warning(f"[{trace_id}] Unexpected created_at type: {type(created_at_raw)} in memory {memory_data['id']}")
+                created_at = datetime.now(timezone.utc)
 
-
-            time_ago = (
-                datetime.now(timezone.utc) - created_at
-            ).total_seconds()
+            time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
             if time_ago < 60:
                 time_str = f"{int(time_ago)} seconds ago"
             elif time_ago < 3600:
@@ -617,17 +589,18 @@ async def query_memory(
             else:
                 time_str = f"{int(time_ago / 3600)} hours ago"
             episodic_memories.append(f"[{time_str}] {memory_data['metadata']['content']}")
+        logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
 
         prompt = response_template.format(
             query=query.prompt,
             semantic_memories=chr(10).join(semantic_memories),
             episodic_memories=chr(10).join(episodic_memories),
         )
-        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt}")
+        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...") # Limit logged prompt length
         response = await llm_service.generate_response_async(prompt)
         logger.info(f"[{trace_id}] Generated response successfully")
         try:
-            await memory_system.store_interaction(
+            await memory_system.store_interaction(  # Await the interaction storage
                 query=query.prompt,
                 response=response,
                 window_id=query.window_id,
@@ -671,23 +644,10 @@ async def query_memory(
             error=ErrorDetail(code="500", message="Internal Server Error", details={"error" : str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
-
-# --- Include Router and Setup Static Files ---
 app.include_router(api_router)
-# 9. Setup Static Files (LAST, ONCE)
 setup_static_files(app)
 
-# 10. Main Block
+
 if __name__ == "__main__":
-    try:
-        port = int(os.getenv("PORT", 8000))
-        host = os.getenv("HOST", "0.0.0.0")
-        reload = os.getenv("RELOAD", "true").lower() == "true"
-        log_config = uvicorn.config.LOGGING_CONFIG
-        log_config["formatters"]["default"][
-            "fmt"
-        ] = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        uvicorn.run("main:app", host=host, port=port, reload=reload, log_config=log_config)
-    except Exception as e:
-        logger.error(f"Failed to start server: {str(e)}")
-        sys.exit(1)
+    port = int(os.environ.get("PORT", 8000))  # Get port from environment variable, default to 8000
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True, log_level="info")
