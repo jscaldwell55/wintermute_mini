@@ -115,4 +115,5 @@ __pycache__/
 # Ignore local testing server files
 localStorage/
 
-
+backstory_memories.txt
+populate.py
