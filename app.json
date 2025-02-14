@@ -1,41 +1,41 @@
 {
-    "name": "project-wintermute",
-    "description": "AI Assistant with Semantic Memory",
-    "keywords": ["python", "fastapi", "react", "ai", "memory"],
-    "env": {
-      "OPENAI_API_KEY": {
-        "description": "OpenAI API key for embeddings and LLM",
-        "required": true
-      },
-      "PINECONE_API_KEY": {
-        "description": "Pinecone API key for vector storage",
-        "required": true
-      },
-      "PINECONE_ENVIRONMENT": {
-        "description": "Pinecone environment",
-        "required": true
-      },
-      "NODE_ENV": {
-        "description": "Node environment",
-        "value": "production"
-      },
-      "VITE_API_URL": {
-        "description": "Backend API URL",
-        "required": true
-      }
+  "name": "project-wintermute",
+  "description": "AI Assistant with Semantic Memory",
+  "keywords": ["python", "fastapi", "react", "ai", "memory"],
+  "env": {
+    "OPENAI_API_KEY": {
+      "description": "OpenAI API key for embeddings and LLM",
+      "required": true
     },
-    "formation": {
-      "web": {
-        "quantity": 1,
-        "size": "standard-2x"
-      }
+    "PINECONE_API_KEY": {
+      "description": "Pinecone API key for vector storage",
+      "required": true
     },
-    "addons": [
-      "heroku-postgresql:hobby-dev",
-      "papertrail:choklad"
-    ],
-    "buildpacks": [
-      { "url": "heroku/python" },
-      { "url": "heroku/nodejs" }
-    ]
-  }
+    "PINECONE_ENVIRONMENT": {
+      "description": "Pinecone environment",
+      "required": true
+    },
+    "NODE_ENV": {
+      "description": "Node environment",
+      "value": "production"
+    },
+    "VITE_API_URL": {
+      "description": "Backend API URL",
+      "required": true
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "standard-2x"
+    }
+  },
+  "addons": [
+    "heroku-postgresql:hobby-dev",
+    "papertrail:choklad"
+  ],
+  "buildpacks": [
+    { "url": "heroku/python" },
+    { "url": "heroku/nodejs" }
+  ]
+}
