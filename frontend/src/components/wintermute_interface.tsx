@@ -1,12 +1,15 @@
+// src/components/WintermuteInterface.tsx
 import React, { useState, useEffect } from 'react';
 import { queryAPI } from '../services/api';
-import { QueryResponse } from '../types';
+import { QueryResponse, ErrorDetail } from '../types';
+
+console.log("WintermuteInterface.tsx is being executed");
 
 const WintermuteInterface: React.FC = () => {
     const [query, setQuery] = useState<string>('');
     const [response, setResponse] = useState<string | null>(null);
     const [loading, setLoading] = useState<boolean>(false);
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<ErrorDetail | null>(null);
     const [windowId, setWindowId] = useState<string>('');
 
     useEffect(() => {
@@ -23,14 +26,18 @@ const WintermuteInterface: React.FC = () => {
         try {
             const data: QueryResponse = await queryAPI(query, windowId);
             if (data.error) {
-                setError(data.error.message || 'An API error occurred.');
+                setError(data.error);
             } else if (data.response) {
                 setResponse(data.response);
             } else {
                 setResponse("No response from the AI.");
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'An unknown error occurred.');
+            setError({
+                code: 'UNKNOWN_ERROR',
+                message: err instanceof Error ? err.message : 'An unknown error occurred',
+                timestamp: new Date().toISOString()
+            });
         } finally {
             setLoading(false);
         }
@@ -38,12 +45,13 @@ const WintermuteInterface: React.FC = () => {
 
     return (
         <div className="flex flex-col items-center justify-start w-full h-full p-8 space-y-6">
+            <h1 className="text-4xl font-bold">wintermute ai</h1>
             <textarea
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="w-full max-w-md p-4 border rounded-lg text-gray-300 bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Enter your query here..."
-                rows={4} // Control height with rows
+                rows={4}
             />
             <button
                 onClick={handleQuery}
@@ -54,9 +62,15 @@ const WintermuteInterface: React.FC = () => {
             </button>
 
             {error && (
-                <div className="w-full max-w-md p-4 text-red-500 bg-red-900 border border-red-500 rounded-lg">
-                    {error}
-                </div>
+                 <div className="w-full max-w-md p-4 text-red-500 bg-red-900 border border-red-500 rounded-lg">
+                 <p className="font-bold">{error.code}</p>
+                 <p>{error.message}</p>
+                 {error.details && (
+                     <pre className="mt-2 text-sm">
+                         {JSON.stringify(error.details, null, 2)}
+                     </pre>
+                 )}
+             </div>
             )}
 
             {response && (
@@ -64,8 +78,6 @@ const WintermuteInterface: React.FC = () => {
                     <p className="whitespace-pre-wrap">{response}</p>
                 </div>
             )}
-              <p className="absolute top-4 right-4 text-sm text-gray-500">By Jay</p>
-
         </div>
     );
 };
