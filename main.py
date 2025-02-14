@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import asyncio
 import sys
 import os
@@ -18,6 +18,8 @@ import time
 from starlette.routing import Mount
 from functools import lru_cache
 
+# Corrected import: Use the instance, batty_response_template
+from api.utils.prompt_templates import batty_response_template
 from api.core.memory.models import (
     CreateMemoryRequest,
     MemoryResponse,
@@ -36,7 +38,7 @@ from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.config import ConsolidationConfig
 from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
-from api.utils.prompt_templates import batty_response_template  # Corrected import
+# from api.utils.prompt_templates import response_template  <- REMOVE THIS
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
@@ -360,6 +362,7 @@ async def list_memories(
 
         memories = []
         for memory_data, _ in results:
+            logger.info(f"memory data from result: {memory_data}")
             try:
                 created_at_raw = memory_data["metadata"].get("created_at")
 
@@ -530,13 +533,14 @@ async def debug_query(request: Request):
         },
     }
 from api.utils.prompt_templates import batty_response_template
+
 @api_router.post("/query", response_model=QueryResponse)
 async def query_memory(
     request: Request,
     query: QueryRequest,
     memory_system: MemorySystem = Depends(get_memory_system),
     llm_service: LLMService = Depends(lambda: components.llm_service)
-) -> QueryResponse:
+) -> QueryResponse:  # Added return type hint
 
     trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     query.request_metadata = RequestMetadata(
@@ -553,41 +557,41 @@ async def query_memory(
         # --- Semantic Query ---
         semantic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
-            top_k=3,
+            top_k=3,  # You can adjust this
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
         )
-        semantic_memories = [
-            match[0]["metadata"]["content"] for match in semantic_results
-        ]
+        # Extract just the content strings:
+        semantic_memories = [match[0]["metadata"]["content"] for match in semantic_results]
         logger.info(f"[{trace_id}] Semantic memories retrieved: {semantic_memories}")
 
-        # --- Episodic Query ---
+        # --- Episodic Query --- (NO TIME FILTER)
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
-            top_k=5,
-            filter={"memory_type": "EPISODIC"},
+            top_k=5,  # You can adjust this
+            filter={"memory_type": "EPISODIC"},  # ONLY filter by type
             include_metadata=True,
         )
         logger.info(f"[{trace_id}] Episodic memories retrieved: {len(episodic_results)}")
-
         episodic_memories = []
         for match in episodic_results:
-            memory_data, _ = match
+            memory_data, _ = match  # We only care about memory_data, not the score
             created_at_raw = memory_data["metadata"]["created_at"]
             logger.info(f"[{trace_id}] Raw created_at: {created_at_raw}, type: {type(created_at_raw)}")
 
             if isinstance(created_at_raw, str):
+                # Handle ISO 8601 strings (with or without 'Z')
                 if not created_at_raw.endswith("Z"):
                     created_at_raw += "Z"
                 created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
             elif isinstance(created_at_raw, (int, float)):
+                # Handle numeric timestamps (assume seconds since epoch)
                 created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
             else:
+                # Handle unexpected types (shouldn't happen, but be safe)
                 logger.warning(f"[{trace_id}] Unexpected created_at type: {type(created_at_raw)} in memory {memory_data['id']}")
                 created_at = datetime.now(timezone.utc)
 
-            # --- FORMAT EPISODIC MEMORIES CORRECTLY ---
             time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
             if time_ago < 60:
                 time_str = f"{int(time_ago)} seconds ago"
@@ -595,24 +599,18 @@ async def query_memory(
                 time_str = f"{int(time_ago / 60)} minutes ago"
             else:
                 time_str = f"{int(time_ago / 3600)} hours ago"
-
-            # Just append the *content*, NOT a formatted string with "Query:" and "Response:".
             episodic_memories.append(f"{time_str}: {memory_data['metadata']['content']}") #Keep the timestamp
         logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
 
 
         # --- Construct the Prompt ---
-        # 1. Join memories into strings (already correct)
-        semantic_memories_str = "\n".join(semantic_memories)
-        episodic_memories_str = "\n".join(episodic_memories)
-
-        # 2. Format the prompt using the template (already correct)
         prompt = batty_response_template.format(
             query=query.prompt,
-            semantic_memories=semantic_memories_str,  # Pass the strings
-            episodic_memories=episodic_memories_str,  # Pass the strings
+            semantic_memories="\n".join(semantic_memories),  # Pass the strings
+            episodic_memories="\n".join(episodic_memories),  # Pass the strings
         )
-        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
+
+        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")  # Limit logged prompt length
 
         # --- Generate Response ---
         response = await llm_service.generate_response_async(
@@ -623,8 +621,8 @@ async def query_memory(
 
         # --- Store Interaction (Episodic Memory) ---
         try:
-            await memory_system.store_interaction(
-                query=query.prompt,
+            await memory_system.store_interaction(  # Await the interaction storage
+                query=query.prompt, #now using prompt
                 response=response,
                 window_id=query.window_id,
             )
@@ -633,6 +631,7 @@ async def query_memory(
             logger.error(
                 f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True
             )
+        # Always return a QueryResponse, even in error cases
         return QueryResponse(
             response=response, matches=[], trace_id=trace_id, similarity_scores=[], error=None,
             metadata={"success": True}
@@ -640,7 +639,7 @@ async def query_memory(
 
     except ValidationError as e:
         logger.error(f"[{trace_id}] Validation error: {str(e)}", exc_info=True)
-        return QueryResponse( # Return QueryResponse for errors
+        return QueryResponse(  # Return QueryResponse for errors
             response=None,
             matches=[],
             trace_id=trace_id,
@@ -650,7 +649,7 @@ async def query_memory(
         )
     except MemoryOperationError as e:
         logger.error(f"[{trace_id}] Memory operation error: {str(e)}", exc_info=True)
-        return QueryResponse( # Return QueryResponse for errors
+        return QueryResponse(  # Return QueryResponse for errors
             response=None,
             matches=[],
             trace_id=trace_id,
@@ -668,10 +667,7 @@ async def query_memory(
             error=ErrorDetail(code="500", message="Internal Server Error", details={"error" : str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
-# --- Include Router and Setup Static Files ---
 app.include_router(api_router)
-
-# 9. Setup Static Files (LAST, ONCE)
 setup_static_files(app)
 
 
