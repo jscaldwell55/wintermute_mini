@@ -183,42 +183,49 @@ class PineconeService(MemoryService):
             logger.error(f"Failed to delete memory from Pinecone: {e}")
             raise PineconeError(f"Failed to delete memory: {e}") from e
 
-    async def query_memories(
+    # api/utils/pinecone_service.py
+async def query_memories(
         self,
         query_vector: List[float],
         top_k: int = 10,
         filter: Optional[Dict[str, Any]] = None,
         include_metadata: bool = False
     ) -> List[Tuple[Dict[str, Any], float]]:
-        """Queries the Pinecone index."""
-        try:
-            logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
-            results = self.index.query(
-                vector=query_vector,
-                top_k=top_k,
-                include_values=True,
-                include_metadata=include_metadata,
-                filter=filter
-            )
+    """Queries the Pinecone index."""
+    try:
+        logger.info(f"Querying Pinecone with vector: {query_vector[:10]}..., top_k: {top_k}, filter: {filter}, include_metadata: {include_metadata}")  # Log inputs
 
-            logger.info(f"Raw Pinecone results: {str(results)[:200]}")
+        results = self.index.query(
+            vector=query_vector,
+            top_k=top_k,
+            include_values=True,  # We need the vectors
+            include_metadata=include_metadata,
+            filter=filter
+        )
 
-            memories_with_scores = []
-            for result in results['matches']:
-                logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
+        logger.info(f"Raw Pinecone results: {str(results)[:500]}")  # Log *full* results (first 500 chars)
+
+        memories_with_scores = []
+        for result in results['matches']:
+            logger.info(f"Processing result: {result}")  # Log each individual result
+            try:
                 memory_data = {
                     'id': result['id'],
                     'metadata': result['metadata'],
-                    'vector': result.get('values', [0.0] * self.embedding_dimension),
-                    'content': result['metadata'].get('content', ''),
-                    'memory_type': result['metadata'].get('memory_type', 'EPISODIC')
+                    'vector': result.get('values', [0.0] * self.embedding_dimension),  # Provide default
+                    'content': result['metadata'].get('content', ''),  # Provide default
+                    'memory_type': result['metadata'].get('memory_type', 'EPISODIC') # Provide default
                 }
                 memories_with_scores.append((memory_data, result['score']))
-            return memories_with_scores
+            except Exception as e:
+                logger.error(f"Error processing result: {e}", exc_info=True)
+                raise
+        logger.info(f"Returning {len(memories_with_scores)} memories with scores")
+        return memories_with_scores
 
-        except Exception as e:
-            logger.error(f"Failed to query memories from Pinecone: {e}")
-            raise PineconeError(f"Failed to query memories: {e}") from e
+    except Exception as e:
+        logger.error(f"Failed to query memories from Pinecone: {e}", exc_info=True)
+        raise PineconeError(f"Failed to query memories: {e}") from e
 
     async def delete_all_episodic_memories(self) -> None:
         """Deletes ALL episodic memories."""
