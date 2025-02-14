@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -386,7 +385,7 @@ async def list_memories(
                     id=memory_data["id"],
                     content=memory_data["metadata"]["content"],
                     memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                    created_at= created_at_str,  # Use the string here!
+                    created_at= created_at,  # Use datetime object
                     metadata=memory_data["metadata"],
                     window_id=memory_data["metadata"].get("window_id"),
                     semantic_vector=memory_data.get("vector"),
@@ -542,7 +541,7 @@ async def query_memory(
     query: QueryRequest,
     memory_system: MemorySystem = Depends(get_memory_system),
     llm_service: LLMService = Depends(lambda: components.llm_service)
-) -> QueryResponse:
+) -> QueryResponse:  # Added return type hint
 
     trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     query.request_metadata = RequestMetadata(
@@ -559,40 +558,35 @@ async def query_memory(
         # --- Semantic Query ---
         semantic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
-            top_k=3,
+            top_k=3,  # You can adjust this
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
         )
-        semantic_memories = [
-            match[0]["metadata"]["content"] for match in semantic_results
-        ]
+        # Extract just the content strings:
+        semantic_memories = [match[0]["metadata"]["content"] for match in semantic_results]
         logger.info(f"[{trace_id}] Semantic memories retrieved: {semantic_memories}")
 
         # --- Episodic Query --- (NO TIME FILTER)
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
-            top_k=5,
-            filter={"memory_type": "EPISODIC"},
+            top_k=5,  # You can adjust this
+            filter={"memory_type": "EPISODIC"},  # ONLY filter by type
             include_metadata=True,
         )
         logger.info(f"[{trace_id}] Episodic memories retrieved: {len(episodic_results)}")
-
         episodic_memories = []
         for match in episodic_results:
-            memory_data, _ = match
+            memory_data, _ = match  # We only care about memory_data, not the score
             created_at_raw = memory_data["metadata"]["created_at"]
             logger.info(f"[{trace_id}] Raw created_at: {created_at_raw}, type: {type(created_at_raw)}")
 
             if isinstance(created_at_raw, str):
-                if not created_at_raw.endswith("Z"):
-                    created_at_raw += "Z"
                 created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
             elif isinstance(created_at_raw, (int, float)):
                 created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
             else:
                 logger.warning(f"[{trace_id}] Unexpected created_at type: {type(created_at_raw)} in memory {memory_data['id']}")
                 created_at = datetime.now(timezone.utc)
-
 
             time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
             if time_ago < 60:
@@ -602,31 +596,31 @@ async def query_memory(
             else:
                 time_str = f"{int(time_ago / 3600)} hours ago"
 
-            # Extract and format the episodic memory content correctly:
-            episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")  # Truncate and prepend time
+            #  Store *only* the combined interaction text, prepended with time.
+            episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")  # Limit to 200 chars each
+
 
         logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
 
-
         # --- Construct the Prompt ---
-        prompt = batty_response_template.format( # Use the instance here
+        prompt = batty_response_template.format(
             query=query.prompt,
-            semantic_memories=semantic_memories,  # Pass the strings
-            episodic_memories=episodic_memories  # Pass the strings
+            semantic_memories=semantic_memories,  # Pass the limited list
+            episodic_memories=episodic_memories,  # Pass the limited list
         )
         logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
 
         # --- Generate Response ---
         response = await llm_service.generate_response_async(
             prompt,
-            max_tokens=batty_response_template.max_response_tokens
+            max_tokens=batty_response_template.max_response_tokens  # USE THE VALUE FROM THE TEMPLATE
         )
         logger.info(f"[{trace_id}] Generated response successfully")
 
         # --- Store Interaction (Episodic Memory) ---
         try:
-            await memory_system.store_interaction(
-                query=query.prompt,  # Pass the *query*, not the formatted prompt
+            await memory_system.store_interaction(  # Await the interaction storage
+                query=query.prompt,
                 response=response,
                 window_id=query.window_id,
             )
@@ -635,8 +629,9 @@ async def query_memory(
             logger.error(
                 f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True
             )
+        # Always return a QueryResponse, even in error cases
         return QueryResponse(
-            response=response, matches=[], trace_id=trace_id, similarity_scores=[], error=None, #Return proper format
+            response=response, matches=[], trace_id=trace_id, similarity_scores=[], error=None,
             metadata={"success": True}
         )
 
@@ -647,7 +642,7 @@ async def query_memory(
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="422", message="Validation Error", details=str(e), trace_id=trace_id),
+            error=ErrorDetail(code="422", message="Validation Error", details={"error" : str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
     except MemoryOperationError as e:
@@ -657,41 +652,20 @@ async def query_memory(
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="400", message="Memory Operation Error", details=str(e), trace_id=trace_id),
+            error=ErrorDetail(code="400", message="Memory Operation Error", details={"error" : str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
-
-    except Exception as e:
+    except Exception as e:  # Correctly handle other exceptions here
         logger.error(f"[{trace_id}] Unexpected error: {str(e)}", exc_info=True)
-        return QueryResponse( # Return QueryResponse for errors
+        return QueryResponse(
             response=None,
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="500", message="Internal Server Error", details=str(e), trace_id=trace_id),
+            error=ErrorDetail(code="500", message="Internal Server Error", details={"error": str(e)}, trace_id=trace_id), # Pass a dict
             metadata={"success": False}
         )
 # --- Include Router and Setup Static Files ---
-app.include_router(api_router)
-
-# 9. Setup Static Files (LAST, ONCE)
-setup_static_files(app)
-
-# 10. Main Block
-if __name__ == "__main__":
-    try:
-        port = int(os.getenv("PORT", 8000))
-        host = os.getenv("HOST", "0.0.0.0")
-        reload = os.getenv("RELOAD", "true").lower() == "true"
-        log_config = uvicorn.config.LOGGING_CONFIG
-        log_config["formatters"]["default"][
-            "fmt"
-        ] = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        uvicorn.run("main:app", host=host, port=port, reload=reload, log_config=log_config)
-    except Exception as e:
-        logger.error(f"Failed to start server: {str(e)}")
-        sys.exit(1)
-    
 app.include_router(api_router)
 setup_static_files(app)
 
