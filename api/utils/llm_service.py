@@ -121,7 +121,7 @@ class LLMService:
         self,
         prompt: str,
         temperature: float = None,
-        max_tokens: int = None,
+        max_tokens: int = None,  # Add this
         top_p: float = None,
         frequency_penalty: float = None,
         presence_penalty: float = None,
@@ -137,11 +137,11 @@ class LLMService:
             validated_prompt = await self.validate_prompt(prompt, minimal=is_health_check)
             estimated_prompt_tokens = len(validated_prompt.split())
             max_response_tokens = min(
-                max_tokens or self.default_max_tokens,
-                4096 - estimated_prompt_tokens - 100
+                max_tokens or self.default_max_tokens,  # Use provided value, or default
+                4096 - estimated_prompt_tokens - 100 #Making sure we account for tokens
             )
+             # Ensure max_response_tokens is not negative
             max_response_tokens = max(0, max_response_tokens)
-
             messages = []
             if system_message:
                 messages.append({"role": "system", "content": system_message})
@@ -151,7 +151,7 @@ class LLMService:
                 "model": self.model,
                 "messages": messages,
                 "temperature": temperature or self.default_temperature,
-                "max_tokens": max_response_tokens,
+                "max_tokens": max_response_tokens,  # Use calculated value
                 "top_p": top_p or self.default_top_p,
                 "frequency_penalty": frequency_penalty or self.default_frequency_penalty,
                 "presence_penalty": presence_penalty or self.default_presence_penalty
@@ -207,18 +207,20 @@ class LLMService:
                 exc_info=True  # Include the full traceback in the log
             )
 
+            # Re-raise as LLMServiceError for consistent error handling
             if isinstance(e, LLMServiceError):
-                raise
+                raise # Already the right type
             raise LLMServiceError(
                 operation="generate_response",
                 details=str(e)
-            ) from e
+            ) from e # Include original exception as cause
     async def generate_response_async(self, prompt: str, max_tokens: int = 500, **kwargs) -> str: #Added default
-        return await self.generate_gpt_response_async(prompt, max_tokens=max_tokens, **kwargs) # Pass max_tokens
+        return await self.generate_gpt_response_async(prompt, max_tokens=max_tokens, **kwargs)
 
     async def health_check(self) -> Dict[str, Any]:
         """
         Check the health of the LLM service using a minimal prompt.
+
         Returns:
             Dict containing health status and metrics
         """
