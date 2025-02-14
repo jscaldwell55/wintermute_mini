@@ -62,15 +62,15 @@ const WintermuteInterface: React.FC = () => {
             </button>
 
             {error && (
-                 <div className="w-full max-w-md p-4 text-red-500 bg-red-900 border border-red-500 rounded-lg">
-                 <p className="font-bold">{error.code}</p>
-                 <p>{error.message}</p>
-                 {error.details && (
-                     <pre className="mt-2 text-sm">
-                         {JSON.stringify(error.details, null, 2)}
-                     </pre>
-                 )}
-             </div>
+                <div className="w-full max-w-md p-4 text-red-500 bg-red-900 border border-red-500 rounded-lg">
+                <p className="font-bold">{error.code}</p>
+                <p>{error.message}</p>
+                {error.details && (
+                    <pre className="mt-2 text-sm">
+                        {JSON.stringify(error.details, null, 2)}
+                    </pre>
+                )}
+            </div>
             )}
 
             {response && (
