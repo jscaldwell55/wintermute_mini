@@ -379,12 +379,14 @@ async def list_memories(
                 else:
                     logger.warning(f"Memory {memory_data['id']} has invalid created_at type: {type(created_at_raw)}")
                     created_at = datetime.now(timezone.utc)
+                # Convert to ISO string with ZULU time *here*, consistently.
+                created_at_str = created_at.isoformat() + "Z"
 
                 memory = Memory(
                     id=memory_data["id"],
                     content=memory_data["metadata"]["content"],
                     memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                    created_at=created_at.isoformat() + "Z",  # Store as ISO string with Z
+                    created_at= created_at_str,  # Use the string here!
                     metadata=memory_data["metadata"],
                     window_id=memory_data["metadata"].get("window_id"),
                     semantic_vector=memory_data.get("vector"),
@@ -580,15 +582,12 @@ async def query_memory(
             logger.info(f"[{trace_id}] Raw created_at: {created_at_raw}, type: {type(created_at_raw)}")
 
             if isinstance(created_at_raw, str):
-                # Handle ISO 8601 strings (with or without 'Z')
                 if not created_at_raw.endswith("Z"):
                     created_at_raw += "Z"
                 created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
             elif isinstance(created_at_raw, (int, float)):
-                # Handle numeric timestamps (assume seconds since epoch)
                 created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
             else:
-                # Handle unexpected types (shouldn't happen, but be safe)
                 logger.warning(f"[{trace_id}] Unexpected created_at type: {type(created_at_raw)} in memory {memory_data['id']}")
                 created_at = datetime.now(timezone.utc)
 
@@ -599,18 +598,20 @@ async def query_memory(
                 time_str = f"{int(time_ago / 60)} minutes ago"
             else:
                 time_str = f"{int(time_ago / 3600)} hours ago"
-            episodic_memories.append(f"{time_str}: {memory_data['metadata']['content']}") #Keep the timestamp
-        logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
 
+            #  Store *only* the combined interaction text, prepended with time.
+            episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")  # Limit to 200 chars each
+
+
+        logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
 
         # --- Construct the Prompt ---
         prompt = batty_response_template.format(
             query=query.prompt,
-            semantic_memories="\n".join(semantic_memories),  # Pass the strings
-            episodic_memories="\n".join(episodic_memories),  # Pass the strings
+            semantic_memories=semantic_memories,  # Pass the limited list
+            episodic_memories=episodic_memories,  # Pass the limited list
         )
-
-        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")  # Limit logged prompt length
+        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
 
         # --- Generate Response ---
         response = await llm_service.generate_response_async(
@@ -622,7 +623,7 @@ async def query_memory(
         # --- Store Interaction (Episodic Memory) ---
         try:
             await memory_system.store_interaction(  # Await the interaction storage
-                query=query.prompt, #now using prompt
+                query=query.prompt,
                 response=response,
                 window_id=query.window_id,
             )
@@ -631,7 +632,6 @@ async def query_memory(
             logger.error(
                 f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True
             )
-        # Always return a QueryResponse, even in error cases
         return QueryResponse(
             response=response, matches=[], trace_id=trace_id, similarity_scores=[], error=None,
             metadata={"success": True}
@@ -667,6 +667,7 @@ async def query_memory(
             error=ErrorDetail(code="500", message="Internal Server Error", details={"error" : str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
+    
 app.include_router(api_router)
 setup_static_files(app)
 
