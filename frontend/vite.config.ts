@@ -25,6 +25,9 @@ export default defineConfig({
         emptyOutDir: true, // Good practice: Cleans the output directory
         sourcemap: false,
         rollupOptions: {
+            input: { // ADD THIS SECTION
+              main: path.resolve(__dirname, 'index.html'), // Point to your HTML file
+            },
             output: {
                 manualChunks: {
                     vendor: [
