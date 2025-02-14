@@ -36,7 +36,7 @@ from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.config import ConsolidationConfig
 from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
-from api.utils.prompt_templates import response_template  # Assuming you still have this
+from api.utils.prompt_templates import BattyResponseTemplate  # Assuming you still have this
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
@@ -591,7 +591,7 @@ async def query_memory(
             episodic_memories.append(f"[{time_str}] {memory_data['metadata']['content']}")
         logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
 
-        prompt = response_template.format(
+        prompt = BattyResponseTemplate.format(
             query=query.prompt,
             semantic_memories=chr(10).join(semantic_memories),
             episodic_memories=chr(10).join(episodic_memories),
