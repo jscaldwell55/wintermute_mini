@@ -1,4 +1,4 @@
-# llm_service.py
+# api/utils/llm_service.py
 import logging
 logging.basicConfig(level=logging.INFO)
 from openai import AsyncOpenAI
@@ -31,9 +31,9 @@ class LLMService:
         self.model = self.settings.llm_model_id
 
         # Default parameters
-        self.default_temperature = 0.7
+        self.default_temperature = 0.7 #modified
         self.default_max_tokens = 500
-        self.default_top_p = 1.0
+        self.default_top_p = 0.8 #modified
         self.default_frequency_penalty = 0.0
         self.default_presence_penalty = 0.0
 
@@ -82,7 +82,11 @@ class LLMService:
         stop=stop_after_attempt(3),
         before=before_log(logger, logging.WARNING)
     )
-    async def generate_summary(self, text: str, max_length: int = 500) -> str: # Corrected argument
+    async def generate_summary(
+        self,
+        text: str,
+        max_length: int = 500
+    ) -> str: # Corrected argument
         """
         Generate a summary of the given text.
 
@@ -113,7 +117,6 @@ class LLMService:
                 operation="generate_summary",
                 details=str(e)
             )
-
     async def generate_gpt_response_async(
         self,
         prompt: str,
@@ -125,57 +128,30 @@ class LLMService:
         system_message: str = None,
         is_health_check: bool = False
     ) -> str:
-        """
-        Generate a response using GPT model with retry logic and monitoring.
-
-        Args:
-            prompt: Input prompt
-            temperature: Response randomness (0-1)
-            max_tokens: Maximum response length
-            top_p: Nucleus sampling parameter
-            frequency_penalty: Frequency penalty parameter
-            presence_penalty: Presence penalty parameter
-            system_message: Optional system message to set context
-            is_health_check: Whether this is a health check call
-
-        Returns:
-            Generated response text
-
-        Raises:
-            LLMServiceError: For API or generation errors
-        """
-
-        # Log parameters BEFORE the API call
         logger.info(f"LLMService.generate_gpt_response_async called with prompt: '{prompt[:500]}...' (truncated), temperature: {temperature}, max_tokens: {max_tokens}, top_p: {top_p}, frequency_penalty: {frequency_penalty}, presence_penalty: {presence_penalty}, system_message: '{system_message[:500] if system_message else None}' (truncated), is_health_check: {is_health_check}")
 
         start_time = time.time()
         request_id = f"req_{int(start_time * 1000)}"  # Unique request ID
 
         try:
-            # Validate and potentially truncate the prompt
             validated_prompt = await self.validate_prompt(prompt, minimal=is_health_check)
-
-            # Calculate available tokens for response
             estimated_prompt_tokens = len(validated_prompt.split())
             max_response_tokens = min(
-                max_tokens or self.default_max_tokens,  # Use instance default
-                4096 - estimated_prompt_tokens - 100  # Reserve tokens for system message
+                max_tokens or self.default_max_tokens,
+                4096 - estimated_prompt_tokens - 100
             )
-             # Ensure max_response_tokens is not negative
             max_response_tokens = max(0, max_response_tokens)
 
-            # Prepare messages
             messages = []
             if system_message:
                 messages.append({"role": "system", "content": system_message})
             messages.append({"role": "user", "content": validated_prompt})
 
-            # Prepare parameters with defaults
             params = {
                 "model": self.model,
                 "messages": messages,
                 "temperature": temperature or self.default_temperature,
-                "max_tokens": max_response_tokens,  # Use calculated value
+                "max_tokens": max_response_tokens,
                 "top_p": top_p or self.default_top_p,
                 "frequency_penalty": frequency_penalty or self.default_frequency_penalty,
                 "presence_penalty": presence_penalty or self.default_presence_penalty
@@ -191,7 +167,6 @@ class LLMService:
                 }
             )
 
-            # Make API call
             response = await self.client.chat.completions.create(**params)
 
             if not response.choices:
@@ -203,7 +178,6 @@ class LLMService:
             result = response.choices[0].message.content.strip()
             duration = time.time() - start_time
 
-            # Log success metrics
             logger.info(
                 "LLM request completed successfully",
                 extra={
@@ -233,31 +207,18 @@ class LLMService:
                 exc_info=True  # Include the full traceback in the log
             )
 
-            # Re-raise as LLMServiceError for consistent error handling
             if isinstance(e, LLMServiceError):
-                raise # Already the right type
+                raise
             raise LLMServiceError(
                 operation="generate_response",
                 details=str(e)
-            ) from e # Include original exception as cause
-
-    async def generate_response_async(self, prompt: str, **kwargs) -> str:
-        """
-        Main method for generating responses, used by other methods.
-
-        Args:
-            prompt: Input prompt
-            **kwargs: Additional parameters to pass to generate_gpt_response_async
-
-        Returns:
-            Generated response text
-        """
-        return await self.generate_gpt_response_async(prompt, **kwargs)
+            ) from e
+    async def generate_response_async(self, prompt: str, max_tokens: int = 500, **kwargs) -> str: #Added default
+        return await self.generate_gpt_response_async(prompt, max_tokens=max_tokens, **kwargs) # Pass max_tokens
 
     async def health_check(self) -> Dict[str, Any]:
         """
         Check the health of the LLM service using a minimal prompt.
-
         Returns:
             Dict containing health status and metrics
         """
