@@ -1,3 +1,4 @@
+# main.py
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -41,6 +42,7 @@ from api.core.consolidation.consolidator import MemoryConsolidator, get_consolid
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
+# Keep only ONE router definition here:
 api_router = APIRouter(prefix="/api/v1")
 
 logger = logging.getLogger(__name__)
@@ -250,9 +252,6 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-
-# --- API Router Setup ---
-api_router = APIRouter(prefix="/api/v1")
 
 # 7. Add Middleware (ONCE)
 app.add_middleware(
@@ -533,9 +532,9 @@ async def debug_query(request: Request):
             "body": body,
         },
     }
-from api.utils.prompt_templates import batty_response_template
+# Removed duplicate import of batty_response_template
 
-@api_router.post("/query", response_model=QueryResponse)
+@api_router.post("/query", response_model=QueryResponse)  # Keep only ONE /query route
 async def query_memory(
     request: Request,
     query: QueryRequest,
@@ -577,27 +576,39 @@ async def query_memory(
         episodic_memories = []
         for match in episodic_results:
             memory_data, _ = match  # We only care about memory_data, not the score
-            created_at_raw = memory_data["metadata"]["created_at"]
+            created_at_raw = memory_data["metadata"].get("created_at")
             logger.info(f"[{trace_id}] Raw created_at: {created_at_raw}, type: {type(created_at_raw)}")
 
-            if isinstance(created_at_raw, str):
-                created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
-            elif isinstance(created_at_raw, (int, float)):
-                created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
-            else:
-                logger.warning(f"[{trace_id}] Unexpected created_at type: {type(created_at_raw)} in memory {memory_data['id']}")
-                created_at = datetime.now(timezone.utc)
+            try:  # Add try-except here
+                # More robust datetime handling, mirroring /memories route
+                if isinstance(created_at_raw, str):
+                    if not created_at_raw.endswith("Z"):
+                        created_at_raw += "Z"
+                    created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+                elif isinstance(created_at_raw, (int, float)):
+                    created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
+                elif created_at_raw is None:
+                    created_at = datetime.now(timezone.utc)
+                    logger.warning(f"[{trace_id}] Memory {memory_data['id']} is missing created_at, using current time.")
+                else:
+                    logger.warning(f"[{trace_id}] Unexpected created_at type: {type(created_at_raw)} in memory {memory_data['id']}")
+                    created_at = datetime.now(timezone.utc)
 
-            time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
-            if time_ago < 60:
-                time_str = f"{int(time_ago)} seconds ago"
-            elif time_ago < 3600:
-                time_str = f"{int(time_ago / 60)} minutes ago"
-            else:
-                time_str = f"{int(time_ago / 3600)} hours ago"
 
-            #  Store *only* the combined interaction text, prepended with time.
-            episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")  # Limit to 200 chars each
+
+                time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
+                if time_ago < 60:
+                    time_str = f"{int(time_ago)} seconds ago"
+                elif time_ago < 3600:
+                    time_str = f"{int(time_ago / 60)} minutes ago"
+                else:
+                    time_str = f"{int(time_ago / 3600)} hours ago"
+
+                # Store *only* the combined interaction text, prepended with time.
+                episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")  # Limit to 200 chars each
+            except Exception as e:
+                logger.error(f"[{trace_id}] Error processing episodic memory {memory_data['id']}: {e}")
+                continue  # Continue to the next memory
 
 
         logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
@@ -668,6 +679,14 @@ async def query_memory(
 # --- Include Router and Setup Static Files ---
 app.include_router(api_router)
 setup_static_files(app)
+
+# Shutdown handler for rate limiter
+@app.on_event("shutdown")
+async def shutdown_event():
+    await components.cleanup() # Ensure all components are cleaned up.
+    for middleware in app.middleware_stack:
+        if isinstance(middleware, RateLimitMiddleware):
+            await middleware.shutdown()
 
 
 if __name__ == "__main__":
