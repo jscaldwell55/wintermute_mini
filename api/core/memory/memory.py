@@ -8,6 +8,7 @@ logging.basicConfig(level=logging.INFO)
 import asyncio
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
+import math
 
 # Corrected imports:  Import from the correct locations
 from api.utils.config import get_settings, Settings
@@ -177,7 +178,13 @@ class MemorySystem:
             # Create and return a Memory object
            # Convert created_at to datetime object if it's a string
             if isinstance(memory_data['metadata']['created_at'], str):
-                memory_data['metadata']['created_at'] = datetime.fromisoformat(memory_data['metadata']['created_at'].replace("Z", "+00:00"))
+                created_at_str = memory_data['metadata']['created_at']
+                if created_at_str.endswith("Z"):
+                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                else:
+                    created_at = datetime.fromisoformat(created_at_str)
+                memory_data['metadata']['created_at'] = created_at  # Update with datetime object
+
             return Memory(**memory_data)
         else:
             logger.info(f"Memory with ID '{memory_id}' not found.")
@@ -232,9 +239,10 @@ class MemorySystem:
                       continue
 
                   if isinstance(created_at_str, str):
-                      if not created_at_str.endswith("Z"):
-                          created_at_str += "Z"
-                      created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                      if created_at_str.endswith("Z"):
+                        created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                      else:
+                        created_at = datetime.fromisoformat(created_at_str)
                   elif isinstance(created_at_str, (int, float)):
                       created_at = datetime.fromtimestamp(created_at_str, tz=timezone.utc)
                   else:
@@ -349,4 +357,3 @@ class MemorySystem:
 
     async def health_check(self):
         """Checks the health of the memory system."""
-        return {"status": "healthy"}

@@ -582,9 +582,10 @@ async def query_memory(
             try:  # Add try-except here
                 # More robust datetime handling, mirroring /memories route
                 if isinstance(created_at_raw, str):
-                    if not created_at_raw.endswith("Z"):
-                        created_at_raw += "Z"
-                    created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+                    if created_at_raw.endswith("Z"):
+                        created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+                    else:
+                        created_at = datetime.fromisoformat(created_at_raw)  # No replace needed
                 elif isinstance(created_at_raw, (int, float)):
                     created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
                 elif created_at_raw is None:
