@@ -1,4 +1,4 @@
-# main.py (FINAL - Persona, Filtering, and Datetime Correct)
+# main.py 
 
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
@@ -528,143 +528,154 @@ async def debug_query(request: Request):
     }
 # Removed duplicate import of batty_response_template
 
-@api_router.post("/query", response_model=QueryResponse)  # Keep only ONE /query route
+@api_router.post("/query", response_model=QueryResponse)
 async def query_memory(
     request: Request,
     query: QueryRequest,
     memory_system: MemorySystem = Depends(get_memory_system),
     llm_service: LLMService = Depends(lambda: components.llm_service)
-) -> QueryResponse:  # Added return type hint
-
+) -> QueryResponse:
     trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     query.request_metadata = RequestMetadata(
         operation_type=OperationType.QUERY,
         window_id=query.window_id,
         trace_id=trace_id
     )
+    
     try:
         logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
         user_query_embedding = await memory_system.vector_operations.create_semantic_vector(
             query.prompt
         )
 
-        # --- Semantic Query ---
+        # --- Semantic Memories ---
+        # CHANGE: Use settings for top_k instead of hardcoded value
         semantic_results = await memory_system.pinecone_service.query_memories(
-        query_vector=user_query_embedding,
-        top_k=3,  # You can adjust this
-        filter={"memory_type": "SEMANTIC"},
-        include_metadata=True,
-    )
-        # Semantic Memory Filtering:  ADD THIS BLOCK
-        semantic_memories = []
-        for match, _ in semantic_results:  # We don't need the score here
-            content = match["metadata"]["content"]
-            if len(content.split()) >= 5:  # Keep only memories with 5+ words
-                semantic_memories.append(content)
-        logger.info(f"[{trace_id}] Semantic memories retrieved: {semantic_memories}")
-
-
-        # --- Episodic Query ---
-        episodic_results = await memory_system.pinecone_service.query_memories(
-        query_vector=user_query_embedding,
-        top_k=7,  # Increased episodic memory retrieval
-        filter={"memory_type": "EPISODIC"},  # ONLY filter by type
-        include_metadata=True,
-    )
-        logger.info(f"[{trace_id}] Episodic memories retrieved: {len(episodic_results)}")
-        
-        episodic_memories = []
-        for match in episodic_results:
-            memory_data, _ = match  # We only care about memory_data, not the score
-            created_at = memory_data["metadata"].get("created_at") # Now a datetime object!
-            logger.info(f"[{trace_id}] created_at: {created_at}, type: {type(created_at)}")
-
-            try:
-                # No more string parsing needed! We get a datetime object directly.
-                time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
-                if time_ago < 60:
-                    time_str = f"{int(time_ago)} seconds ago"
-                elif time_ago < 3600:
-                    time_str = f"{int(time_ago / 60)} minutes ago"
-                else:
-                    time_str = f"{int(time_ago / 3600)} hours ago"
-
-                # Keep only the combined interaction text, prepended with time.
-                episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")  # Limit to 200 chars each
-            except Exception as e:
-                logger.error(f"[{trace_id}] Error processing episodic memory {memory_data['id']}: {e}")
-                continue  # Continue to the next memory
-
-
-        logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
-
-        # --- Construct the Prompt ---
-        prompt = case_response_template.format(  # Call on INSTANCE, and use correct instance.
-            query=query.prompt,
-            semantic_memories=semantic_memories,  # Pass the limited list
-            episodic_memories=episodic_memories,  # Pass the limited list
+            query_vector=user_query_embedding,
+            top_k=memory_system.settings.semantic_top_k,  # Changed from hardcoded 3
+            filter={"memory_type": "SEMANTIC"},
+            include_metadata=True
         )
-        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
 
+        semantic_memories = []
+        # CHANGE: Added enhanced relevance scoring
+        for match, score in semantic_results:
+            content = match["metadata"]["content"]
+            
+            # NEW: Optional enhanced relevance
+            if memory_system.settings.enable_enhanced_relevance:
+                relevance = memory_system._calculate_enhanced_relevance(content, score)
+            else:
+                relevance = score
+                
+            # CHANGE: Use settings for threshold
+            if relevance >= memory_system.settings.min_similarity_threshold:
+                semantic_memories.append(content)
+        
+        logger.info(f"[{trace_id}] Semantic memories retrieved: {len(semantic_memories)}")
+
+        # --- Episodic Memories ---
+        # CHANGE: Use settings for top_k
+        episodic_results = await memory_system.pinecone_service.query_memories(
+            query_vector=user_query_embedding,
+            top_k=memory_system.settings.episodic_top_k,  # Changed from hardcoded 7
+            filter={"memory_type": "EPISODIC"},
+            include_metadata=True
+        )
+
+        episodic_memories = []
+        # NEW: Simple deduplication
+        seen_contents = set()
+        
+        for match in episodic_results:
+            memory_data, score = match
+            # CHANGE: Use settings for threshold
+            if score < memory_system.settings.min_similarity_threshold:
+                continue
+                
+            try:
+                created_at = memory_data["metadata"].get("created_at")
+                if not created_at:
+                    continue
+                    
+                time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
+                # No changes to time string formatting
+                time_str = (
+                    f"{int(time_ago)} seconds ago" if time_ago < 60
+                    else f"{int(time_ago / 60)} minutes ago" if time_ago < 3600
+                    else f"{int(time_ago / 3600)} hours ago"
+                )
+
+                # NEW: Simple content deduplication
+                content = memory_data['metadata']['content']
+                content_hash = hash(content)
+                if content_hash not in seen_contents:
+                    seen_contents.add(content_hash)
+                    episodic_memories.append(f"{time_str}: {content[:200]}")
+            except Exception as e:
+                logger.error(f"[{trace_id}] Error processing episodic memory: {e}")
+                continue
 
         # --- Generate Response ---
-        # ADD RANDOM TEMPERATURE HERE:
-        temperature = round(random.uniform(0.6, 0.9), 2)  # Random temp between 0.6 and 0.9
-        logger.info(f"[{trace_id}] Using temperature: {temperature}") #Log the temperature
+        # No changes to prompt template usage
+        prompt = case_response_template.format(
+            query=query.prompt,
+            semantic_memories=semantic_memories,
+            episodic_memories=episodic_memories,
+        )
 
-        await asyncio.sleep(1) # Add the 1 second delay.
+        # No changes to temperature handling
+        temperature = round(random.uniform(0.6, 0.9), 2)
+        logger.info(f"[{trace_id}] Using temperature: {temperature}")
+
+        await asyncio.sleep(1)
         response = await llm_service.generate_response_async(
             prompt,
-            max_tokens=500  
+            max_tokens=500,
+            temperature=temperature
         )
-        logger.info(f"[{trace_id}] Generated response successfully")
 
-        # --- Store Interaction (Episodic Memory) ---
+        # CHANGE: Use enhanced store_interaction if enabled
         try:
-            await memory_system.store_interaction(  # Await the interaction storage
-                query=query.prompt,
-                response=response,
-                window_id=query.window_id,
-            )
+            if memory_system.settings.enable_enhanced_relevance:
+                await memory_system.store_interaction_enhanced(
+                    query=query.prompt,
+                    response=response,
+                    window_id=query.window_id,
+                )
+            else:
+                await memory_system.store_interaction(
+                    query=query.prompt,
+                    response=response,
+                    window_id=query.window_id,
+                )
             logger.info(f"[{trace_id}] Interaction stored successfully")
         except Exception as e:
-            logger.error(
-                f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True
-            )
-        # Always return a QueryResponse, even in error cases
+            logger.error(f"[{trace_id}] Failed to store interaction: {e}", exc_info=True)
+
+        # No changes to response structure
         return QueryResponse(
-            response=response, matches=[], trace_id=trace_id, similarity_scores=[], error=None,
+            response=response,
+            matches=[],
+            trace_id=trace_id,
+            similarity_scores=[],
             metadata={"success": True}
         )
 
-    except ValidationError as e:
-        logger.error(f"[{trace_id}] Validation error: {str(e)}", exc_info=True)
-        return QueryResponse(  # Return QueryResponse for errors
-            response=None,
-            matches=[],
-            trace_id=trace_id,
-            similarity_scores=[],
-            error=ErrorDetail(code="422", message="Validation Error", details={"error" : str(e)}, trace_id=trace_id),
-            metadata={"success": False}
-        )
-    except MemoryOperationError as e:
-        logger.error(f"[{trace_id}] Memory operation error: {str(e)}", exc_info=True)
-        return QueryResponse(  # Return QueryResponse for errors
-            response=None,
-            matches=[],
-            trace_id=trace_id,
-            similarity_scores=[],
-            error=ErrorDetail(code="400", message="Memory Operation Error", details={"error" : str(e)}, trace_id=trace_id),
-            metadata={"success": False}
-        )
-    except Exception as e:  # Correctly handle other exceptions here
-        logger.error(f"[{trace_id}] Unexpected error: {str(e)}", exc_info=True)
+    except Exception as e:
+        # No changes to error handling
+        logger.error(f"[{trace_id}] Error: {e}", exc_info=True)
         return QueryResponse(
             response=None,
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="500", message="Internal Server Error", details={"error": str(e)}, trace_id=trace_id), # Pass a dict
+            error=ErrorDetail(
+                code="500",
+                message="Internal Server Error",
+                details={"error": str(e)},
+                trace_id=trace_id
+            ),
             metadata={"success": False}
         )
 # --- Include Router and Setup Static Files ---

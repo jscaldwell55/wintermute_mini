@@ -1,9 +1,7 @@
-# utils/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, Optional
 from functools import lru_cache
 import logging
-#Add
 from api.core.consolidation.config import ConsolidationConfig
 
 logging.basicConfig(level=logging.INFO)
@@ -26,11 +24,10 @@ class Settings(BaseSettings):
     llm_model_id: str = "gpt-3.5-turbo"
     llm_temperature: float = 0.7
     llm_max_tokens: int = 500
-    # Removed max_prompt_length, not needed here
 
     # Vector and Embedding Settings
     embedding_model: str = "text-embedding-3-small"
-    vector_dimension: int = 1536  # Simplified to one dimension setting
+    vector_dimension: int = 1536
 
     # Environment
     environment: Literal["dev", "test", "production"] = "dev"
@@ -41,13 +38,13 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_delay: int = 1
 
-    # Frontend Settings (Added a default, important for consistency)
-    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Replace with your actual frontend URL!
+    # Frontend Settings
+    frontend_url: str = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"
     cors_origins: list[str] = [
-        "https://wintermute-staging-x-49dd432d3500.herokuapp.com"  # Replace with your frontend URL!
+        "https://wintermute-staging-x-49dd432d3500.herokuapp.com"
     ]
 
-    # Session Settings (You don't seem to be using sessions yet, but keeping for completeness)
+    # Session Settings
     session_secret_key: str
     session_expiry: int = 86400  # 24 hours in seconds
 
@@ -55,23 +52,33 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100
     rate_limit_window: int = 3600  # 1 hour in seconds
 
-    # Memory Retrieval Settings (for querying)
-    max_memories_per_query: int = 20  # Hard limit on memories to retrieve
-    default_memories_per_query: int = 5  # Default if not specified
-    min_similarity_threshold: float = 0.6  # Minimum similarity score to include memory
-    time_weight_ratio: float = 0.2  # How much to weight recency (0.0 to 1.0)
+    # Memory Retrieval Settings
+    max_memories_per_query: int = 20
+    default_memories_per_query: int = 5
+    min_similarity_threshold: float = 0.6
+    time_weight_ratio: float = 0.2
+    initial_fetch_multiplier: float = 2.0
 
-    # When fetching for filtering, how many extra to get
-    initial_fetch_multiplier: float = 2.0  # Will fetch max_memories_per_query * multiplier
-
-     # Consolidation Settings.  THESE ARE NOW PART OF THE MAIN SETTINGS.
-    consolidation_hour: int = 2   # 2 AM default
+    # Consolidation Settings
+    consolidation_hour: int = 2
     consolidation_minute: int = 0
     timezone: str = "UTC"
-    consolidation_batch_size: int = 1000  # How many memories to process per run.
-    min_cluster_size: int = 3  # Minimum memories needed to form a cluster.
+    consolidation_batch_size: int = 1000
+    min_cluster_size: int = 3
     consolidation_interval_hours: int = 24
-    # eps: float = 0.5  # Removed.
+
+    # NEW: Memory Enhancement Settings
+    enable_enhanced_relevance: bool = False  # Feature flag for enhanced relevance
+    enable_deduplication: bool = False       # Feature flag for deduplication
+    semantic_top_k: int = 3                  # Number of semantic memories to retrieve
+    episodic_top_k: int = 7                 # Number of episodic memories to retrieve
+    
+    # NEW: Memory Quality Settings
+    content_length_weight: float = 0.1       # Weight for content length in relevance scoring
+    unique_ratio_weight: float = 0.1         # Weight for unique words ratio in relevance scoring
+    similarity_weight: float = 0.8           # Weight for original similarity score
+    deduplication_window_minutes: int = 30   # Time window for checking duplicates
+    duplicate_similarity_threshold: float = 0.95  # Threshold for considering memories as duplicates
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
@@ -83,9 +90,9 @@ def get_settings() -> Settings:
     """Create and cache settings instance."""
     logger.info("Creating Settings instance")
     settings = Settings()
-    logger.info(f"Pinecone API Key: {settings.pinecone_api_key}")  # Log the key
-    logger.info(f"Pinecone Environment: {settings.pinecone_environment}")  # Log the environment
-    logger.info(f"Pinecone Index Name: {settings.pinecone_index_name}")  # Log the index name
+    logger.info(f"Pinecone API Key: {settings.pinecone_api_key}")
+    logger.info(f"Pinecone Environment: {settings.pinecone_environment}")
+    logger.info(f"Pinecone Index Name: {settings.pinecone_index_name}")
     return settings
 
 @lru_cache()

@@ -1,5 +1,5 @@
-# api/core/memory/memory.py (CORRECTED)
-from datetime import datetime, timezone
+# api/core/memory/memory.py 
+from datetime import datetime, timezone, timedelta
 import uuid
 from typing import List, Dict, Optional, Any
 import logging
@@ -34,6 +34,65 @@ class MemorySystem:
         self.vector_operations = vector_operations
         self.settings = settings or get_settings()  # Use provided settings or get defaults
         self._initialized = False
+
+    def _calculate_enhanced_relevance(self, memory_content: str, similarity_score: float) -> float:
+        """Helper method for enhanced relevance scoring. Returns original score if calculation fails."""
+        try:
+            words = memory_content.split()
+            if not words:
+                return similarity_score
+            
+            # Simple quality signals that won't impact performance
+            content_length_score = min(len(words) / 50, 1.0)
+            unique_ratio = len(set(words)) / len(words)
+        
+            # Weighted combination that maintains original score as primary factor
+            return (similarity_score * 0.8) + (content_length_score * 0.1) + (unique_ratio * 0.1)
+        except Exception as e:
+            logger.warning(f"Enhanced relevance calculation failed, using original score: {e}")
+            return similarity_score
+
+    async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
+        """Safe duplicate check that defaults to False on any error."""
+        try:
+            vector = await self.vector_operations.create_semantic_vector(content)
+            recent_time = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+        
+            results = await self.pinecone_service.query_memories(
+                query_vector=vector,
+                top_k=3,  # Keep this small for performance
+                filter={"memory_type": "EPISODIC"},
+                include_metadata=True
+            )
+        
+            for memory_data, score in results:
+                if score > 0.95:  # Very high similarity threshold
+                    return True
+            return False
+        except Exception as e:
+            logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
+            return False  # Fail open - store the memory if check fails
+
+    # Enhanced version of store_interaction that maintains original behavior
+    async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
+        """Enhanced version of store_interaction with optional deduplication."""
+        try:
+            interaction_text = f"User: {query}\nAssistant: {response}"
+        
+            # Only check for duplicates if explicitly enabled
+            if self.settings.enable_deduplication:  # Add this to your Settings class
+                is_duplicate = await self._check_recent_duplicate(interaction_text)
+                if is_duplicate:
+                    logger.info("Skipping duplicate interaction")
+                    return None
+        
+            # Use existing store_interaction for actual storage
+            return await self.store_interaction(query, response, window_id)
+    
+        except Exception as e:
+            logger.error(f"Enhanced store interaction failed, falling back to original: {e}")
+            # Fallback to original method
+            return await self.store_interaction(query, response, window_id)
 
 
     async def initialize(self) -> bool:
