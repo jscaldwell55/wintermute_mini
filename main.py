@@ -1,4 +1,4 @@
-# main.py
+# main.py (CORRECTED)
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -362,21 +362,13 @@ async def list_memories(
         for memory_data, _ in results:
             logger.info(f"memory data from result: {memory_data}")
             try:
-                created_at_raw = memory_data["metadata"].get("created_at")
+                created_at = memory_data["metadata"].get("created_at") # Already a datetime object
 
-                # Handle different possible types for created_at
-                if isinstance(created_at_raw, str):
-                    if not created_at_raw.endswith("Z"):
-                        created_at_raw += "Z"  # Ensure 'Z' suffix
-                    created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
-                elif isinstance(created_at_raw, (int, float)):
-                     created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
-                elif created_at_raw is None: #explicitly handle
+                # No more handling different types
+                if created_at is None:
                     created_at = datetime.now(timezone.utc)
                     logger.warning(f"Memory {memory_data['id']} is missing created_at, using current time.")
-                else:
-                    logger.warning(f"Memory {memory_data['id']} has invalid created_at type: {type(created_at_raw)}")
-                    created_at = datetime.now(timezone.utc)
+
                 # Convert to ISO string with ZULU time *here*, consistently.
                 created_at_str = created_at.isoformat() + "Z"
 
@@ -393,7 +385,7 @@ async def list_memories(
             except Exception as e:
                 logger.error(f"Error converting memory {memory_data['id']}: {e}")
                 continue
-        memories = memories[offset:]
+        memories = memories[offset:]  # Apply offset *after* processing all
         logger.info(f"Returning {len(memories)} memories.")  # Log returned count
         return memories
 
@@ -576,27 +568,11 @@ async def query_memory(
         episodic_memories = []
         for match in episodic_results:
             memory_data, _ = match  # We only care about memory_data, not the score
-            created_at_raw = memory_data["metadata"].get("created_at")
-            logger.info(f"[{trace_id}] Raw created_at: {created_at_raw}, type: {type(created_at_raw)}")
+            created_at = memory_data["metadata"].get("created_at") # Now a datetime object!
+            logger.info(f"[{trace_id}] created_at: {created_at}, type: {type(created_at)}")
 
-            try:  # Add try-except here
-                # More robust datetime handling, mirroring /memories route
-                if isinstance(created_at_raw, str):
-                    if created_at_raw.endswith("Z"):
-                        created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
-                    else:
-                        created_at = datetime.fromisoformat(created_at_raw)  # No replace needed
-                elif isinstance(created_at_raw, (int, float)):
-                    created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
-                elif created_at_raw is None:
-                    created_at = datetime.now(timezone.utc)
-                    logger.warning(f"[{trace_id}] Memory {memory_data['id']} is missing created_at, using current time.")
-                else:
-                    logger.warning(f"[{trace_id}] Unexpected created_at type: {type(created_at_raw)} in memory {memory_data['id']}")
-                    created_at = datetime.now(timezone.utc)
-
-
-
+            try:
+                # No more string parsing needed! We get a datetime object directly.
                 time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
                 if time_ago < 60:
                     time_str = f"{int(time_ago)} seconds ago"

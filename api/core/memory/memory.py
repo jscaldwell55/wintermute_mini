@@ -1,4 +1,4 @@
-# api/core/memory/memory.py
+# api/core/memory/memory.py (CORRECTED)
 from datetime import datetime, timezone
 import uuid
 from typing import List, Dict, Optional, Any
@@ -18,6 +18,8 @@ from api.core.memory.models import (Memory, MemoryType, CreateMemoryRequest,
                                       MemoryResponse, QueryRequest, QueryResponse,
                                       RequestMetadata, OperationType, ErrorDetail)
 from api.core.memory.exceptions import MemoryOperationError
+#removed: from api.utils.utils import normalize_timestamp  # Import the helper
+
 
 logger = logging.getLogger(__name__)
 
@@ -171,27 +173,19 @@ class MemorySystem:
 
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Memory]:
-      try:
-        logger.info(f"Retrieving memory by ID: {memory_id}")
-        memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
-        if memory_data:
-            # Create and return a Memory object
-           # Convert created_at to datetime object if it's a string
-            if isinstance(memory_data['metadata']['created_at'], str):
-                created_at_str = memory_data['metadata']['created_at']
-                if created_at_str.endswith("Z"):
-                    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
-                else:
-                    created_at = datetime.fromisoformat(created_at_str)
-                memory_data['metadata']['created_at'] = created_at  # Update with datetime object
+        try:
+            logger.info(f"Retrieving memory by ID: {memory_id}")
+            memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
+            if memory_data:
+                # we are now getting a datetime object from pinecone service, no need to convert
+                return Memory(**memory_data)
+            else:
+                logger.info(f"Memory with ID '{memory_id}' not found.")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
+            raise
 
-            return Memory(**memory_data)
-        else:
-            logger.info(f"Memory with ID '{memory_id}' not found.")
-            return None
-      except Exception as e:
-        logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
-        raise
 
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID."""
@@ -203,93 +197,78 @@ class MemorySystem:
             return False
 
     async def query_memories(self, request: QueryRequest) -> QueryResponse:
-      """Query memories based on the given request, with filtering and sorting."""
-      try:
-          logger.info(f"Starting memory query with request: {request}")
-          query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
-          logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
+        """Query memories based on the given request, with filtering and sorting."""
+        try:
+            logger.info(f"Starting memory query with request: {request}")
+            query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
+            logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
 
-          pinecone_filter = {"memory_type": "SEMANTIC"}
-          if request.window_id:
-              pinecone_filter["window_id"] = request.window_id
-          logger.info(f"Querying Pinecone with filter: {pinecone_filter}")
+            pinecone_filter = {"memory_type": "SEMANTIC"}
+            if request.window_id:
+                pinecone_filter["window_id"] = request.window_id
+            logger.info(f"Querying Pinecone with filter: {pinecone_filter}")
 
-          results = await self.pinecone_service.query_memories(
-              query_vector=query_vector,
-              top_k=request.top_k,
-              filter=pinecone_filter,
-              include_metadata=True
-          )
-          logger.info(f"Received {len(results)} raw results from Pinecone.")
+            results = await self.pinecone_service.query_memories(
+                query_vector=query_vector,
+                top_k=request.top_k,
+                filter=pinecone_filter,
+                include_metadata=True
+            )
+            logger.info(f"Received {len(results)} raw results from Pinecone.")
 
-          matches: List[MemoryResponse] = []
-          similarity_scores: List[float] = []
-          current_time = datetime.utcnow()
+            matches: List[MemoryResponse] = []
+            similarity_scores: List[float] = []
+            current_time = datetime.utcnow()
 
-          for memory_data, similarity_score in results:
-              logger.debug(f"Processing memory data: {memory_data}")
-              try:
-                  if similarity_score < 0.6:
-                      logger.info(f"Skipping memory {memory_data['id']} due to low similarity score: {similarity_score}")
-                      continue
+            for memory_data, similarity_score in results:
+                logger.debug(f"Processing memory data: {memory_data}")
+                try:
+                    if similarity_score < 0.6:
+                        logger.info(f"Skipping memory {memory_data['id']} due to low similarity score: {similarity_score}")
+                        continue
 
-                  created_at_str = memory_data["metadata"].get("created_at")
-                  if not created_at_str:
-                      logger.warning(f"Skipping memory {memory_data['id']} due to missing created_at")
-                      continue
+                    created_at = memory_data["metadata"].get("created_at")  # Already a datetime object!
+                    if not created_at:
+                        logger.warning(f"Skipping memory {memory_data['id']} due to missing created_at")
+                        continue
 
-                  if isinstance(created_at_str, str):
-                      if created_at_str.endswith("Z"):
-                        created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
-                      else:
-                        created_at = datetime.fromisoformat(created_at_str)
-                  elif isinstance(created_at_str, (int, float)):
-                      created_at = datetime.fromtimestamp(created_at_str, tz=timezone.utc)
-                  else:
-                      logger.warning(f"Unexpected created_at type: {type(created_at_str)} in memory {memory_data['id']}")
-                      created_at = datetime.now(timezone.utc)
+                    age_days = (current_time - created_at).total_seconds() / (60*60*24)
+                    time_weight = 0.7 + (0.3 / (1 + math.exp(age_days/180 - 2)))
 
-                  age_days = (current_time - created_at).total_seconds() / (60*60*24)
-                  time_weight = 0.7 + (0.3 / (1 + math.exp(age_days/180 - 2)))
-
-                  final_score = (similarity_score * 0.8) + (time_weight * 0.2)
-                  logger.info(f"Memory ID {memory_data['id']}: Raw Score={similarity_score:.3f}, Time Weight={time_weight:.3f}, Final Score={final_score:.3f}")
-
-                    # Convert 'created_at' to datetime object if it's a string
-                  if isinstance(memory_data['metadata']['created_at'], str):
-                        memory_data['metadata']['created_at'] = datetime.fromisoformat(memory_data['metadata']['created_at'].replace("Z", "+00:00"))
+                    final_score = (similarity_score * 0.8) + (time_weight * 0.2)
+                    logger.info(f"Memory ID {memory_data['id']}: Raw Score={similarity_score:.3f}, Time Weight={time_weight:.3f}, Final Score={final_score:.3f}")
 
 
-                  memory_response = MemoryResponse(
-                      id=memory_data["id"],
-                      content=memory_data["metadata"]["content"],
-                      memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                      created_at=memory_data["metadata"]["created_at"],  # Use datetime object
-                      metadata=memory_data["metadata"],
-                      window_id=memory_data["metadata"].get("window_id"),
-                      semantic_vector=memory_data["vector"],
-                  )
-                  matches.append(memory_response)
-                  similarity_scores.append(final_score)
+                    memory_response = MemoryResponse(
+                        id=memory_data["id"],
+                        content=memory_data["metadata"]["content"],
+                        memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                        created_at=memory_data["metadata"]["created_at"].isoformat() + "Z",  # Format as ISO string with Z here
+                        metadata=memory_data["metadata"],
+                        window_id=memory_data["metadata"].get("window_id"),
+                        semantic_vector=memory_data["vector"],
+                    )
+                    matches.append(memory_response)
+                    similarity_scores.append(final_score)
 
-              except (ValueError, TypeError) as e:
-                logger.warning(f"Error processing timestamp for memory {memory_data['id']}: {e}")
-                continue
-              except Exception as e:
-                logger.error(f"Error processing memory {memory_data['id']}: {e}", exc_info=True)
-                continue
+                except (ValueError, TypeError) as e:
+                  logger.warning(f"Error processing timestamp for memory {memory_data['id']}: {e}")
+                  continue
+                except Exception as e:
+                  logger.error(f"Error processing memory {memory_data['id']}: {e}", exc_info=True)
+                  continue
 
-          sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
-          matches, similarity_scores = zip(*sorted_results) if sorted_results else ([], [])
+            sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
+            matches, similarity_scores = zip(*sorted_results) if sorted_results else ([], [])
 
-          return QueryResponse(
-              matches=list(matches),
-              similarity_scores=list(similarity_scores),
-          )
+            return QueryResponse(
+                matches=list(matches),
+                similarity_scores=list(similarity_scores),
+            )
 
-      except Exception as e:
-          logger.error(f"Error querying memories: {e}", exc_info=True)
-          raise MemoryOperationError(f"Failed to query memories: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error querying memories: {e}", exc_info=True)
+            raise MemoryOperationError(f"Failed to query memories: {str(e)}")
 
     async def store_interaction(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
         """Stores a user interaction (query + response) as a new episodic memory."""
@@ -357,3 +336,4 @@ class MemorySystem:
 
     async def health_check(self):
         """Checks the health of the memory system."""
+        return {"status": "healthy"}

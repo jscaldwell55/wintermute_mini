@@ -1,17 +1,18 @@
-# api/utils/pinecone_service.py
+# api/utils/pinecone_service.py (CORRECTED)
 
 import pinecone
-from pinecone import Index, Pinecone, PodSpec  # Corrected import
+from pinecone import Index, Pinecone, PodSpec
 from typing import List, Dict, Any, Tuple, Optional
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.exceptions import PineconeError, MemoryOperationError
 from api.core.memory.models import Memory
-from tenacity import retry, stop_after_attempt, wait_fixed, before_sleep_log, RetryError
+# No tenacity needed here anymore
 import logging
 logging.basicConfig(level=logging.INFO)
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone  # Import timezone
 import asyncio
+from api.utils.utils import normalize_timestamp # Import the helper
 
 logger = logging.getLogger(__name__)
 
@@ -134,14 +135,14 @@ class PineconeService(MemoryService):
 
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
-        """Fetches a memory from Pinecone by its ID."""
+        """Fetches a memory from Pinecone by its ID, parsing created_at."""
         try:
             if self.index is None:
                 logger.error("❌ Pinecone index is None! Cannot fetch memory.")
                 return None
 
             logger.info(f"🔍 Fetching memory from Pinecone: {memory_id}")
-            response = self.index.fetch(ids=[memory_id]) #removed the await since this isn't async
+            response = self.index.fetch(ids=[memory_id])
 
             if response is None:
                 logger.error(f"❌ Pinecone returned None for memory_id '{memory_id}'")
@@ -149,10 +150,18 @@ class PineconeService(MemoryService):
 
             if 'vectors' in response and memory_id in response['vectors']:
                 vector_data = response['vectors'][memory_id]
+                metadata = vector_data['metadata']
+
+                # Use normalize_timestamp here
+                created_at_raw = metadata.get("created_at")
+                if isinstance(created_at_raw, str):
+                    created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                    metadata['created_at'] = created_at
+
                 return {
                     'id': memory_id,
                     'vector': vector_data['values'],
-                    'metadata': vector_data['metadata']
+                    'metadata': metadata  # Return metadata with parsed datetime
                 }
             else:
                 logger.warning(f"⚠️ Memory with ID '{memory_id}' not found in Pinecone.")
@@ -160,6 +169,7 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"❌ Failed to retrieve memory from Pinecone: {e}")
             raise PineconeError(f"Failed to retrieve memory: {e}") from e
+
 
     async def update_memory(self, memory_id: str, vector: List[float], metadata: Dict[str, Any]) -> bool:
         """Updates an existing memory in Pinecone."""
@@ -188,15 +198,15 @@ class PineconeService(MemoryService):
         query_vector: List[float],
         top_k: int = 10,
         filter: Optional[Dict[str, Any]] = None,
-        include_metadata: bool = True #default to True
+        include_metadata: bool = True
     ) -> List[Tuple[Dict[str, Any], float]]:
-        """Queries the Pinecone index."""
+        """Queries the Pinecone index, parsing created_at in metadata."""
         try:
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
             results = self.index.query(
                 vector=query_vector,
                 top_k=top_k,
-                include_values=True, #always include values
+                include_values=True,
                 include_metadata=include_metadata,
                 filter=filter
             )
@@ -206,9 +216,18 @@ class PineconeService(MemoryService):
             memories_with_scores = []
             for result in results['matches']:
                 logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
+
+                # Use normalize_timestamp here
+                metadata = result['metadata']
+                created_at_raw = metadata.get("created_at")
+                if isinstance(created_at_raw, str):
+                    created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                    metadata['created_at'] = created_at  # Store as datetime object
+
+
                 memory_data = {
                     'id': result['id'],
-                    'metadata': result['metadata'],
+                    'metadata': metadata,  # Use the updated metadata
                     'vector': result.get('values', [0.0] * self.embedding_dimension),
                     'content': result['metadata'].get('content', ''),
                     'memory_type': result['metadata'].get('memory_type', 'EPISODIC')
@@ -219,6 +238,7 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"Failed to query memories from Pinecone: {e}")
             raise PineconeError(f"Failed to query memories: {e}") from e
+
 
     async def delete_all_episodic_memories(self) -> None:
         """Deletes ALL episodic memories."""
