@@ -556,7 +556,7 @@ async def query_memory(
     )
         # Semantic Memory Filtering:  ADD THIS BLOCK
         semantic_memories = []
-        for match, _ in semantic_results: # Don't need score
+        for match, _ in semantic_results:  # We don't need the score here
             content = match["metadata"]["content"]
             if len(content.split()) >= 5:  # Keep only memories with 5+ words
                 semantic_memories.append(content)
@@ -565,12 +565,13 @@ async def query_memory(
 
         # --- Episodic Query ---
         episodic_results = await memory_system.pinecone_service.query_memories(
-            query_vector=user_query_embedding,
-            top_k=7,  # Increased episodic memory retrieval
-            filter={"memory_type": "EPISODIC"},  # ONLY filter by type
-            include_metadata=True,
-        )
+        query_vector=user_query_embedding,
+        top_k=7,  # Increased episodic memory retrieval
+        filter={"memory_type": "EPISODIC"},  # ONLY filter by type
+        include_metadata=True,
+    )
         logger.info(f"[{trace_id}] Episodic memories retrieved: {len(episodic_results)}")
+        
         episodic_memories = []
         for match in episodic_results:
             memory_data, _ = match  # We only care about memory_data, not the score
