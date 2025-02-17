@@ -1,4 +1,5 @@
-# main.py (FINAL CORRECTED VERSION)
+# main.py (FINAL - Persona, Filtering, and Datetime Correct)
+
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -19,7 +20,7 @@ from starlette.routing import Mount
 from functools import lru_cache
 
 # Corrected import: Use the instance, case_response_template
-from api.utils.prompt_templates import case_response_template  # USE THE NEW TEMPLATE
+from api.utils.prompt_templates import case_response_template  # USE THE CASE TEMPLATE
 from api.core.memory.models import (
     CreateMemoryRequest,
     MemoryResponse,
@@ -562,10 +563,10 @@ async def query_memory(
         logger.info(f"[{trace_id}] Semantic memories retrieved: {semantic_memories}")
 
 
-        # --- Episodic Query --- (NO TIME FILTER)
+        # --- Episodic Query ---
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
-            top_k=5,  # You can adjust this
+            top_k=7,  # Increased episodic memory retrieval
             filter={"memory_type": "EPISODIC"},  # ONLY filter by type
             include_metadata=True,
         )
@@ -586,7 +587,7 @@ async def query_memory(
                 else:
                     time_str = f"{int(time_ago / 3600)} hours ago"
 
-                # Store *only* the combined interaction text, prepended with time.
+                # Keep only the combined interaction text, prepended with time.
                 episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")  # Limit to 200 chars each
             except Exception as e:
                 logger.error(f"[{trace_id}] Error processing episodic memory {memory_data['id']}: {e}")
@@ -596,7 +597,7 @@ async def query_memory(
         logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
 
         # --- Construct the Prompt ---
-        prompt = case_response_template.format(  # Call on INSTANCE, and correct instance
+        prompt = case_response_template.format(  # Call on INSTANCE, and use correct instance.
             query=query.prompt,
             semantic_memories=semantic_memories,  # Pass the limited list
             episodic_memories=episodic_memories,  # Pass the limited list
