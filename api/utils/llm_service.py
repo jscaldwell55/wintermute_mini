@@ -31,9 +31,9 @@ class LLMService:
         self.model = self.settings.llm_model_id
 
         # Default parameters
-        self.default_temperature = 0.7 #modified
-        self.default_max_tokens = 500
-        self.default_top_p = 0.8 #modified
+        self.default_temperature = 0.7
+        self.default_max_tokens = 500  # Increased default, BUT can be overridden
+        self.default_top_p = 0.8
         self.default_frequency_penalty = 0.0
         self.default_presence_penalty = 0.0
 
@@ -136,12 +136,14 @@ class LLMService:
         try:
             validated_prompt = await self.validate_prompt(prompt, minimal=is_health_check)
             estimated_prompt_tokens = len(validated_prompt.split())
+
+            # Use provided max_tokens, or the default if none provided.
             max_response_tokens = min(
-                max_tokens or self.default_max_tokens,  # Use provided value, or default
-                4096 - estimated_prompt_tokens - 100 #Making sure we account for tokens
+                max_tokens or self.default_max_tokens,  #  <-- KEY CHANGE
+                4096 - estimated_prompt_tokens - 100
             )
-             # Ensure max_response_tokens is not negative
-            max_response_tokens = max(0, max_response_tokens)
+            max_response_tokens = max(0, max_response_tokens)  # Ensure non-negative
+
             messages = []
             if system_message:
                 messages.append({"role": "system", "content": system_message})
@@ -151,7 +153,7 @@ class LLMService:
                 "model": self.model,
                 "messages": messages,
                 "temperature": temperature or self.default_temperature,
-                "max_tokens": max_response_tokens,  # Use calculated value
+                "max_tokens": max_response_tokens,  # Use the calculated value
                 "top_p": top_p or self.default_top_p,
                 "frequency_penalty": frequency_penalty or self.default_frequency_penalty,
                 "presence_penalty": presence_penalty or self.default_presence_penalty
@@ -197,24 +199,24 @@ class LLMService:
             error_details = {
                 "request_id": request_id,
                 "duration": duration,
-                "prompt_length": len(prompt) if prompt else 0,  # Handle potential None
+                "prompt_length": len(prompt) if prompt else 0,
                 "error_type": type(e).__name__
             }
 
             logger.error(
                 f"LLM request failed: {str(e)}",
                 extra=error_details,
-                exc_info=True  # Include the full traceback in the log
+                exc_info=True
             )
-
-            # Re-raise as LLMServiceError for consistent error handling
             if isinstance(e, LLMServiceError):
-                raise # Already the right type
+                raise
             raise LLMServiceError(
                 operation="generate_response",
                 details=str(e)
-            ) from e # Include original exception as cause
-    async def generate_response_async(self, prompt: str, max_tokens: int = 500, **kwargs) -> str: #Added default
+            ) from e
+
+    # Keep generate_response_async for backward compatibility
+    async def generate_response_async(self, prompt: str, max_tokens: int = None, **kwargs) -> str:
         return await self.generate_gpt_response_async(prompt, max_tokens=max_tokens, **kwargs)
 
     async def health_check(self) -> Dict[str, Any]:

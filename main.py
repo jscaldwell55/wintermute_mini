@@ -549,12 +549,12 @@ async def query_memory(
 
         # --- Semantic Query ---
         semantic_results = await memory_system.pinecone_service.query_memories(
-            query_vector=user_query_embedding,
-            top_k=3,  # You can adjust this
-            filter={"memory_type": "SEMANTIC"},
-            include_metadata=True,
-        )
-        # Semantic Memory Filtering:
+        query_vector=user_query_embedding,
+        top_k=3,  # You can adjust this
+        filter={"memory_type": "SEMANTIC"},
+        include_metadata=True,
+    )
+        # Semantic Memory Filtering:  ADD THIS BLOCK
         semantic_memories = []
         for match, _ in semantic_results: # Don't need score
             content = match["metadata"]["content"]
@@ -607,7 +607,7 @@ async def query_memory(
         # --- Generate Response ---
         response = await llm_service.generate_response_async(
             prompt,
-            max_tokens=case_response_template.max_response_tokens  # USE THE VALUE FROM THE TEMPLATE
+            max_tokens=500  
         )
         logger.info(f"[{trace_id}] Generated response successfully")
 

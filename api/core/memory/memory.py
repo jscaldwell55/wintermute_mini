@@ -300,7 +300,7 @@ class MemorySystem:
                 id=memory_id,
                 content=interaction_text,
                 memory_type=MemoryType.EPISODIC,
-                created_at= datetime.fromisoformat(normalize_timestamp(created_at)), # Pass datetime object, call normalize_timestamp
+                created_at= datetime.fromisoformat(normalize_timestamp(created_at)), # Pass datetime object, and normalize
                 metadata=metadata,
                 window_id=window_id,
                 semantic_vector=semantic_vector,
