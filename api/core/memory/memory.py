@@ -173,19 +173,18 @@ class MemorySystem:
 
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Memory]:
-        try:
-            logger.info(f"Retrieving memory by ID: {memory_id}")
-            memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
-            if memory_data:
-                # we are now getting a datetime object from pinecone service, no need to convert
-                return Memory(**memory_data)
-            else:
-                logger.info(f"Memory with ID '{memory_id}' not found.")
-                return None
-        except Exception as e:
-            logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
-            raise
-
+      try:
+        logger.info(f"Retrieving memory by ID: {memory_id}")
+        memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
+        if memory_data:
+            # we are now getting a datetime object from pinecone service
+            return Memory(**memory_data)
+        else:
+            logger.info(f"Memory with ID '{memory_id}' not found.")
+            return None
+      except Exception as e:
+        logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
+        raise
 
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID."""
@@ -197,97 +196,94 @@ class MemorySystem:
             return False
 
     async def query_memories(self, request: QueryRequest) -> QueryResponse:
-        """Query memories based on the given request, with filtering and sorting."""
-        try:
-            logger.info(f"Starting memory query with request: {request}")
-            query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
-            logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
+      """Query memories based on the given request, with filtering and sorting."""
+      try:
+          logger.info(f"Starting memory query with request: {request}")
+          query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
+          logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
 
-            pinecone_filter = {"memory_type": "SEMANTIC"}
-            if request.window_id:
-                pinecone_filter["window_id"] = request.window_id
-            logger.info(f"Querying Pinecone with filter: {pinecone_filter}")
+          pinecone_filter = {"memory_type": "SEMANTIC"}
+          if request.window_id:
+              pinecone_filter["window_id"] = request.window_id
+          logger.info(f"Querying Pinecone with filter: {pinecone_filter}")
 
-            results = await self.pinecone_service.query_memories(
-                query_vector=query_vector,
-                top_k=request.top_k,
-                filter=pinecone_filter,
-                include_metadata=True
-            )
-            logger.info(f"Received {len(results)} raw results from Pinecone.")
+          results = await self.pinecone_service.query_memories(
+              query_vector=query_vector,
+              top_k=request.top_k,
+              filter=pinecone_filter,
+              include_metadata=True
+          )
+          logger.info(f"Received {len(results)} raw results from Pinecone.")
 
-            matches: List[MemoryResponse] = []
-            similarity_scores: List[float] = []
-            current_time = datetime.utcnow()
+          matches: List[MemoryResponse] = []
+          similarity_scores: List[float] = []
+          current_time = datetime.utcnow()
 
-            for memory_data, similarity_score in results:
-                logger.debug(f"Processing memory data: {memory_data}")
-                try:
-                    if similarity_score < 0.6:
-                        logger.info(f"Skipping memory {memory_data['id']} due to low similarity score: {similarity_score}")
-                        continue
+          for memory_data, similarity_score in results:
+              logger.debug(f"Processing memory data: {memory_data}")
+              try:
+                  if similarity_score < 0.6:
+                      logger.info(f"Skipping memory {memory_data['id']} due to low similarity score: {similarity_score}")
+                      continue
 
-                    created_at = memory_data["metadata"].get("created_at")  # Already a datetime object!
-                    if not created_at:
-                        logger.warning(f"Skipping memory {memory_data['id']} due to missing created_at")
-                        continue
+                  created_at = memory_data["metadata"].get("created_at")  # Already a datetime object!
+                  if not created_at:
+                      logger.warning(f"Skipping memory {memory_data['id']} due to missing created_at")
+                      continue
 
-                    age_days = (current_time - created_at).total_seconds() / (60*60*24)
-                    time_weight = 0.7 + (0.3 / (1 + math.exp(age_days/180 - 2)))
+                  # No more type checking/string parsing
 
-                    final_score = (similarity_score * 0.8) + (time_weight * 0.2)
-                    logger.info(f"Memory ID {memory_data['id']}: Raw Score={similarity_score:.3f}, Time Weight={time_weight:.3f}, Final Score={final_score:.3f}")
+                  age_days = (current_time - created_at).total_seconds() / (60*60*24)
+                  time_weight = 0.7 + (0.3 / (1 + math.exp(age_days/180 - 2)))
 
+                  final_score = (similarity_score * 0.8) + (time_weight * 0.2)
+                  logger.info(f"Memory ID {memory_data['id']}: Raw Score={similarity_score:.3f}, Time Weight={time_weight:.3f}, Final Score={final_score:.3f}")
 
-                    memory_response = MemoryResponse(
-                        id=memory_data["id"],
-                        content=memory_data["metadata"]["content"],
-                        memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                        created_at=memory_data["metadata"]["created_at"].isoformat() + "Z",  # Format as ISO string with Z here
-                        metadata=memory_data["metadata"],
-                        window_id=memory_data["metadata"].get("window_id"),
-                        semantic_vector=memory_data["vector"],
-                    )
-                    matches.append(memory_response)
-                    similarity_scores.append(final_score)
+                  memory_response = MemoryResponse(
+                      id=memory_data["id"],
+                      content=memory_data["metadata"]["content"],
+                      memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                      created_at=memory_data["metadata"]["created_at"].isoformat() + "Z",  # Format as ISO string with Z here
+                      metadata=memory_data["metadata"],
+                      window_id=memory_data["metadata"].get("window_id"),
+                      semantic_vector=memory_data["vector"],
+                  )
+                  matches.append(memory_response)
+                  similarity_scores.append(final_score)
 
-                except (ValueError, TypeError) as e:
-                  logger.warning(f"Error processing timestamp for memory {memory_data['id']}: {e}")
-                  continue
-                except Exception as e:
-                  logger.error(f"Error processing memory {memory_data['id']}: {e}", exc_info=True)
-                  continue
+              except (ValueError, TypeError) as e:
+                logger.warning(f"Error processing timestamp for memory {memory_data['id']}: {e}")
+                continue
+              except Exception as e:
+                logger.error(f"Error processing memory {memory_data['id']}: {e}", exc_info=True)
+                continue
 
-            sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
-            matches, similarity_scores = zip(*sorted_results) if sorted_results else ([], [])
+          sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
+          matches, similarity_scores = zip(*sorted_results) if sorted_results else ([], [])
 
-            return QueryResponse(
-                matches=list(matches),
-                similarity_scores=list(similarity_scores),
-            )
+          return QueryResponse(
+              matches=list(matches),
+              similarity_scores=list(similarity_scores),
+          )
 
-        except Exception as e:
-            logger.error(f"Error querying memories: {e}", exc_info=True)
-            raise MemoryOperationError(f"Failed to query memories: {str(e)}")
+      except Exception as e:
+          logger.error(f"Error querying memories: {e}", exc_info=True)
+          raise MemoryOperationError(f"Failed to query memories: {str(e)}")
 
     async def store_interaction(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
         """Stores a user interaction (query + response) as a new episodic memory."""
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
             # Combine query and response for embedding
-            interaction_text = f"{query} {response}"
+            interaction_text = f"User: {query}\nAssistant: {response}" # Add proper formatting
             semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
 
             memory_id = f"mem_{uuid.uuid4().hex}"
-            # Create timestamp as datetime object first
-            created_at_dt = datetime.now(timezone.utc)
-            # Format for metadata
-            created_at_str = created_at_dt.isoformat().replace('+00:00', 'Z')
-        
+            created_at = datetime.now(timezone.utc).isoformat() + "Z"  # Use consistent format here
             metadata = {
                 "content": interaction_text,  # Store the COMBINED text
                 "memory_type": "EPISODIC",
-                "created_at": created_at_str,  # Use string format for metadata
+                "created_at": created_at, # Use consistent format here
                 "window_id": window_id,
                 "source": "user_interaction"  # Indicate the source of this memory
             }
@@ -299,12 +295,12 @@ class MemorySystem:
             )
             logger.info(f"Episodic memory stored successfully: {memory_id}")
 
-            # Use the datetime object directly for Memory creation
+            # Construct and return the Memory object (important for consistency)
             return Memory(
                 id=memory_id,
                 content=interaction_text,
                 memory_type=MemoryType.EPISODIC,
-                created_at=created_at_dt,  # Pass the datetime object directly
+                created_at= datetime.fromisoformat(created_at.replace("Z", "+00:00")), # Pass datetime object
                 metadata=metadata,
                 window_id=window_id,
                 semantic_vector=semantic_vector,
