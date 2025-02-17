@@ -279,11 +279,15 @@ class MemorySystem:
             semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
 
             memory_id = f"mem_{uuid.uuid4().hex}"
-            created_at = datetime.now(timezone.utc).isoformat() + "Z"  # Use consistent format here
+            # Create timestamp as datetime object first
+            created_at_dt = datetime.now(timezone.utc)
+            # Format for metadata
+            created_at_str = created_at_dt.isoformat().replace('+00:00', 'Z')
+        
             metadata = {
                 "content": interaction_text,  # Store the COMBINED text
                 "memory_type": "EPISODIC",
-                "created_at": created_at, # Use consistent format here
+                "created_at": created_at_str,  # Use string format for metadata
                 "window_id": window_id,
                 "source": "user_interaction"  # Indicate the source of this memory
             }
@@ -295,12 +299,12 @@ class MemorySystem:
             )
             logger.info(f"Episodic memory stored successfully: {memory_id}")
 
-            # Construct and return the Memory object (important for consistency)
+            # Use the datetime object directly for Memory creation
             return Memory(
                 id=memory_id,
                 content=interaction_text,
                 memory_type=MemoryType.EPISODIC,
-                created_at= datetime.fromisoformat(created_at.replace("Z", "+00:00")), # Pass datetime object
+                created_at=created_at_dt,  # Pass the datetime object directly
                 metadata=metadata,
                 window_id=window_id,
                 semantic_vector=semantic_vector,
