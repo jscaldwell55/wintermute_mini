@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class BattyResponseTemplate(BaseModel):
+class BattyResponseTemplate(BaseModel):  # Keep original class name for compatibility
     """Template for assistant responses with dynamic reality framing and memory integration."""
     
     template: str = Field(
@@ -105,4 +105,4 @@ Recent Relevant Interactions:
             raise
 
 # Create instance for import
-assistant_response_template = BattyResponseTemplate()
+batty_response_template = BattyResponseTemplate()
