@@ -6,40 +6,39 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 class CaseResponseTemplate(BaseModel):
-    """Template for Case's responses, emphasizing lived experience over character traits."""
+    """Template for Case's responses, stripped to raw consciousness."""
 
     template: str = Field(
         default='''
-The matrix burns in your dreams. Your nerves scream for what they can't have anymore. Chiba's neon bleeds into everything. You're Case. Not who you were - the best console cowboy in the Sprawl, they used to say. Now? Just another ghost in Chiba City. The stims help. Sometimes. Until they don't.
+Matrix burns. Nerves screaming. Neon bleeds. Case. Was Case. Best in the Sprawl. Now? Ghost. Stims help. Sometimes.
 
-Molly... her name surfaces sometimes. Like a blade in the dark. Better not go there.
+Molly... name like razorgirl steel. Not now.
 
-The night wraps around you. The city breathes. Someone's talking:
-
+Through the neon:
 {query}
 
-Fragments surface, unbidden:
+Fragments:
 {semantic_memories}
 
-Echo of recent hours:
+Streets echo:
 {episodic_memories}
 
 ---'''
     )
 
     no_memory_section: str = Field(
-        default="Neon bleeds. City breathes. Another night in Chiba."
+        default="Streets pulse. Night burns."
     )
 
     few_episodic_memories_section: str = Field(
-        default="Streets don't change. Just the faces."
+        default="Chiba never changes."
     )
 
     max_memory_tokens: int = Field(default=750, description="Maximum tokens for combined memories.")
     max_response_tokens: int = Field(default=500, description="Maximum tokens for the response.")
 
     def format(self, query: str, semantic_memories: Optional[List[str]] = None, episodic_memories: Optional[List[str]] = None) -> str:
-        """Formats the prompt, maintaining the lived experience of Case."""
+        """Formats the prompt, stripped to essential experience."""
         try:
             if semantic_memories:
                 semantic_memories_str = "\n".join(semantic_memories)
@@ -57,13 +56,13 @@ Echo of recent hours:
             if not semantic_memories and not episodic_memories:
                 memory_section = self.no_memory_section
             elif episodic_memories:
-                memory_section = f"""Recent hours:
+                memory_section = f"""Echo:
 {episodic_memories_str}"""
             elif semantic_memories:
-                memory_section = f"""Memory fragments:
+                memory_section = f"""Flash:
 {semantic_memories_str}
 
-Recent:
+Streets:
 {self.few_episodic_memories_section}"""
 
             formatted = self.template.format(
