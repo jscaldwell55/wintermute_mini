@@ -279,7 +279,40 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"Failed to delete memories from Pinecone: {e}")
             raise PineconeError(f"Failed to delete memories: {e}") from e
-
+        
+    
+    async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
+        """Safe duplicate check with proper timestamp handling."""
+        try:
+            # Extract core message
+            normalized_content = ' '.join(content.lower().split())
+            if "User:" in normalized_content:
+                normalized_content = normalized_content.split("User:", 1)[1]
+            if "Assistant:" in normalized_content:
+                normalized_content = normalized_content.split("Assistant:", 1)[0]
+            
+            vector = await self.vector_operations.create_semantic_vector(normalized_content)
+        
+            # Use timestamp as number (epoch) for Pinecone
+            cutoff_time = int(time.time() - (window_minutes * 60))
+        
+            results = await self.pinecone_service.query_memories(
+                query_vector=vector,
+                top_k=5,
+                filter={
+                    "memory_type": "EPISODIC",
+                    "created_at": {"$gte": cutoff_time}  # Use epoch timestamp
+                },
+                include_metadata=True
+            )
+        
+            for memory_data, score in results:
+                if score > self.settings.duplicate_similarity_threshold:
+                    return True
+            return False
+        except Exception as e:
+            logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
+            return False
 
     async def close_connections(self):
         """Closes the Pinecone index connection."""
