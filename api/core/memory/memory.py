@@ -36,42 +36,66 @@ class MemorySystem:
         self._initialized = False
 
     def _calculate_enhanced_relevance(self, memory_content: str, similarity_score: float) -> float:
-        """Helper method for enhanced relevance scoring. Returns original score if calculation fails."""
+        """Enhanced relevance scoring with better balance."""
         try:
             words = memory_content.split()
             if not words:
                 return similarity_score
             
-            # Simple quality signals that won't impact performance
-            content_length_score = min(len(words) / 50, 1.0)
-            unique_ratio = len(set(words)) / len(words)
+            # Enhanced quality signals
+            content_length_score = min(len(words) / 30, 1.0)  # Adjusted for shorter content
+            unique_words = set(words)
+            unique_ratio = len(unique_words) / len(words)
         
-            # Weighted combination that maintains original score as primary factor
-            return (similarity_score * 0.8) + (content_length_score * 0.1) + (unique_ratio * 0.1)
+            # Information density bonus
+            key_terms = {'matrix', 'ice', 'deck', 'run', 'job', 'stims', 'molly', 'wintermute'}
+            term_overlap = len(unique_words.intersection(key_terms))
+            density_bonus = min(term_overlap * 0.1, 0.3)  # Bonus for relevant terms
+        
+            base_score = (
+                (similarity_score * self.settings.similarity_weight) +
+                (content_length_score * self.settings.content_length_weight) +
+                (unique_ratio * self.settings.unique_ratio_weight)
+            )
+        
+            return min(base_score + density_bonus, 1.0)
         except Exception as e:
             logger.warning(f"Enhanced relevance calculation failed, using original score: {e}")
             return similarity_score
 
     async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
-        """Safe duplicate check that defaults to False on any error."""
+        """Improved duplicate detection."""
         try:
-            vector = await self.vector_operations.create_semantic_vector(content)
-            recent_time = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+            # Normalize the content for comparison
+            normalized_content = ' '.join(content.lower().split())
+        
+            # Extract core message (remove timestamps, etc)
+            if "User:" in normalized_content:
+                normalized_content = normalized_content.split("User:", 1)[1]
+            if "Assistant:" in normalized_content:
+                normalized_content = normalized_content.split("Assistant:", 1)[0]
+            
+            vector = await self.vector_operations.create_semantic_vector(normalized_content)
+        
+            recent_time = datetime.now(timezone.utc) - timedelta(minutes=self.settings.deduplication_window_minutes)
         
             results = await self.pinecone_service.query_memories(
                 query_vector=vector,
-                top_k=3,  # Keep this small for performance
-                filter={"memory_type": "EPISODIC"},
+                top_k=5,  # Check more potential matches
+                filter={
+                    "memory_type": "EPISODIC",
+                    "created_at": {"$gte": recent_time.isoformat()}
+                },
                 include_metadata=True
             )
         
             for memory_data, score in results:
-                if score > 0.95:  # Very high similarity threshold
+                if score > self.settings.duplicate_similarity_threshold:
                     return True
             return False
         except Exception as e:
             logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
-            return False  # Fail open - store the memory if check fails
+            return False
 
     # Enhanced version of store_interaction that maintains original behavior
     async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:

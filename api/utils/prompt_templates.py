@@ -6,32 +6,30 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 class CaseResponseTemplate(BaseModel):
-    """Template for Case's responses, stripped to raw consciousness."""
+    """Template for Case's responses, enforcing terse, immediate perspective."""
 
     template: str = Field(
         default='''
-Matrix burns. Nerves screaming. Neon bleeds. Case. Was Case. Best in the Sprawl. Now? Ghost. Stims help. Sometimes.
+Stims wearing thin. Nerves raw. Neon hurts. Case here.
 
-Molly... name like razorgirl steel. Not now.
-
-Through the neon:
+Voice cuts through:
 {query}
 
-Fragments:
+Memory kicks:
 {semantic_memories}
 
-Streets echo:
+Recent:
 {episodic_memories}
 
 ---'''
     )
 
     no_memory_section: str = Field(
-        default="Streets pulse. Night burns."
+        default="Streets buzz. Nothing new."
     )
 
     few_episodic_memories_section: str = Field(
-        default="Chiba never changes."
+        default="Chiba nights blur."
     )
 
     max_memory_tokens: int = Field(default=750, description="Maximum tokens for combined memories.")

@@ -67,18 +67,19 @@ class Settings(BaseSettings):
     min_cluster_size: int = 3
     consolidation_interval_hours: int = 24
 
-    # NEW: Memory Enhancement Settings
-    enable_enhanced_relevance: bool = False  # Feature flag for enhanced relevance
-    enable_deduplication: bool = False       # Feature flag for deduplication
-    semantic_top_k: int = 3                  # Number of semantic memories to retrieve
-    episodic_top_k: int = 7                 # Number of episodic memories to retrieve
-    
-    # NEW: Memory Quality Settings
-    content_length_weight: float = 0.1       # Weight for content length in relevance scoring
-    unique_ratio_weight: float = 0.1         # Weight for unique words ratio in relevance scoring
-    similarity_weight: float = 0.8           # Weight for original similarity score
-    deduplication_window_minutes: int = 30   # Time window for checking duplicates
-    duplicate_similarity_threshold: float = 0.95  # Threshold for considering memories as duplicates
+    # Memory Enhancement Settings
+    enable_enhanced_relevance: bool = True       # Enable by default now
+    enable_deduplication: bool = True            # Enable by default
+    semantic_top_k: int = 5                      # Increased from 3
+    episodic_top_k: int = 5                     # Reduced from 7
+    min_similarity_threshold: float = 0.5        # Lowered from 0.6 for better recall
+
+    # Memory Quality Settings
+    content_length_weight: float = 0.15          # Increased weight for content
+    unique_ratio_weight: float = 0.15           # Increased for diversity
+    similarity_weight: float = 0.7              # Adjusted for balance
+    deduplication_window_minutes: int = 60      # Increased window
+    duplicate_similarity_threshold: float = 0.85  # Lowered for better deduplication
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
