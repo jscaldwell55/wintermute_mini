@@ -19,7 +19,7 @@ from starlette.routing import Mount
 from functools import lru_cache
 
 # Corrected import: Use the instance, batty_response_template
-from api.utils.prompt_templates import batty_response_template
+from api.utils.prompt_templates import BattyResponseTemplate
 from api.core.memory.models import (
     CreateMemoryRequest,
     MemoryResponse,
@@ -591,7 +591,7 @@ async def query_memory(
         logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
 
         # --- Construct the Prompt ---
-        prompt = batty_response_template.format(
+        prompt = BattyResponseTemplate.format(
             query=query.prompt,
             semantic_memories=semantic_memories,  # Pass the limited list
             episodic_memories=episodic_memories,  # Pass the limited list
@@ -601,7 +601,7 @@ async def query_memory(
         # --- Generate Response ---
         response = await llm_service.generate_response_async(
             prompt,
-            max_tokens=batty_response_template.max_response_tokens  # USE THE VALUE FROM THE TEMPLATE
+            max_tokens=BattyResponseTemplate.max_response_tokens  # USE THE VALUE FROM THE TEMPLATE
         )
         logger.info(f"[{trace_id}] Generated response successfully")
 
