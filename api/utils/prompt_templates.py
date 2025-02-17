@@ -46,6 +46,8 @@ Given the persona established in Phase 1, and the context provided in Phase 2, g
 **Respond now:**
 '''
     )
+
+
     no_memory_section: str = Field(
         default=""  # No extra text when no memories
     )
@@ -53,8 +55,9 @@ Given the persona established in Phase 1, and the context provided in Phase 2, g
     few_episodic_memories_section: str = Field(
         default="Chiba's the same. Nothing changes."
     )
+
     max_memory_tokens: int = Field(default=750, description="Maximum tokens for combined memories.")
-    max_response_tokens: int = Field(default=350, description="Maximum tokens for the response.")
+    max_response_tokens: int = Field(default=350, description="Maximum tokens for the response.")  #Increased
 
     def format(self, query: str, semantic_memories: Optional[List[str]] = None, episodic_memories: Optional[List[str]] = None) -> str:
       """Formats the prompt using a hierarchical structure."""
@@ -75,10 +78,12 @@ Given the persona established in Phase 1, and the context provided in Phase 2, g
           if not semantic_memories and not episodic_memories:
             memory_section = self.no_memory_section
           elif episodic_memories:
-            memory_section = f"""Recent Interactions (Subtly influence your perspective):
+            memory_section = f"""
+Recent Interactions (Subtly influence your perspective):
 {episodic_memories_str}"""
           elif semantic_memories:
-            memory_section = f"""Relevant Background (to inform, not repeat, your thoughts):
+            memory_section = f"""
+Relevant Background (to inform, not repeat, your thoughts):
 {semantic_memories_str}
 
 Recent Interactions:
@@ -96,9 +101,9 @@ Recent Interactions:
       except (KeyError, ValueError) as e:
           logger.error(f"Error formatting prompt: {e}")
           raise ValueError(f"Invalid prompt template or parameters: {e}")
-      except Exception as e:
+      except Exception as e:  #general catch
           logger.error(f"Unexpected error formatting prompt: {e}", exc_info=True)
           raise
-    
+
 # Create instance for import
 case_response_template = CaseResponseTemplate()
