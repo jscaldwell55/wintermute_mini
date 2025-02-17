@@ -18,7 +18,7 @@ from api.core.memory.models import (Memory, MemoryType, CreateMemoryRequest,
                                       MemoryResponse, QueryRequest, QueryResponse,
                                       RequestMetadata, OperationType, ErrorDetail)
 from api.core.memory.exceptions import MemoryOperationError
-#removed: from api.utils.utils import normalize_timestamp  # Import the helper
+from api.utils.utils import normalize_timestamp  # Import the helper
 
 
 logger = logging.getLogger(__name__)
@@ -173,18 +173,18 @@ class MemorySystem:
 
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Memory]:
-      try:
-        logger.info(f"Retrieving memory by ID: {memory_id}")
-        memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
-        if memory_data:
-            # we are now getting a datetime object from pinecone service
-            return Memory(**memory_data)
-        else:
-            logger.info(f"Memory with ID '{memory_id}' not found.")
-            return None
-      except Exception as e:
-        logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
-        raise
+        try:
+            logger.info(f"Retrieving memory by ID: {memory_id}")
+            memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
+            if memory_data:
+                # we are now getting a datetime object from pinecone service
+                return Memory(**memory_data)
+            else:
+                logger.info(f"Memory with ID '{memory_id}' not found.")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
+            raise
 
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID."""
@@ -274,8 +274,8 @@ class MemorySystem:
         """Stores a user interaction (query + response) as a new episodic memory."""
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
-            # Combine query and response for embedding
-            interaction_text = f"User: {query}\nAssistant: {response}" # Add proper formatting
+            # Combine query and response for embedding.  Correct format.
+            interaction_text = f"User: {query}\nAssistant: {response}"
             semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
 
             memory_id = f"mem_{uuid.uuid4().hex}"
@@ -300,7 +300,7 @@ class MemorySystem:
                 id=memory_id,
                 content=interaction_text,
                 memory_type=MemoryType.EPISODIC,
-                created_at= datetime.fromisoformat(created_at.replace("Z", "+00:00")), # Pass datetime object
+                created_at= datetime.fromisoformat(normalize_timestamp(created_at)), # Pass datetime object, call normalize_timestamp
                 metadata=metadata,
                 window_id=window_id,
                 semantic_vector=semantic_vector,
