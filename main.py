@@ -18,6 +18,7 @@ import uuid
 import time
 from starlette.routing import Mount
 from functools import lru_cache
+import random
 
 # Corrected import: Use the instance, case_response_template
 from api.utils.prompt_templates import case_response_template  # USE THE CASE TEMPLATE
@@ -605,7 +606,13 @@ async def query_memory(
         )
         logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
 
+
         # --- Generate Response ---
+        # ADD RANDOM TEMPERATURE HERE:
+        temperature = round(random.uniform(0.6, 0.9), 2)  # Random temp between 0.6 and 0.9
+        logger.info(f"[{trace_id}] Using temperature: {temperature}") #Log the temperature
+
+        await asyncio.sleep(1) # Add the 1 second delay.
         response = await llm_service.generate_response_async(
             prompt,
             max_tokens=500  
