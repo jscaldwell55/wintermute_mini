@@ -35,89 +35,6 @@ class MemorySystem:
         self.settings = settings or get_settings()  # Use provided settings or get defaults
         self._initialized = False
 
-    def _calculate_enhanced_relevance(self, memory_content: str, similarity_score: float) -> float:
-        """Enhanced relevance scoring with better balance."""
-        try:
-            words = memory_content.split()
-            if not words:
-                return similarity_score
-            
-            # Enhanced quality signals
-            content_length_score = min(len(words) / 30, 1.0)  # Adjusted for shorter content
-            unique_words = set(words)
-            unique_ratio = len(unique_words) / len(words)
-        
-            # Information density bonus
-            key_terms = {'matrix', 'ice', 'deck', 'run', 'job', 'stims', 'molly', 'wintermute'}
-            term_overlap = len(unique_words.intersection(key_terms))
-            density_bonus = min(term_overlap * 0.1, 0.3)  # Bonus for relevant terms
-        
-            base_score = (
-                (similarity_score * self.settings.similarity_weight) +
-                (content_length_score * self.settings.content_length_weight) +
-                (unique_ratio * self.settings.unique_ratio_weight)
-            )
-        
-            return min(base_score + density_bonus, 1.0)
-        except Exception as e:
-            logger.warning(f"Enhanced relevance calculation failed, using original score: {e}")
-            return similarity_score
-
-    async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
-        """Improved duplicate detection."""
-        try:
-            # Normalize the content for comparison
-            normalized_content = ' '.join(content.lower().split())
-        
-            # Extract core message (remove timestamps, etc)
-            if "User:" in normalized_content:
-                normalized_content = normalized_content.split("User:", 1)[1]
-            if "Assistant:" in normalized_content:
-                normalized_content = normalized_content.split("Assistant:", 1)[0]
-            
-            vector = await self.vector_operations.create_semantic_vector(normalized_content)
-        
-            recent_time = datetime.now(timezone.utc) - timedelta(minutes=self.settings.deduplication_window_minutes)
-        
-            results = await self.pinecone_service.query_memories(
-                query_vector=vector,
-                top_k=5,  # Check more potential matches
-                filter={
-                    "memory_type": "EPISODIC",
-                    "created_at": {"$gte": recent_time.isoformat()}
-                },
-                include_metadata=True
-            )
-        
-            for memory_data, score in results:
-                if score > self.settings.duplicate_similarity_threshold:
-                    return True
-            return False
-        except Exception as e:
-            logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
-            return False
-
-    # Enhanced version of store_interaction that maintains original behavior
-    async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
-        """Enhanced version of store_interaction with optional deduplication."""
-        try:
-            interaction_text = f"User: {query}\nAssistant: {response}"
-        
-            # Only check for duplicates if explicitly enabled
-            if self.settings.enable_deduplication:  # Add this to your Settings class
-                is_duplicate = await self._check_recent_duplicate(interaction_text)
-                if is_duplicate:
-                    logger.info("Skipping duplicate interaction")
-                    return None
-        
-            # Use existing store_interaction for actual storage
-            return await self.store_interaction(query, response, window_id)
-    
-        except Exception as e:
-            logger.error(f"Enhanced store interaction failed, falling back to original: {e}")
-            # Fallback to original method
-            return await self.store_interaction(query, response, window_id)
-
 
     async def initialize(self) -> bool:
         """Initialize the memory system and its components."""
@@ -256,18 +173,18 @@ class MemorySystem:
 
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Memory]:
-        try:
-            logger.info(f"Retrieving memory by ID: {memory_id}")
-            memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
-            if memory_data:
-                # we are now getting a datetime object from pinecone service
-                return Memory(**memory_data)
-            else:
-                logger.info(f"Memory with ID '{memory_id}' not found.")
-                return None
-        except Exception as e:
-            logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
-            raise
+      try:
+        logger.info(f"Retrieving memory by ID: {memory_id}")
+        memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
+        if memory_data:
+            # we are now getting a datetime object from pinecone service
+            return Memory(**memory_data)
+        else:
+            logger.info(f"Memory with ID '{memory_id}' not found.")
+            return None
+      except Exception as e:
+        logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
+        raise
 
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID."""
@@ -392,6 +309,117 @@ class MemorySystem:
         except Exception as e:
             logger.error(f"Failed to store interaction: {e}", exc_info=True)
             raise MemoryOperationError("store_interaction", str(e))
+
+    async def delete_memory(self, memory_id: str) -> bool:
+        """Delete a memory by ID."""
+        try:
+            await self.pinecone_service.delete_memory(memory_id)
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting memory: {e}")
+            return False
+    async def add_interaction(
+        self,
+        user_input: str,
+        response: str,
+        window_id: Optional[str] = None
+    ) -> str:
+        """Add an interaction as an episodic memory."""
+        content = f"User: {user_input}\nAssistant: {response}"
+        memory_id = await self.add_memory(
+            content=content,
+            memory_type=MemoryType.EPISODIC,
+            metadata={"interaction": True},
+            window_id=window_id,
+        )
+        return memory_id
+
+    async def health_check(self):
+        """Checks the health of the memory system."""
+        return {"status": "healthy"}
+    
+    async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
+      """Improved duplicate detection."""
+      try:
+          # Normalize the content for comparison
+          normalized_content = ' '.join(content.lower().split())
+
+          # Extract core message (remove timestamps, etc)
+          if "User:" in normalized_content:
+              normalized_content = normalized_content.split("User:", 1)[1]
+          if "Assistant:" in normalized_content:
+              normalized_content = normalized_content.split("Assistant:", 1)[0]
+
+          vector = await self.vector_operations.create_semantic_vector(normalized_content)
+
+          recent_time = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+          # Convert recent_time to a Unix timestamp (seconds since epoch)
+          recent_timestamp = int(recent_time.timestamp())
+
+          results = await self.pinecone_service.query_memories(
+              query_vector=vector,
+              top_k=5,  # Check more potential matches
+              filter={
+                  "memory_type": "EPISODIC",
+                  "created_at": {"$gte": recent_timestamp}  # Use the timestamp
+              },
+              include_metadata=True
+          )
+
+          for memory_data, score in results:
+              if score > self.settings.duplicate_similarity_threshold:
+                  return True # Duplicate found
+          return False # No duplicates
+      except Exception as e:
+          logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
+          return False  # Assume not a duplicate on error
+
+
+    async def store_interaction(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
+      """Stores a user interaction (query + response) as a new episodic memory."""
+      try:
+        logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
+
+        interaction_text = f"User: {query}\nAssistant: {response}"
+
+        # Check for duplicates *before* creating the memory object
+        if await self._check_recent_duplicate(interaction_text):
+            logger.warning("Duplicate interaction detected. Skipping storage.")
+            return None  # Or raise an exception, depending on desired behavior
+
+
+        semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
+
+        memory_id = f"mem_{uuid.uuid4().hex}"
+        created_at = datetime.now(timezone.utc).isoformat() + "Z"
+        metadata = {
+            "content": interaction_text,
+            "memory_type": "EPISODIC",
+            "created_at": created_at,
+            "window_id": window_id,
+            "source": "user_interaction",
+        }
+
+        await self.pinecone_service.create_memory(
+            memory_id=memory_id,
+            vector=semantic_vector,
+            metadata=metadata
+        )
+        logger.info(f"Episodic memory stored successfully: {memory_id}")
+
+        return Memory(
+            id=memory_id,
+            content=interaction_text,
+            memory_type=MemoryType.EPISODIC,
+            created_at=datetime.fromisoformat(normalize_timestamp(created_at)),
+            metadata=metadata,
+            window_id=window_id,
+            semantic_vector=semantic_vector,
+        )
+
+      except Exception as e:
+        logger.error(f"Failed to store interaction: {e}", exc_info=True)
+        raise MemoryOperationError("store_interaction", str(e))
 
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID."""

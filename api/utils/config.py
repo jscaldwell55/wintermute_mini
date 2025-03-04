@@ -1,4 +1,4 @@
-# utils/config.py
+# api/utils/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, Optional
 from functools import lru_cache
@@ -56,9 +56,9 @@ class Settings(BaseSettings):
     # Memory Retrieval Settings
     max_memories_per_query: int = 20
     default_memories_per_query: int = 5
-    min_similarity_threshold: float = 0.6
-    time_weight_ratio: float = 0.2
-    initial_fetch_multiplier: float = 2.0
+    min_similarity_threshold: float = 0.6 # No longer used now that we enhance relevance.
+    time_weight_ratio: float = 0.2 # No longer used
+    initial_fetch_multiplier: float = 2.0 #No longer used
 
     # Consolidation Settings
     consolidation_hour: int = 2
@@ -71,17 +71,14 @@ class Settings(BaseSettings):
     # Memory Enhancement Settings
     enable_enhanced_relevance: bool = True
     enable_deduplication: bool = True
-    semantic_top_k: int = 5
-    episodic_top_k: int = 5
-    min_similarity_threshold: float = 0.4        # Lowered from 0.5
-    emantic_similarity_threshold: float = 0.3   # New, even lower for semantic memories
-
-    # Memory Quality Settings
-    content_length_weight: float = 0.15
-    unique_ratio_weight: float = 0.15
-    similarity_weight: float = 0.7
-    deduplication_window_minutes: int = 60
-    duplicate_similarity_threshold: float = 0.85
+    semantic_top_k: int = 5  # NO LONGER USED, REMOVE
+    episodic_top_k: int = 5 # NO LONGER USED, REMOVE
+    min_similarity_threshold: float = 0.4  # NO LONGER USED, REMOVE, handled by enhanced relevance
+    similarity_weight: float = 0.7 # Added. Used by enhanced relevance
+    content_length_weight: float = 0.15 # Added.  Used by enhanced relevance
+    unique_ratio_weight: float = 0.15 # Added.  Used by enhanced relevance
+    deduplication_window_minutes: int = 60 # Added.
+    duplicate_similarity_threshold: float = 0.98 # Added. Very high threshold.
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
