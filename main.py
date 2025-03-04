@@ -644,7 +644,7 @@ async def query_memory(
                     window_id=query.window_id,
                 )
             else:
-                await memory_system.store_interaction(
+                await memory_system.store_interaction_enhanced(
                     query=query.prompt,
                     response=response,
                     window_id=query.window_id,

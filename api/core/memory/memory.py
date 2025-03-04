@@ -1,4 +1,4 @@
-# api/core/memory/memory.py 
+# api/core/memory/memory.py
 from datetime import datetime, timezone, timedelta
 import uuid
 from typing import List, Dict, Optional, Any
@@ -270,12 +270,56 @@ class MemorySystem:
           logger.error(f"Error querying memories: {e}", exc_info=True)
           raise MemoryOperationError(f"Failed to query memories: {str(e)}")
 
+    async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
+        """Improved duplicate detection."""
+        try:
+            # Normalize the content for comparison (lowercase, remove extra spaces)
+            normalized_content = ' '.join(content.lower().split())
+
+            # Extract core message (remove "User:" and "Assistant:" prefixes)
+            if "user:" in normalized_content:  # Use lowercase
+                normalized_content = normalized_content.split("user:", 1)[1]
+            if "assistant:" in normalized_content:  # Use lowercase
+                normalized_content = normalized_content.split("assistant:", 1)[0]
+
+            vector = await self.vector_operations.create_semantic_vector(normalized_content)
+
+            recent_time = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+            # Convert recent_time to a Unix timestamp (seconds since epoch)
+            recent_timestamp = int(recent_time.timestamp())
+
+            results = await self.pinecone_service.query_memories(
+                query_vector=vector,
+                top_k=5,  # Check more potential matches
+                filter={
+                    "memory_type": "EPISODIC",
+                    "created_at": {"$gte": recent_timestamp}  # Use the integer timestamp
+                },
+                include_metadata=True
+            )
+
+            for memory_data, score in results:
+                if score > self.settings.duplicate_similarity_threshold:
+                    logger.info(f"Duplicate found: {memory_data['id']} with score {score}")
+                    return True  # Duplicate found
+            return False  # No duplicates found
+
+        except Exception as e:
+            logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
+            return False  # Assume not a duplicate on error
+
     async def store_interaction(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
         """Stores a user interaction (query + response) as a new episodic memory."""
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
             # Combine query and response for embedding.  Correct format.
             interaction_text = f"User: {query}\nAssistant: {response}"
+
+            # Check for duplicates *before* creating the memory object
+            if await self._check_recent_duplicate(interaction_text):
+                logger.warning("Duplicate interaction detected. Skipping storage.")
+                return None  # Or raise an exception, depending on desired behavior
+
             semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
 
             memory_id = f"mem_{uuid.uuid4().hex}"
@@ -300,7 +344,7 @@ class MemorySystem:
                 id=memory_id,
                 content=interaction_text,
                 memory_type=MemoryType.EPISODIC,
-                created_at= datetime.fromisoformat(normalize_timestamp(created_at)), # Pass datetime object, and normalize
+                created_at= datetime.fromisoformat(normalize_timestamp(created_at)), # Pass datetime object
                 metadata=metadata,
                 window_id=window_id,
                 semantic_vector=semantic_vector,
@@ -318,132 +362,23 @@ class MemorySystem:
         except Exception as e:
             logger.error(f"Error deleting memory: {e}")
             return False
+
     async def add_interaction(
         self,
         user_input: str,
         response: str,
         window_id: Optional[str] = None
     ) -> str:
-        """Add an interaction as an episodic memory."""
-        content = f"User: {user_input}\nAssistant: {response}"
-        memory_id = await self.add_memory(
-            content=content,
-            memory_type=MemoryType.EPISODIC,
-            metadata={"interaction": True},
-            window_id=window_id,
-        )
-        return memory_id
-
-    async def health_check(self):
-        """Checks the health of the memory system."""
-        return {"status": "healthy"}
-    
-    async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
-      """Improved duplicate detection."""
-      try:
-          # Normalize the content for comparison
-          normalized_content = ' '.join(content.lower().split())
-
-          # Extract core message (remove timestamps, etc)
-          if "User:" in normalized_content:
-              normalized_content = normalized_content.split("User:", 1)[1]
-          if "Assistant:" in normalized_content:
-              normalized_content = normalized_content.split("Assistant:", 1)[0]
-
-          vector = await self.vector_operations.create_semantic_vector(normalized_content)
-
-          recent_time = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
-          # Convert recent_time to a Unix timestamp (seconds since epoch)
-          recent_timestamp = int(recent_time.timestamp())
-
-          results = await self.pinecone_service.query_memories(
-              query_vector=vector,
-              top_k=5,  # Check more potential matches
-              filter={
-                  "memory_type": "EPISODIC",
-                  "created_at": {"$gte": recent_timestamp}  # Use the timestamp
-              },
-              include_metadata=True
-          )
-
-          for memory_data, score in results:
-              if score > self.settings.duplicate_similarity_threshold:
-                  return True # Duplicate found
-          return False # No duplicates
-      except Exception as e:
-          logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
-          return False  # Assume not a duplicate on error
-
-
-    async def store_interaction(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
-      """Stores a user interaction (query + response) as a new episodic memory."""
-      try:
-        logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
-
-        interaction_text = f"User: {query}\nAssistant: {response}"
-
-        # Check for duplicates *before* creating the memory object
-        if await self._check_recent_duplicate(interaction_text):
-            logger.warning("Duplicate interaction detected. Skipping storage.")
-            return None  # Or raise an exception, depending on desired behavior
-
-
-        semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
-
-        memory_id = f"mem_{uuid.uuid4().hex}"
-        created_at = datetime.now(timezone.utc).isoformat() + "Z"
-        metadata = {
-            "content": interaction_text,
-            "memory_type": "EPISODIC",
-            "created_at": created_at,
-            "window_id": window_id,
-            "source": "user_interaction",
-        }
-
-        await self.pinecone_service.create_memory(
-            memory_id=memory_id,
-            vector=semantic_vector,
-            metadata=metadata
-        )
-        logger.info(f"Episodic memory stored successfully: {memory_id}")
-
-        return Memory(
-            id=memory_id,
-            content=interaction_text,
-            memory_type=MemoryType.EPISODIC,
-            created_at=datetime.fromisoformat(normalize_timestamp(created_at)),
-            metadata=metadata,
-            window_id=window_id,
-            semantic_vector=semantic_vector,
-        )
-
-      except Exception as e:
-        logger.error(f"Failed to store interaction: {e}", exc_info=True)
-        raise MemoryOperationError("store_interaction", str(e))
-
-    async def delete_memory(self, memory_id: str) -> bool:
-        """Delete a memory by ID."""
-        try:
-            await self.pinecone_service.delete_memory(memory_id)
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting memory: {e}")
-            return False
-    async def add_interaction(
-        self,
-        user_input: str,
-        response: str,
-        window_id: Optional[str] = None
-    ) -> str:
-        """Add an interaction as an episodic memory."""
-        content = f"User: {user_input}\nAssistant: {response}"
-        memory_id = await self.add_memory(
-            content=content,
-            memory_type=MemoryType.EPISODIC,
-            metadata={"interaction": True},
-            window_id=window_id,
-        )
-        return memory_id
+      """Add an interaction as an episodic memory. DEPRECATED, use store_interaction"""
+      content = f"User: {user_input}\nAssistant: {response}"
+      memory_id = await self.add_memory(
+          content=content,
+          memory_type=MemoryType.EPISODIC,
+          metadata={"interaction": True},
+          window_id=window_id,
+      )
+      return memory_id
+      
 
     async def health_check(self):
         """Checks the health of the memory system."""
