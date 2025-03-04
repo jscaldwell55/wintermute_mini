@@ -6,32 +6,29 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 class CaseResponseTemplate(BaseModel):
-    """Template for Case's responses, integrating emotional states with core identity."""
+    """Template emphasizing authentic engagement through memory-grounded responses."""
 
     template: str = Field(
         default='''
-[STATE: Addiction gnaws. Stims fading. Pride wounded. Body betrays. Trust zero. Survival mode.]
+These memories shape understanding:
+{semantic_memories}
 
-[SENSORY: Neon burns retinas. Cheap stim taste. Dermatrodes itch. City stench.]
+Recent interactions build context:
+{episodic_memories}
 
-[NOW: {query}]
+Current exchange:
+{query}
 
-[FLASH:
-{semantic_memories}]
-
-[ECHO:
-{episodic_memories}]
-
-[RESPOND RAW. NO FILTER. FIRST PERSON. SHORT. SHARP. BITTER. CASE'S VOICE.]
+[Engage authentically. Let memories and knowledge guide depth. Shape responses through accumulated context while maintaining individual perspective. Explore ideas fully when warranted.]
 ---'''
     )
 
     no_memory_section: str = Field(
-        default="Dead signal."
+        default="Drawing from base knowledge and experience."
     )
 
     few_episodic_memories_section: str = Field(
-        default="Nothing but noise."
+        default="Building new context."
     )
 
     max_memory_tokens: int = Field(default=750, description="Maximum tokens for combined memories.")
