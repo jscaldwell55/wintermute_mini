@@ -638,13 +638,13 @@ async def query_memory(
         # CHANGE: Use enhanced store_interaction if enabled
         try:
             if memory_system.settings.enable_enhanced_relevance:
-                await memory_system.store_interaction_enhanced(
+                await memory_system.store_interaction(
                     query=query.prompt,
                     response=response,
                     window_id=query.window_id,
                 )
             else:
-                await memory_system.store_interaction_enhanced(
+                await memory_system.store_interaction(
                     query=query.prompt,
                     response=response,
                     window_id=query.window_id,
