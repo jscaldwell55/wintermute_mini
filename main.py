@@ -713,7 +713,7 @@ async def query_memory(
             metadata={"success": False}
         )
 # --- Include Router and Setup Static Files ---
-app.include_router(api_router)
+app.include_router(api_router, prefix="/api/v1")
 app.include_router(voice_router, prefix="/api/v1")
 setup_static_files(app)
 
