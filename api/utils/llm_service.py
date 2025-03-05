@@ -143,6 +143,7 @@ class LLMService:
                 4096 - estimated_prompt_tokens - 100
             )
             max_response_tokens = max(0, max_response_tokens)  # Ensure non-negative
+            logger.info(f"Request {request_id}: prompt_length={len(validated_prompt)} chars, estimated_tokens={estimated_prompt_tokens}, max_response_tokens={max_response_tokens}")
 
             messages = []
             if system_message:
@@ -189,6 +190,7 @@ class LLMService:
                     "response_length": len(result),
                     "model": self.model,
                     "total_tokens": response.usage.total_tokens if response.usage else None,
+                    "response_time_ms": int(duration * 1000)
                 }
             )
 

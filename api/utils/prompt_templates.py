@@ -100,6 +100,8 @@ Speak clearly and simply. Use short sentences and age appropriate language.  Be 
             # CHANGE: Added support for memory_section if it exists in the template
             if "{memory_section}" in formatted:
                 formatted = formatted.replace("{memory_section}", memory_section)
+
+            logger.info(f"Formatted prompt: {formatted[:500]}...")
             
             return formatted.strip()
 

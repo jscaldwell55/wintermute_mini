@@ -216,6 +216,7 @@ class PineconeService(MemoryService):
             memories_with_scores = []
             for result in results['matches']:
                 logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
+                logger.info(f"Memory {result['id']}: relevance_score={result['score']:.4f}, content={result['metadata'].get('content', '')[:50]}...")
 
                 # Use normalize_timestamp here
                 metadata = result['metadata']

@@ -569,6 +569,9 @@ async def query_memory(
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
         )
+        logger.info(f"[{trace_id}] Retrieved {len(semantic_results)} semantic memories, with scores:")
+        for i, (match, score) in enumerate(semantic_results[:3]):  # Log top 3 for brevity
+            logger.info(f"[{trace_id}] Semantic memory {i+1}: score={score:.4f}, content={match['metadata']['content'][:50]}...")
         # Semantic Memory Filtering:
         semantic_memories = []
         for match, _ in semantic_results: # Don't need score

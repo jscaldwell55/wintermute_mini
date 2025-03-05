@@ -214,6 +214,8 @@ class MemorySystem:
                 include_metadata=True
             )
             logger.info(f"Received {len(results)} raw results from Pinecone.")
+            for i, (memory_data, score) in enumerate(results[:5]):  # Log top 5 for brevity
+                logger.info(f"Memory {i+1}: id={memory_data['id']}, score={score:.4f}, content={memory_data['metadata'].get('content', '')[:50]}...")
 
             matches: List[MemoryResponse] = []
             similarity_scores: List[float] = []
