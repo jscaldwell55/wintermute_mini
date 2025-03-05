@@ -22,6 +22,7 @@ from functools import lru_cache
 import random
 
 # Corrected import: Use the instance, case_response_template
+from api.dependencies import get_memory_system, get_llm_service, get_case_response_template
 from api.utils.prompt_templates import case_response_template  # USE THE CASE TEMPLATE
 from api.core.memory.models import (
     CreateMemoryRequest,

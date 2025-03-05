@@ -10,7 +10,7 @@ from typing import Optional
 from api.core.memory.memory import MemorySystem
 from api.utils.llm_service import LLMService
 from api.utils.prompt_templates import CaseResponseTemplate
-from main import get_memory_system, get_llm_service
+from api.dependencies import get_memory_system, get_llm_service, get_case_response_template
 
 # Configure logging
 logger = logging.getLogger(__name__)
