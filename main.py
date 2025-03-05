@@ -20,10 +20,8 @@ import time
 from starlette.routing import Mount
 from functools import lru_cache
 import random
-
-# Corrected import: Use the instance, case_response_template
 from api.dependencies import get_memory_system, get_llm_service, get_case_response_template
-from api.utils.prompt_templates import case_response_template  # USE THE CASE TEMPLATE
+from api.utils.prompt_templates import case_response_template  
 from api.core.memory.models import (
     CreateMemoryRequest,
     MemoryResponse,
@@ -46,7 +44,7 @@ from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
 # Keep only ONE router definition here:
-api_router = APIRouter(prefix="/api/v1")
+api_router = APIRouter()  # No prefix here!
 
 logger = logging.getLogger(__name__)
 logger.info("Main module loading")
@@ -292,7 +290,7 @@ async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidatio
 async def ping():
     return {"message": "pong"}
 
-@app.get("/health")
+@api_router.get("/health")  # Moved to api_router
 async def health_check():
     """Check system health"""
     logger = logging.getLogger(__name__)
@@ -492,7 +490,7 @@ async def delete_memory(
 
 
 
-@api_router.options("/query")
+@api_router.options("/query")  # This is correct
 async def query_options():
     return {"message": "Options request successful"}
 
@@ -558,7 +556,7 @@ async def debug_query(request: Request):
     }
 # Removed duplicate import of batty_response_template
 
-@api_router.post("/query", response_model=QueryResponse)  # Keep only ONE /query route
+@api_router.post("/query")  # Keep only ONE /query route, and it's in api_router
 async def query_memory(
     request: Request,
     query: QueryRequest,
@@ -713,7 +711,7 @@ async def query_memory(
             metadata={"success": False}
         )
 # --- Include Router and Setup Static Files ---
-app.include_router(api_router, prefix="/api/v1")
+app.include_router(api_router, prefix="/api/v1") # Correct prefix usage
 app.include_router(voice_router, prefix="/api/v1")
 setup_static_files(app)
 
