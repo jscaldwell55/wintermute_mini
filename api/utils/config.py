@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     # API Keys
     openai_api_key: str
     pinecone_api_key: str
+    vapi_api_key: str
 
     # Pinecone Settings
     pinecone_environment: str
