@@ -1,109 +1,142 @@
-// src/components/WintermuteInterface.tsx
+// src/components/wintermute_interface.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { queryAPI, speechToText, processVoiceInput, textToSpeech, checkVoiceStatus } from '../services/api';
+import { queryAPI, processVoiceInput, textToSpeech, checkVoiceStatus } from '../services/api';
 import { QueryResponse, ErrorDetail } from '../types';
+import Vapi from "@vapi-ai/web"; // Corrected import (default import)
 
-console.log("WintermuteInterface.tsx is being executed");
 
-// Define an interface for an interaction
 interface Interaction {
-  query: string;
-  response: string | null;
-  error: ErrorDetail | null;
-  timestamp: string;
-  audioUrl?: string | null;
-  isProcessing?: boolean;
+    query: string;
+    response: string | null;
+    error: ErrorDetail | null;
+    timestamp: string;
+    audioUrl?: string | null;
+    isProcessing?: boolean;
 }
 
 const WintermuteInterface: React.FC = () => {
-    const [query, setQuery] = useState<string>('');
+    const [query, setQuery] = useState('');
     const [interactions, setInteractions] = useState<Interaction[]>([]);
-    const [loading, setLoading] = useState<boolean>(false);
-    const [windowId, setWindowId] = useState<string>('');
-    const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
-    const [isRecording, setIsRecording] = useState<boolean>(false);
-    const [audioPlaying, setAudioPlaying] = useState<boolean>(false);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    
+    const [loading, setLoading] = useState(false);
+    const [windowId, setWindowId] = useState('');
+    const [voiceEnabled, setVoiceEnabled] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
+    const [audioPlaying, setAudioPlaying] = useState(false);
+    const [errorMessage, setErrorMessage] = useState(null);
+    const [vapi, setVapi] = useState<Vapi | null>(null); // Store the Vapi instance
+
     const interactionsEndRef = useRef<HTMLDivElement>(null);
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const audioChunksRef = useRef<Blob[]>([]);
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
     const statusPollingRef = useRef<NodeJS.Timeout | null>(null);
+    const currentSessionId = useRef<string | null>(null); // Store current session ID
 
-    // Generate a UUID for the session window on component mount
     useEffect(() => {
-        console.log("Initializing WintermuteInterface with new windowId");
         setWindowId(crypto.randomUUID());
-        
-        // Set up audio player ref for voice mode
+
         if (!audioPlayerRef.current) {
-          const player = new Audio();
-          player.addEventListener('ended', () => setAudioPlaying(false));
-          audioPlayerRef.current = player;
+            const player = new Audio();
+            player.addEventListener('ended', () => setAudioPlaying(false));
+            audioPlayerRef.current = player;
         }
-        
+
         return () => {
-          // Cleanup
-          if (audioPlayerRef.current) {
-            audioPlayerRef.current.pause();
-            audioPlayerRef.current.removeEventListener('ended', () => setAudioPlaying(false));
-          }
-          if (statusPollingRef.current) {
-            clearInterval(statusPollingRef.current);
-          }
+            if (audioPlayerRef.current) {
+                audioPlayerRef.current.pause();
+                audioPlayerRef.current.removeEventListener('ended', () => setAudioPlaying(false));
+            }
+            if (statusPollingRef.current) {
+                clearInterval(statusPollingRef.current);
+            }
+            if (vapi) {
+                vapi.stop(); // Stop the Vapi call on unmount
+            }
         };
     }, []);
 
-    // Auto-scroll to the bottom when new interactions are added
     useEffect(() => {
         if (interactionsEndRef.current) {
             interactionsEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-        console.log(`Interactions updated, total count: ${interactions.length}`);
     }, [interactions]);
 
-    // Limit interactions to the most recent 10
     useEffect(() => {
         if (interactions.length > 10) {
-            console.log(`Trimming interactions to latest 10 (current count: ${interactions.length})`);
             setInteractions(prevInteractions => prevInteractions.slice(-10));
         }
     }, [interactions]);
 
-    // Handle text query submission
-    const handleQuery = async () => {
-        if (!query.trim()) {
-            console.log("Empty query, not submitting");
-            return;
+    // Initialize Vapi when voice is enabled
+    useEffect(() => {
+        if (voiceEnabled) {
+            const newVapi = new Vapi({
+                apiKey: import.meta.env.VITE_VAPI_API_KEY, // Get Vapi API key from environment (.env)
+                voiceId: import.meta.env.VITE_VAPI_VOICE_ID, // Get Vapi voice ID (.env)
+                webhookUrl: `${import.meta.env.VITE_API_URL}/api/v1/voice/vapi-webhook/`, // Your backend webhook
+            });
+
+            newVapi.on('assistant-response', async (data) => {
+                if (data.type === 'final-transcript') {
+                    const transcribedText = data.message;
+                    handleVoiceInput(transcribedText); // Send transcribed text to backend
+                } else if (data.type === 'audio') {
+                    // Handle audio (if needed). You'll likely get the final
+                    // audio URL from your backend's /check-status/ endpoint.
+                    console.log("Vapi audio:", data.audio_url);
+                }
+            });
+
+            newVapi.on('error', (error) => {
+                console.error("Vapi error:", error);
+                setErrorMessage(`Vapi Error: ${error.message}`);
+            });
+
+            newVapi.on('ready', () => {
+                console.log("Vapi is ready");
+            });
+
+            newVapi.on('started', () => {
+                console.log("VAPI STARTED");
+            });
+
+            newVapi.on('ended', () => {
+                console.log("VAPI END");
+                if (currentSessionId.current) {
+                    currentSessionId.current = null; // Clear session ID on call end
+                }
+                setIsRecording(false); // Ensure recording is set to false
+            });
+
+            setVapi(newVapi);
+        } else {
+            if (vapi) {
+                vapi.stop();
+                setVapi(null);
+            }
         }
+    }, [voiceEnabled]); // Only re-initialize when voiceEnabled changes
+
+
+    const handleQuery = async () => {
+        if (!query.trim()) return;
 
         setLoading(true);
-        const submittedQuery = query; // Capture query
-        setQuery(''); // Clear the input field
-        
-        console.log(`Submitting query: "${submittedQuery.substring(0, 50)}${submittedQuery.length > 50 ? '...' : ''}"`);
+        const submittedQuery = query;
+        setQuery('');
 
         try {
             const data: QueryResponse = await queryAPI(submittedQuery, windowId);
-            console.log("Received API response", data);
-            
-            // Create a new interaction
             const newInteraction: Interaction = {
                 query: submittedQuery,
                 response: data.error ? null : (data.response || "No response from the AI."),
                 error: data.error || null,
                 timestamp: new Date().toISOString()
             };
-            
-            // If voice is enabled, convert response to speech
+
             if (voiceEnabled && !data.error && data.response) {
                 try {
                     const ttsResponse = await textToSpeech(data.response);
                     if (ttsResponse.audio_url) {
                         newInteraction.audioUrl = ttsResponse.audio_url;
-                        
-                        // Play audio
                         if (audioPlayerRef.current) {
                             audioPlayerRef.current.src = ttsResponse.audio_url;
                             audioPlayerRef.current.play();
@@ -112,16 +145,12 @@ const WintermuteInterface: React.FC = () => {
                     }
                 } catch (err) {
                     console.error("Text-to-speech error", err);
-                    // Continue without audio if TTS fails
                 }
             }
-            
-            // Add the new interaction to the history
+
             setInteractions(prevInteractions => [...prevInteractions, newInteraction]);
         } catch (err) {
             console.error("API call failed", err);
-            
-            // Create an interaction with error
             const errorInteraction: Interaction = {
                 query: submittedQuery,
                 response: null,
@@ -132,130 +161,101 @@ const WintermuteInterface: React.FC = () => {
                 },
                 timestamp: new Date().toISOString()
             };
-            
             setInteractions(prevInteractions => [...prevInteractions, errorInteraction]);
         } finally {
             setLoading(false);
         }
     };
 
-    // Start voice recording
+
     const startRecording = async () => {
         setErrorMessage(null);
-        try {
-            console.log("Starting voice recording");
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream);
-            mediaRecorderRef.current = mediaRecorder;
-            audioChunksRef.current = [];
-            
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunksRef.current.push(event.data);
-                }
-            };
-            
-            mediaRecorder.onstop = processVoiceRecording;
-            
-            mediaRecorder.start();
+        if (vapi) {
+            console.log("Starting Vapi call");
             setIsRecording(true);
-        } catch (error) {
-            console.error("Error starting recording:", error);
-            setErrorMessage("Could not access microphone. Please check permissions.");
+            currentSessionId.current = crypto.randomUUID(); // Generate a session ID
+            try {
+                await vapi.start(); // Start the Vapi call
+            } catch (error) {
+                console.error("Error starting Vapi call:", error);
+                setErrorMessage("Could not start voice call. Please check your microphone and Vapi configuration.");
+                setIsRecording(false);
+            }
+
+        } else {
+            console.error("Vapi not initialized");
+            setErrorMessage("Voice mode is not properly initialized.");
         }
     };
 
-    // Stop voice recording
     const stopRecording = () => {
-        if (mediaRecorderRef.current && isRecording) {
-            console.log("Stopping voice recording");
-            mediaRecorderRef.current.stop();
+        if (vapi) {
+            console.log("Stopping Vapi call");
+            vapi.stop(); // Stop the Vapi call
             setIsRecording(false);
-            setLoading(true);
+            setLoading(true); // Indicate loading while waiting for final response
         }
     };
 
-    // Process the voice recording
-    const processVoiceRecording = async () => {
+    // This function handles the transcribed text from Vapi
+    const handleVoiceInput = async (transcribedText: string) => {
+        setLoading(true);
+        setQuery(transcribedText); // Update the input field
+        const sessionId = currentSessionId.current; // Use the stored session ID
+
+        if (!sessionId) {
+            console.error("Session ID is missing!");
+            setErrorMessage("Session ID is missing. Please try again.");
+            setLoading(false);
+            return;
+        }
+
+        // Add user's question immediately, marked as processing
+        const newInteractionIndex = interactions.length;
+        setInteractions(prev => [...prev, {
+            query: transcribedText,
+            response: "Thinking...",
+            error: null,
+            timestamp: new Date().toISOString(),
+            isProcessing: true
+        }]);
+
         try {
-            console.log("Processing recording");
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            
-            // Step 1: Speech to Text
-            console.log("Sending audio for speech-to-text");
-            const sttResponse = await speechToText(audioBlob);
-            
-            if (sttResponse.error) {
-                throw new Error(sttResponse.error);
-            }
-            
-            const transcribedText = sttResponse.transcribed_text;
-            console.log("Transcribed text:", transcribedText);
-            
-            if (!transcribedText.trim()) {
-                throw new Error("Could not understand speech. Please try again.");
-            }
-            
-            // Set the transcribed text in the input field
-            setQuery(transcribedText);
-            
-            // Create a unique session ID for this interaction
-            const sessionId = crypto.randomUUID();
-            
-            // Add the user's question to interactions immediately
-            const newInteractionIndex = interactions.length;
-            setInteractions(prev => [...prev, {
-                query: transcribedText,
-                response: "Thinking...",
-                error: null,
-                timestamp: new Date().toISOString(),
-                isProcessing: true
-            }]);
-            
-            // Process with Wintermute using the webhook approach
-            console.log("Sending transcribed text to Wintermute");
+            // Get the "Thinking..." placeholder audio (from your backend)
             const processResponse = await processVoiceInput(transcribedText, windowId, sessionId);
-            
+
             if (!processResponse || processResponse.error) {
                 throw new Error(processResponse?.error || "Processing failed");
             }
-            
-            // Play the initial "thinking" audio if available
             if (processResponse.audio_url && audioPlayerRef.current) {
                 audioPlayerRef.current.src = processResponse.audio_url;
                 audioPlayerRef.current.play();
                 setAudioPlaying(true);
             }
-            
-            // Start polling for the final response
+
+            // Start polling for the final response (from your backend)
             if (statusPollingRef.current) {
                 clearInterval(statusPollingRef.current);
             }
-            
+
             statusPollingRef.current = setInterval(async () => {
                 try {
-                    console.log(`Checking status for session ${sessionId}`);
                     const statusData = await checkVoiceStatus(sessionId);
-                    
                     if (statusData.status === 'completed' && statusData.audio_url) {
                         if (statusPollingRef.current) {
                             clearInterval(statusPollingRef.current);
                             statusPollingRef.current = null;
                         }
-                        
-                        console.log("Received final voice response:", statusData);
-                        
-                        // Update the interaction with the final response
-                        setInteractions(prev => prev.map((interaction, idx) => 
+                        setInteractions(prev => prev.map((interaction, idx) =>
                             idx === newInteractionIndex ? {
                                 ...interaction,
-                                response: statusData.response || interaction.response,
-                                audioUrl: statusData.audio_url,
+                                response: statusData.response || interaction.response,  // Use backend response
+                                audioUrl: statusData.audio_url, // Use backend audio URL
                                 isProcessing: false
                             } : interaction
                         ));
-                        
-                        // Play the final audio if we're not already playing something
+
+                        // Play final audio if not already playing
                         if (statusData.audio_url && audioPlayerRef.current && !audioPlaying) {
                             audioPlayerRef.current.src = statusData.audio_url;
                             audioPlayerRef.current.play();
@@ -266,15 +266,14 @@ const WintermuteInterface: React.FC = () => {
                     console.error("Error checking status:", error);
                 }
             }, 2000); // Check every 2 seconds
-            
-            // Set up cleanup after 30 seconds (timeout)
+
+            // Timeout after 30 seconds
             setTimeout(() => {
                 if (statusPollingRef.current) {
                     clearInterval(statusPollingRef.current);
                     statusPollingRef.current = null;
-                    
-                    // Update the interaction if it's still processing
-                    setInteractions(prev => prev.map((interaction, idx) => 
+
+                    setInteractions(prev => prev.map((interaction, idx) =>
                         idx === newInteractionIndex && interaction.isProcessing ? {
                             ...interaction,
                             response: "Sorry, it's taking longer than expected. Please try again.",
@@ -283,31 +282,30 @@ const WintermuteInterface: React.FC = () => {
                     ));
                 }
             }, 30000);
-            
+
         } catch (error) {
-            console.error("Error processing recording:", error);
+            console.error("Error processing voice input:", error);
             setErrorMessage(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            
-            // Remove the "thinking" interaction if there was an error
+            // Remove "thinking" interaction on error:
             setInteractions(prev => {
                 if (prev.length > 0 && prev[prev.length - 1].response === "Thinking...") {
-                    return prev.slice(0, -1);
+                    return prev.slice(0, -1); // Remove last element
                 }
                 return prev;
             });
-            
+
         } finally {
             setLoading(false);
         }
     };
-    
-    // Play audio for an interaction
+
+
     const playAudio = (url: string) => {
         if (audioPlayerRef.current && url) {
             if (audioPlaying) {
-                audioPlayerRef.current.pause();
+                audioPlayerRef.current.pause(); // Pause if already playing
             }
-            
+
             audioPlayerRef.current.src = url;
             audioPlayerRef.current.play();
             setAudioPlaying(true);
@@ -321,22 +319,24 @@ const WintermuteInterface: React.FC = () => {
                 <label className="inline-flex items-center cursor-pointer">
                     <span className="mr-3 text-sm font-medium text-gray-400">Voice Mode</span>
                     <div className="relative">
-                        <input type="checkbox" 
-                               className="sr-only peer" 
-                               checked={voiceEnabled} 
-                               onChange={() => setVoiceEnabled(!voiceEnabled)} />
+                        <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={voiceEnabled}
+                            onChange={() => setVoiceEnabled(!voiceEnabled)}
+                        />
                         <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                     </div>
                 </label>
             </div>
-            
+
             {/* Interactions History - Scrollable container */}
             <div className="w-full max-w-md flex-grow overflow-y-auto mb-4 max-h-[60vh] border border-gray-700 rounded-lg p-4 bg-gray-900">
                 {interactions.length === 0 ? (
-                    <p className="text-gray-500 text-center italic">No interactions yet. Start by sending a query below.</p>
+                    <p className="text-gray-500 text-center italic">No interactions yet.  Start by sending a query below.</p>
                 ) : (
-                    interactions.map((interaction, _index) => (
-                        <div key={_index} className="mb-6 last:mb-2">
+                    interactions.map((interaction, index) => (
+                        <div key={index} className="mb-6 last:mb-2">
                             {/* User query */}
                             <div className="mb-2">
                                 <div className="font-bold text-blue-400 mb-1">You:</div>
@@ -344,7 +344,7 @@ const WintermuteInterface: React.FC = () => {
                                     {interaction.query}
                                 </div>
                             </div>
-                            
+
                             {/* AI response or error */}
                             {interaction.error ? (
                                 <div className="mt-2">
@@ -364,7 +364,7 @@ const WintermuteInterface: React.FC = () => {
                                     <div className="font-bold text-green-400 mb-1 flex items-center justify-between">
                                         <span>Wintermute:</span>
                                         {voiceEnabled && interaction.audioUrl && (
-                                            <button 
+                                            <button
                                                 onClick={() => playAudio(interaction.audioUrl as string)}
                                                 className="text-sm bg-blue-600 hover:bg-blue-700 text-white py-1 px-2 rounded flex items-center"
                                             >
@@ -411,7 +411,7 @@ const WintermuteInterface: React.FC = () => {
                     rows={4}
                     disabled={isRecording || loading}
                 />
-                
+
                 <div className="flex items-center space-x-2">
                     <button
                         onClick={handleQuery}
@@ -420,15 +420,15 @@ const WintermuteInterface: React.FC = () => {
                     >
                         {loading ? 'Processing...' : 'Send Query'}
                     </button>
-                    
+
                     {voiceEnabled && (
                         <button
                             onClick={isRecording ? stopRecording : startRecording}
                             disabled={loading && !isRecording}
                             className={`w-12 h-12 rounded-full flex items-center justify-center transition duration-300 ${
-                                isRecording 
-                                ? 'bg-red-600 hover:bg-red-700' 
-                                : 'bg-blue-600 hover:bg-blue-700'
+                                isRecording
+                                    ? 'bg-red-600 hover:bg-red-700'
+                                    : 'bg-blue-600 hover:bg-blue-700'
                             } ${loading && !isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                             {loading && !isRecording ? (
@@ -451,14 +451,14 @@ const WintermuteInterface: React.FC = () => {
                         </button>
                     )}
                 </div>
-                
+
                 {/* Voice mode instructions */}
                 {voiceEnabled && (
                     <div className="text-center text-gray-400 text-sm">
-                        {isRecording 
-                            ? "Click the button when you're done speaking" 
-                            : loading 
-                                ? "Processing your question..." 
+                        {isRecording
+                            ? "Click the button when you're done speaking"
+                            : loading
+                                ? "Processing your question..."
                                 : "Click the microphone button to speak your question"}
                     </div>
                 )}

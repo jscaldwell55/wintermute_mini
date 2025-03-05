@@ -53,10 +53,7 @@ export interface QueryResponse {
     };
 }
 
-export interface SpeechToTextResponse {
-    transcribed_text: string;
-    error?: string;
-  }
+  
   
   export interface TextToSpeechResponse {
     audio_url: string;
