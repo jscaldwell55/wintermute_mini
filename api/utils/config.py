@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     openai_api_key: str
     pinecone_api_key: str
     vapi_api_key: str
+    vapi_voice_id: str = ""  # Optional with default
+    vapi_webhook_url: str = ""  # Optional with default
 
     # Pinecone Settings
     pinecone_environment: str
@@ -94,6 +96,7 @@ def get_settings() -> Settings:
     logger.info(f"Pinecone API Key: {settings.pinecone_api_key}")
     logger.info(f"Pinecone Environment: {settings.pinecone_environment}")
     logger.info(f"Pinecone Index Name: {settings.pinecone_index_name}")
+    logger.info(f"Vapi API Key configured: {'Yes' if settings.vapi_api_key else 'No'}")
     return settings
 
 @lru_cache()

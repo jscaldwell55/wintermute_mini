@@ -14,6 +14,7 @@ import json
 from api.dependencies import get_memory_system, get_llm_service, get_case_response_template
 from api.core.memory.models import QueryRequest, QueryResponse  # Assuming this exists
 from api.utils.responses import create_response # and this
+from api.utils.config import get_settings
 
 # Set up enhanced logging
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ router = APIRouter(
 )
 
 # Environment variables with validation
+settings = get_settings()
 VAPI_API_KEY = os.getenv("VAPI_API_KEY")
 VAPI_VOICE_ID = os.getenv("VAPI_VOICE_ID")  # Default voice if not specified
 VAPI_WEBHOOK_URL = os.getenv("VAPI_WEBHOOK_URL")  # Your webhook URL
