@@ -67,7 +67,9 @@ const WintermuteInterface: React.FC = () => {
     // Initialize Vapi when voice is enabled
     useEffect(() => {
         if (voiceEnabled) {
-            // Fetch configuration from the backend
+            setErrorMessage(null); // Clear any previous error messages
+            
+            // Don't check environment variables at all, just fetch config
             fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/config`)
                 .then(response => {
                     if (!response.ok) {
