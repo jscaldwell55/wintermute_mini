@@ -1,6 +1,6 @@
 // src/components/WintermuteInterface.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { queryAPI, speechToText, processVoiceInput, checkVoiceStatus, textToSpeech } from '../services/api';
+import { queryAPI, speechToText, processVoiceInput, textToSpeech, checkVoiceStatus } from '../services/api';
 import { QueryResponse, ErrorDetail } from '../types';
 
 console.log("WintermuteInterface.tsx is being executed");
@@ -335,8 +335,8 @@ const WintermuteInterface: React.FC = () => {
                 {interactions.length === 0 ? (
                     <p className="text-gray-500 text-center italic">No interactions yet. Start by sending a query below.</p>
                 ) : (
-                    interactions.map((interaction, index) => (
-                        <div key={index} className="mb-6 last:mb-2">
+                    interactions.map((interaction, _index) => (
+                        <div key={_index} className="mb-6 last:mb-2">
                             {/* User query */}
                             <div className="mb-2">
                                 <div className="font-bold text-blue-400 mb-1">You:</div>

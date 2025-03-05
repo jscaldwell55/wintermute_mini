@@ -2,14 +2,11 @@
 import { 
   QueryResponse, 
   QueryRequest, 
-  OperationType, 
   SystemStatus, 
   ErrorDetail, 
   RequestMetadata,
   SpeechToTextResponse,
   TextToSpeechResponse,
-  VoiceProcessResponse,
-  VoiceStatusResponse
 } from '../types';
 
 const DEFAULT_API_URL = 'https://wintermute-staging-x-49dd432d3500.herokuapp.com';
