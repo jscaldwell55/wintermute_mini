@@ -12,12 +12,10 @@
   "cacheDirectories": [
     "frontend/node_modules"
   ],
-  "dependencies": {
-    "serve": "^14.2.1"
-  },
   "devDependencies": {
     "@types/node": "^20.11.16",
     "http-server": "^14.1.1",
-    "path": "^0.12.7"
+    "path": "^0.12.7",
+    "serve": "^14.2.4"
   }
 }
