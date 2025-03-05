@@ -70,17 +70,22 @@ const WintermuteInterface: React.FC = () => {
             // Check if environment variables are properly defined
             if (!import.meta.env.VITE_VAPI_API_KEY) {
                 console.error("Vapi API key is missing");
-                setErrorMessage("Vapi API key is not configured. Please check your environment variables."); // Corrected type
+                setErrorMessage("Vapi API key is not configured. Please check your environment variables.");
                 setVoiceEnabled(false);
                 return;
             }
 
             if (!import.meta.env.VITE_VAPI_VOICE_ID) {
                 console.error("Vapi voice ID is missing");
-                setErrorMessage("Vapi voice ID is not configured. Please check your environment variables."); // Corrected type
+                setErrorMessage("Vapi voice ID is not configured. Please check your environment variables.");
                 setVoiceEnabled(false);
                 return;
             }
+
+            // Add the console.log statements HERE:
+            console.log("VITE_VAPI_API_KEY:", import.meta.env.VITE_VAPI_API_KEY);
+            console.log("VITE_VAPI_VOICE_ID:", import.meta.env.VITE_VAPI_VOICE_ID);
+            console.log("VITE_API_URL:", import.meta.env.VITE_API_URL);
 
             // Explicitly request microphone access *before* initializing Vapi
             navigator.mediaDevices.getUserMedia({ audio: true })
