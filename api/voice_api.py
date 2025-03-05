@@ -57,9 +57,7 @@ def log_voice_config():
         logger.warning("Vapi API key not configured - voice features will be disabled")
 
 @router.post("/speech-to-text/")
-async def speech_to_text(
-    audio_file: UploadFile = File(...),
-):
+async def speech_to_text(audio_file: UploadFile = File(...)):
     """
     Convert speech audio to text using Vapi API
     """
@@ -84,19 +82,33 @@ async def speech_to_text(
             'Authorization': f'Bearer {VAPI_API_KEY}'
         }
         
-        # Make request to Vapi speech-to-text API
+        # Make request to Vapi speech-to-text API with timeout
         logger.info("Sending request to Vapi STT API")
-        response = requests.post(
-            'https://api.vapi.ai/speech-to-text',
-            headers=headers,
-            files=files
-        )
-        
+        try:
+            response = requests.post(
+                'https://api.vapi.ai/speech-to-text',
+                headers=headers,
+                files=files,
+                timeout=10  # Add timeout
+            )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Connection error to Vapi API: {str(e)}")
+            return {
+                "transcribed_text": "",
+                "error": f"Unable to connect to voice service: {str(e)}",
+                "fallback": True
+            }
+            
         # Check response
         if response.status_code != 200:
             logger.error(f"Vapi STT API error: {response.status_code}, {response.text}")
-            raise HTTPException(status_code=response.status_code, 
-                               detail=f"Speech to text conversion failed: {response.text}")
+            
+            # Return partial success with empty text but don't raise exception
+            return {
+                "transcribed_text": "",
+                "error": f"Speech to text service returned error: {response.status_code}",
+                "fallback": True
+            }
         
         # Parse response
         result = response.json()
@@ -110,7 +122,13 @@ async def speech_to_text(
         
     except Exception as e:
         logger.error(f"Error in speech-to-text conversion: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Speech to text conversion failed: {str(e)}")
+        
+        # Return partial success instead of raising exception
+        return {
+            "transcribed_text": "",
+            "error": f"Error processing speech: {str(e)}",
+            "fallback": True
+        }
 
 @router.post("/process-input/")
 async def process_input(
