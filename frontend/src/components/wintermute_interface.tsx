@@ -4,7 +4,6 @@ import { queryAPI, processVoiceInput, textToSpeech, checkVoiceStatus } from '../
 import { QueryResponse, ErrorDetail } from '../types';
 import Vapi from "@vapi-ai/web"; // Corrected import (default import)
 
-
 interface Interaction {
     query: string;
     response: string | null;
@@ -68,45 +67,57 @@ const WintermuteInterface: React.FC = () => {
     // Initialize Vapi when voice is enabled
     useEffect(() => {
         if (voiceEnabled) {
-            const newVapi = new Vapi({
-                apiKey: import.meta.env.VITE_VAPI_API_KEY, // Get Vapi API key from environment (.env)
-                voiceId: import.meta.env.VITE_VAPI_VOICE_ID, // Get Vapi voice ID (.env)
-                webhookUrl: `${import.meta.env.VITE_API_URL}/api/v1/voice/vapi-webhook/`, // Your backend webhook
-            });
+            // Explicitly request microphone access *before* initializing Vapi
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    // We have microphone access, now initialize Vapi
+                    const newVapi = new Vapi({
+                        apiKey: import.meta.env.VITE_VAPI_API_KEY, // Get Vapi API key from environment (.env)
+                        voiceId: import.meta.env.VITE_VAPI_VOICE_ID, // Get Vapi voice ID (.env)
+                        webhookUrl: `${import.meta.env.VITE_API_URL}/api/v1/voice/vapi-webhook/`, // Your backend webhook
+                    });
 
-            newVapi.on('assistant-response', async (data) => {
-                if (data.type === 'final-transcript') {
-                    const transcribedText = data.message;
-                    handleVoiceInput(transcribedText); // Send transcribed text to backend
-                } else if (data.type === 'audio') {
-                    // Handle audio (if needed). You'll likely get the final
-                    // audio URL from your backend's /check-status/ endpoint.
-                    console.log("Vapi audio:", data.audio_url);
-                }
-            });
+                    newVapi.on('assistant-response', async (data) => {
+                        if (data.type === 'final-transcript') {
+                            const transcribedText = data.message;
+                            handleVoiceInput(transcribedText); // Send transcribed text to backend
+                        } else if (data.type === 'audio') {
+                            // Handle audio (if needed).
+                            console.log("Vapi audio:", data.audio_url);
+                        }
+                    });
 
-            newVapi.on('error', (error) => {
-                console.error("Vapi error:", error);
-                setErrorMessage(`Vapi Error: ${error.message}`);
-            });
+                    newVapi.on('error', (error) => {
+                        console.error("Vapi error:", error);
+                        setErrorMessage(`Vapi Error: ${error.message}`);
+                    });
 
-            newVapi.on('ready', () => {
-                console.log("Vapi is ready");
-            });
+                    newVapi.on('ready', () => {
+                        console.log("Vapi is ready");
+                    });
 
-            newVapi.on('started', () => {
-                console.log("VAPI STARTED");
-            });
+                    newVapi.on('started', () => {
+                        console.log("VAPI STARTED");
+                    });
 
-            newVapi.on('ended', () => {
-                console.log("VAPI END");
-                if (currentSessionId.current) {
-                    currentSessionId.current = null; // Clear session ID on call end
-                }
-                setIsRecording(false); // Ensure recording is set to false
-            });
+                    newVapi.on('ended', () => {
+                        console.log("VAPI END");
+                        if (currentSessionId.current) {
+                            currentSessionId.current = null; // Clear session ID on call end
+                        }
+                        setIsRecording(false); // Ensure recording is set to false
+                    });
 
-            setVapi(newVapi);
+                    setVapi(newVapi);
+
+                    // Stop the initial microphone stream (Vapi will request again)
+                    stream.getTracks().forEach(track => track.stop());
+                })
+                .catch(err => {
+                    console.error("Microphone access denied:", err);
+                    setErrorMessage("Microphone access is required for voice mode. Please enable it in your browser settings.");
+                    setVoiceEnabled(false); // Disable voice mode if no access
+                });
         } else {
             if (vapi) {
                 vapi.stop();
