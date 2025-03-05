@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from api.voice_api import router as voice_router
+from api.voice_api import router as voice_router, log_voice_config
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime, timezone
@@ -42,7 +42,6 @@ from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.config import ConsolidationConfig
 from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
-# from api.utils.prompt_templates import response_template  <- REMOVE THIS
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
@@ -293,45 +292,74 @@ async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidatio
 async def ping():
     return {"message": "pong"}
 
-@api_router.get("/health")
+@app.get("/health")
 async def health_check():
-    services_status = {}
-    is_initialized = False
-    error_message = None
-    try:
-        is_initialized = getattr(components, "_initialized", False)
-        if is_initialized:
-            try:
-                pinecone_health = await components.pinecone_service.health_check()
-                services_status["pinecone"] = pinecone_health
-            except Exception as e:
-                services_status["pinecone"] = {"status": "unhealthy", "error": str(e)}
-                is_initialized = False
-            services_status.update({
-                "vector_operations": {
-                    "status": "healthy",
-                    "model": components.settings.embedding_model
-                },
-                "memory_service": {
-                    "status": "healthy"
-                }
-            })
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        error_message = str(e)
-        is_initialized = False
-    status = {
-        "status": "ready" if is_initialized else "initializing",
-        "initialization_complete": is_initialized,
-        "environment": components.settings.environment,
-        "services": services_status
+    """Check system health"""
+    logger = logging.getLogger(__name__)
+    logger.info("Running system health check")
+    
+    health_status = {
+        "status": "healthy",
+        "components": {},
+        "timestamp": datetime.utcnow().isoformat()
     }
-    if error_message:
-        status.update({
+    
+    # Check Pinecone
+    try:
+        # Get pinecone service from your components
+        pinecone_service = components.pinecone_service
+        pinecone_health = await pinecone_service.health_check()
+        health_status["components"]["pinecone"] = {
+            "status": "healthy" if pinecone_health else "unhealthy"
+        }
+    except Exception as e:
+        logger.error(f"Pinecone health check failed: {str(e)}")
+        health_status["components"]["pinecone"] = {
             "status": "error",
-            "error": error_message
-        })
-    return status
+            "message": str(e)
+        }
+    
+    # Check OpenAI
+    try:
+        # Get LLM service from your components
+        llm_service = components.llm_service
+        openai_health = await llm_service.health_check()
+        health_status["components"]["openai"] = {
+            "status": "healthy" if openai_health else "unhealthy"
+        }
+    except Exception as e:
+        logger.error(f"OpenAI health check failed: {str(e)}")
+        health_status["components"]["openai"] = {
+            "status": "error",
+            "message": str(e)
+        }
+    
+    # Check Vapi
+    try:
+        # Simple check for Vapi configuration
+        vapi_api_key = os.getenv("VAPI_API_KEY")
+        if vapi_api_key:
+            health_status["components"]["vapi"] = {
+                "status": "configured",
+                "voice_id": os.getenv("VAPI_VOICE_ID", "default")
+            }
+        else:
+            health_status["components"]["vapi"] = {
+                "status": "disabled",
+                "message": "API key not configured"
+            }
+    except Exception as e:
+        logger.error(f"Vapi config check failed: {str(e)}")
+        health_status["components"]["vapi"] = {
+            "status": "error",
+            "message": str(e)
+        }
+    
+    # Determine overall status
+    if any(component.get("status") == "error" for component in health_status["components"].values()):
+        health_status["status"] = "degraded"
+    
+    return health_status
 
 @api_router.get("/memories")
 async def list_memories(
@@ -686,18 +714,24 @@ async def query_memory(
         )
 # --- Include Router and Setup Static Files ---
 app.include_router(api_router)
-app.include_router(voice_router)
+app.include_router(voice_router, prefix="/api/v1")
 setup_static_files(app)
 
 @app.on_event("startup")
 async def startup_event():
+    logger = logging.getLogger(__name__)
+    logger.info("Starting up Wintermute application")
     import os
-    
     vapi_key = os.getenv("VAPI_API_KEY")
     if vapi_key:
         logger.info("VAPI integration enabled")
     else:
         logger.warning("VAPI_API_KEY not found - voice features will be unavailable")
+
+        log_voice_config()
+    
+    logger.info("Wintermute startup complete")
+    
 
 # Shutdown handler for rate limiter
 @app.on_event("shutdown")
