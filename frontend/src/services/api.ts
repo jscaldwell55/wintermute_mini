@@ -1,5 +1,5 @@
 // src/services/api.ts
-import { QueryResponse, QueryRequest, OperationType, SystemStatus } from '../types';
+import { QueryResponse, QueryRequest, OperationType, SystemStatus, ErrorDetail, RequestMetadata } from '../types';
 
 const DEFAULT_API_URL = 'https://wintermute-staging-x-49dd432d3500.herokuapp.com';
 const API_URL = (import.meta.env.VITE_API_URL as string) || DEFAULT_API_URL;
@@ -9,24 +9,56 @@ const API_URL = (import.meta.env.VITE_API_URL as string) || DEFAULT_API_URL;
 // more robust and less error-prone.
 const BASE_URL = (API_URL.endsWith('/') ? API_URL : API_URL + '/') + 'api/v1/';
 
+/**
+ * Creates a standardized error response object
+ */
+const createErrorResponse = (code: string, message: string, details?: any): QueryResponse => {
+  console.error(`API Error (${code}): ${message}`, details);
+  
+  const trace_id = crypto.randomUUID();
+  
+  const errorDetail: ErrorDetail = {
+    code,
+    message,
+    trace_id,
+    timestamp: new Date().toISOString(),
+    details
+  };
+  
+  // Create a response that matches the existing QueryResponse type
+  return {
+    matches: [],
+    similarity_scores: [],
+    error: errorDetail,
+    trace_id
+  };
+};
 
+/**
+ * Send a query to the Wintermute API
+ */
 export const queryAPI = async (query: string, windowId?: string): Promise<QueryResponse> => {
   try {
+    const requestMetadata: RequestMetadata = {
+      operation_type: 'QUERY',
+      timestamp: new Date().toISOString(),
+      window_id: windowId,
+      trace_id: crypto.randomUUID()
+    };
+
     const requestData: QueryRequest = {
       query: query,
       prompt: query,     // For now, using same text for both
-      top_k: 5,         // Add explicit default
-      window_id: windowId || crypto.randomUUID(),
-      request_metadata: {
-        operation_type: 'QUERY' as OperationType,
-        window_id: windowId,
-        timestamp: new Date().toISOString()
-      }
+      top_k: 5,
+      window_id: windowId,
+      request_metadata: requestMetadata
     };
 
     console.log('Sending request:', {
       url: `${BASE_URL}query`,
-      data: requestData
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestData)
     });
 
     const response = await fetch(`${BASE_URL}query`, {
@@ -39,56 +71,72 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('API Error:', {
-        status: response.status,
-        statusText: response.statusText,
-        errorText
-      });
-      // We *still* throw an error, but we include more context.
-      throw new Error(`API Error (${response.status}): ${errorText}`);
+      let errorData: any;
+      let errorMessage = `HTTP Error ${response.status}: ${response.statusText}`;
+      
+      try {
+        // Try to parse error response as JSON
+        errorData = await response.json();
+        if (errorData.message) {
+          errorMessage = errorData.message;
+        }
+      } catch (e) {
+        // If parsing fails, get text instead
+        const errorText = await response.text();
+        errorData = { raw: errorText };
+        if (errorText) {
+          errorMessage += ` - ${errorText}`;
+        }
+      }
+      
+      // Return a structured error response instead of throwing
+      return createErrorResponse(
+        `API_ERROR_${response.status}`, 
+        errorMessage,
+        errorData
+      );
     }
 
-    // IMPORTANT: Parse the JSON *before* checking for success
+    // Parse the JSON response
     const data = await response.json();
+    console.log('API Response:', data);
 
-    // Check for the 'success' field in the API response
-    if (data.success === false) {
-        // Handle API-level errors (e.g., validation errors)
-        throw new Error(`API Error: ${data.message} - ${data.error}`);
-    }
-
-    // If we get here, the API call was successful *and* the
-    // response indicates success.  Now we can safely cast to QueryResponse.
+    // Return the response as is, it should already match the QueryResponse type
     return data as QueryResponse;
-
-
   } catch (error) {
     console.error('Query API error:', error);
-    throw error; // Re-throw the error so the calling function can handle it
+    
+    // Instead of rethrowing, return a structured error response
+    return createErrorResponse(
+      'CLIENT_ERROR',
+      error instanceof Error ? error.message : 'Unknown client error',
+      { error }
+    );
   }
 };
-// getSystemHealth corrected too
+
+/**
+ * Get system health status
+ */
 export const getSystemHealth = async (): Promise<SystemStatus> => {
   try {
+    console.log('Sending health check request:', {
+      url: `${BASE_URL}health`,
+      method: 'GET',
+    });
+
     const response = await fetch(`${BASE_URL}health`, {
       headers: { 'Accept': 'application/json' }
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API Error: ${response.statusText} - ${errorText}`);
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
-     const data = await response.json();
-
-    // Check for the 'success' field in the API response
-    if (data.success === false) {
-        // Handle API-level errors (e.g., validation errors)
-        throw new Error(`API Error: ${data.message} - ${data.error}`);
-    }
+    
+    const data = await response.json();
+    console.log('Health check response:', data);
 
     return data as SystemStatus;
-
   } catch (error) {
     console.error('Health check error:', error);
     throw error;

@@ -1,12 +1,13 @@
-// src/components/WintermuteInterface.tsx
+// src/components/wintermute_interface.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { queryAPI } from '../services/api';
 import { QueryResponse, ErrorDetail } from '../types';
 
-console.log("WintermuteInterface.tsx is being executed");
+console.log("WintermuteInterface.tsx [UPDATED VERSION] is being executed");
 
 // Define an interface for an interaction
 interface Interaction {
+  id: string;
   query: string;
   response: string | null;
   error: ErrorDetail | null;
@@ -23,7 +24,9 @@ const WintermuteInterface: React.FC = () => {
     // Generate a UUID for the session window on component mount
     useEffect(() => {
         console.log("Initializing WintermuteInterface with new windowId");
-        setWindowId(crypto.randomUUID());
+        const newWindowId = crypto.randomUUID();
+        setWindowId(newWindowId);
+        console.log("Generated windowId:", newWindowId);
     }, []);
 
     // Auto-scroll to the bottom when new interactions are added
@@ -50,40 +53,80 @@ const WintermuteInterface: React.FC = () => {
 
         setLoading(true);
         const submittedQuery = query; // Capture query
-        setQuery(''); // Clear the input field
+        const interactionId = crypto.randomUUID(); // Generate unique ID for this interaction
         
         console.log(`Submitting query: "${submittedQuery.substring(0, 50)}${submittedQuery.length > 50 ? '...' : ''}"`);
+        console.log(`Interaction ID: ${interactionId}`);
+        
+        // Clear the input field after we've captured the query
+        setQuery('');
 
         try {
-            const data: QueryResponse = await queryAPI(submittedQuery, windowId);
-            console.log("Received API response", data);
-            
-            // Create a new interaction
-            const newInteraction: Interaction = {
+            // First, add a placeholder for this interaction
+            const placeholderInteraction: Interaction = {
+                id: interactionId,
                 query: submittedQuery,
-                response: data.error ? null : (data.response || "No response from the AI."),
-                error: data.error || null,
+                response: "Thinking...",
+                error: null,
                 timestamp: new Date().toISOString()
             };
             
-            // Add the new interaction to the history
-            setInteractions(prevInteractions => [...prevInteractions, newInteraction]);
+            // Add the placeholder to the state
+            setInteractions(prev => [...prev, placeholderInteraction]);
+            
+            // Call the API
+            const data = await queryAPI(submittedQuery, windowId);
+            console.log("Received API response", data);
+            
+            // Update the interaction with the real response
+            setInteractions(prev => 
+                prev.map(interaction => 
+                    interaction.id === interactionId
+                        ? {
+                            ...interaction,
+                            response: data.response || "No response from the AI.",
+                            error: data.error || null,
+                            timestamp: new Date().toISOString()
+                          }
+                        : interaction
+                )
+            );
         } catch (err) {
             console.error("API call failed", err);
             
-            // Create an interaction with error
-            const errorInteraction: Interaction = {
-                query: submittedQuery,
-                response: null,
-                error: {
-                    code: 'UNKNOWN_ERROR',
-                    message: err instanceof Error ? err.message : 'An unknown error occurred',
-                    timestamp: new Date().toISOString()
-                },
+            // Create an error object
+            const errorDetail: ErrorDetail = {
+                code: 'UNKNOWN_ERROR',
+                message: err instanceof Error ? err.message : 'An unknown error occurred',
                 timestamp: new Date().toISOString()
             };
             
-            setInteractions(prevInteractions => [...prevInteractions, errorInteraction]);
+            // If we already added a placeholder, update it with the error
+            if (interactions.some(i => i.id === interactionId)) {
+                setInteractions(prev => 
+                    prev.map(interaction => 
+                        interaction.id === interactionId
+                            ? {
+                                ...interaction,
+                                response: null,
+                                error: errorDetail,
+                                timestamp: new Date().toISOString()
+                              }
+                            : interaction
+                    )
+                );
+            } else {
+                // If no placeholder was added (rare case), create a new interaction with the error
+                const errorInteraction: Interaction = {
+                    id: interactionId,
+                    query: submittedQuery,
+                    response: null,
+                    error: errorDetail,
+                    timestamp: new Date().toISOString()
+                };
+                
+                setInteractions(prev => [...prev, errorInteraction]);
+            }
         } finally {
             setLoading(false);
         }
@@ -91,13 +134,18 @@ const WintermuteInterface: React.FC = () => {
 
     return (
         <div className="flex flex-col items-center justify-start w-full h-full p-8 space-y-6">
+            {/* Version indicator - helps debug if the new version is loaded */}
+            <div className="text-xs text-gray-600 absolute top-0 right-0 mr-2 mt-2">
+                v2.0
+            </div>
+            
             {/* Interactions History - Scrollable container */}
             <div className="w-full max-w-md flex-grow overflow-y-auto mb-4 max-h-[60vh] border border-gray-700 rounded-lg p-4 bg-gray-900">
                 {interactions.length === 0 ? (
                     <p className="text-gray-500 text-center italic">No interactions yet. Start by sending a query below.</p>
                 ) : (
                     interactions.map((interaction, index) => (
-                        <div key={index} className="mb-6 last:mb-2">
+                        <div key={interaction.id} className="mb-6 last:mb-2">
                             {/* User query */}
                             <div className="mb-2">
                                 <div className="font-bold text-blue-400 mb-1">You:</div>
