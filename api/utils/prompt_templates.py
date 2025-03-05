@@ -59,39 +59,48 @@ Speak clearly and simply. Use short sentences and age appropriate language.  Be 
     max_response_tokens: int = Field(default=500, description="Maximum tokens for response.") # Give more room
 
     def format(self, query: str, semantic_memories: Optional[List[str]] = None, episodic_memories: Optional[List[str]] = None) -> str:
-        """Formats the prompt."""
+        """Formats the prompt with optimized memory handling."""
         try:
+            # Process semantic memories
             if semantic_memories:
-                semantic_memories_str = "\n".join(semantic_memories)
+                # CHANGE: Added bullet points for better readability
+                semantic_memories_str = "\n".join([f"- {memory}" for memory in semantic_memories])
             else:
-                semantic_memories_str = "None."
+                # CHANGE: Updated default text to be more consistent
+                semantic_memories_str = "None available."
 
+            # Process episodic memories
             if episodic_memories:
-                episodic_memories_str = ""
-                for memory in reversed(episodic_memories):  # Keep reverse order
-                    episodic_memories_str += memory + "\n"
+                # CHANGE: Added bullet points and limited to 3 most recent for better focus
+                episodic_memories_str = "\n".join([f"- {memory}" for memory in reversed(episodic_memories[:3])])
             else:
-                episodic_memories_str = "None."
+                # CHANGE: Updated default text to be more informative
+                episodic_memories_str = "No previous interactions."
 
-            # Choose appropriate memory section
+            # CHANGE: Restructured the memory section logic to be clearer
+            # Determine the memory context section
             if not semantic_memories and not episodic_memories:
                 memory_section = self.no_memory_section
-            elif episodic_memories:
-                memory_section = f"""Recent Interactions (Subtly influence your perspective):
-{episodic_memories_str}"""
-            elif semantic_memories:
-                memory_section = f"""Relevant Background (to inform, not repeat, your thoughts):
-{semantic_memories_str}
+            else:
+                # CHANGE: Created a more integrated memory section with markdown headers
+                memory_section = f"""### Recent Interactions
+    {episodic_memories_str}
 
-Recent Interactions:
-{self.few_episodic_memories_section}"""
+        ### Relevant Knowledge
+        {semantic_memories_str}"""
 
-            formatted = self.template.format(
-                query=query,
-                semantic_memories=semantic_memories_str,
-                episodic_memories=episodic_memories_str,
-                memory_section=memory_section
-            )
+            # CHANGE: Modified formatting to ensure template variables are correctly replaced
+            # Format the final prompt with the memory_section
+            formatted = self.template.replace("{semantic_memories}", semantic_memories_str)
+            formatted = formatted.replace("{episodic_memories}", episodic_memories_str)
+        
+            # Add query
+            formatted = formatted.replace("{query}", query)
+        
+            # CHANGE: Added support for memory_section if it exists in the template
+            if "{memory_section}" in formatted:
+                formatted = formatted.replace("{memory_section}", memory_section)
+            
             return formatted.strip()
 
         except (KeyError, ValueError) as e:
@@ -99,7 +108,7 @@ Recent Interactions:
             raise ValueError(f"Invalid prompt template or parameters: {e}")
         except Exception as e:
             logger.error(f"Unexpected error formatting prompt: {e}", exc_info=True)
-            raise
+        raise
 
 # Create instance for import
 case_response_template = CaseResponseTemplate()  # Use new class name
