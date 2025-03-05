@@ -731,7 +731,7 @@ async def startup_event():
         logger.warning("VAPI_API_KEY not found - voice features will be unavailable")
 
         log_voice_config()
-    
+
     logger.info("Wintermute startup complete")
     
 

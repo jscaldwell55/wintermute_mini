@@ -1,14 +1,13 @@
 {
-    "name": "wintermute-frontend", 
+    "name": "wintermute-frontend",
     "private": true,
     "version": "0.0.0",
     "type": "module",
     "scripts": {
-      "dev": "vite",
-      "build": "tsc && vite build --mode production",
-        "heroku-postbuild": "npm install --production=false && npm run build",
-        "preview": "vite preview",
-        "start": "node server.js"
+        "dev": "vite",
+        "build": "tsc && vite build --mode production",
+        "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+        "preview": "vite preview"
     },
     "dependencies": {
         "@radix-ui/react-alert-dialog": "^1.0.5",
@@ -16,7 +15,6 @@
         "@vapi-ai/web": "^2.2.2",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
-        "express": "^4.21.2",
         "lucide-react": "^0.263.1",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
@@ -30,7 +28,7 @@
         "@types/react-dom": "^18.2.17",
         "@typescript-eslint/eslint-plugin": "^6.14.0",
         "@typescript-eslint/parser": "^6.14.0",
-        "@vitejs/plugin-react": "^4.3.4",
+        "@vitejs/plugin-react": "^4.2.1",
         "autoprefixer": "^10.4.17",
         "eslint": "^8.55.0",
         "eslint-plugin-react-hooks": "^4.6.0",

@@ -1,19 +1,20 @@
 {
-    "name": "wintermute",
-    "scripts": {
-      "heroku-prebuild": "cd frontend && npm install --include=dev",
-      "heroku-postbuild": "cd frontend && npm run build",
-      "start": "serve -s frontend/dist -l $PORT"
-    },
-    "engines": {
-      "node": "18.x"
-    },
-    "cacheDirectories": [
-      "frontend/node_modules"
-    ],
-    "devDependencies": {
-      "@types/node": "^20.11.16",
-      "path": "^0.12.7",
-      "vite": "^5.0.8"
-    }
+  "name": "wintermute",
+  "version": "1.0.0",
+  "scripts": {
+    "heroku-prebuild": "cd frontend && npm install --include=dev",
+    "heroku-postbuild": "cd frontend && npm run build",
+    "start": "serve -s frontend/dist -l $PORT"
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "cacheDirectories": [
+    "frontend/node_modules"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.11.16",
+    "path": "^0.12.7",
+    "serve": "^14.2.4"
   }
+}
