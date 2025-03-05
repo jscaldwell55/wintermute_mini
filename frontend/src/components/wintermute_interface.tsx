@@ -107,7 +107,7 @@ const WintermuteInterface: React.FC = () => {
                                 const newVapi = new Vapi({
                                     apiKey: config.vapi_api_key,
                                     voiceId: config.vapi_voice_id,
-                                    webhookUrl: `${config.api_url}/api/v1/voice/vapi-webhook/`,
+                                    webhookUrl: `${config.api_url}${config.api_url.endsWith('/') ? '' : '/'}api/v1/voice/vapi-webhook/`,
                                 });
     
                                 newVapi.on('assistant-response', async (data) => {
