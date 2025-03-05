@@ -13,7 +13,7 @@ requests==2.31.0
 numpy>=1.20.0
 
 # Database and caching
-pinecone-client>=2.2.0
+pinecone>=2.2.1
 cachetools>=5.3.0
 tenacity==8.2.3
 

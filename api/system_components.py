@@ -8,6 +8,14 @@ from api.utils.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+logger.info("Initializing system components")
+try:
+    # Component initialization code
+    logger.info("System components initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize system components: {str(e)}")
+    raise
+
 class SystemComponents:
     def __init__(self):
         self.memory_system = None
