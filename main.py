@@ -711,8 +711,12 @@ async def query_memory(
             metadata={"success": False}
         )
 # --- Include Router and Setup Static Files ---
-app.include_router(api_router, prefix="/api/v1") # Correct prefix usage
-app.include_router(voice_router, prefix="/api/v1")
+# Correct: Only include `voice_router` if it's not inside `api_router`
+app.include_router(api_router, prefix="/api/v1")
+
+if "voice" not in api_router.routes:
+    app.include_router(voice_router, prefix="/api/v1/voice")
+
 setup_static_files(app)
 
 @app.on_event("startup")

@@ -25,7 +25,7 @@ router = APIRouter(
 
 # Environment variables with validation
 VAPI_API_KEY = os.getenv("VAPI_API_KEY")
-VAPI_VOICE_ID = os.getenv("VAPI_VOICE_ID", "11labs_voice")  # Default voice if not specified
+VAPI_VOICE_ID = os.getenv("VAPI_VOICE_ID")  # Default voice if not specified
 VAPI_WEBHOOK_URL = os.getenv("VAPI_WEBHOOK_URL", None)  # Your webhook URL
 
 # Models for request/response
@@ -56,82 +56,56 @@ def log_voice_config():
     else:
         logger.warning("Vapi API key not configured - voice features will be disabled")
 
-@router.post("/speech-to-text/")
-async def speech_to_text(audio_file: UploadFile = File(...)):
+@router.post("/text-to-speech/")
+async def text_to_speech(text: str = Form(...)):
     """
-    Convert speech audio to text using Vapi API
+    Convert text to speech using Vapi API.
     """
     if not VAPI_API_KEY:
         logger.error("Vapi API key not configured")
-        return {
-            "transcribed_text": "",
-            "error": "Voice services not configured",
-            "status": "error"
-        }
-        
-    logger.info(f"Processing speech-to-text request: {audio_file.filename}, content_type: {audio_file.content_type}")
-    
+        raise HTTPException(status_code=500, detail="Voice services not configured")
+
+    logger.info(f"Processing text-to-speech request: {text[:50]}...")
+
     try:
-        # Read audio file content
-        audio_content = await audio_file.read()
-        file_size = len(audio_content)
-        logger.debug(f"Audio file size: {file_size} bytes")
-        
-        # Prepare multipart form data for Vapi
-        files = {
-            'audio': (audio_file.filename, audio_content, audio_file.content_type)
+        VAPI_TTS_URL = "https://api.vapi.ai/v1/text-to-speech"  # Ensure correct endpoint
+
+        payload = {
+            "text": text,
+            "voice": VAPI_VOICE_ID,  # Ensure "voice" key is correct
+            "audio_format": "mp3",
+            "speed": 1.0,
+            "quality": "standard"
         }
-        
+
         headers = {
-            'Authorization': f'Bearer {VAPI_API_KEY}'
+            'Authorization': f'Bearer {VAPI_API_KEY}',
+            'Content-Type': 'application/json'
         }
-        
-        # Make request to Vapi speech-to-text API
-        logger.info("Sending request to Vapi STT API")
-        
-        try:
-            response = requests.post(
-                'https://api.vapi.ai/v1/speech-to-text',  # Updated URL with v1
-                headers=headers,
-                files=files,
-                timeout=10  # Add timeout
-            )
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Network error with Vapi API: {str(e)}")
-            return {
-                "transcribed_text": "",
-                "error": f"Network error with voice service: {str(e)}",
-                "status": "error"
-            }
-        
-        # Check response
+
+        # Make request to Vapi text-to-speech API
+        response = requests.post(VAPI_TTS_URL, headers=headers, json=payload)
+
         if response.status_code != 200:
-            error_text = response.text
-            logger.error(f"Vapi STT API error: {response.status_code}, {error_text}")
-            return {
-                "transcribed_text": "",
-                "error": f"Speech-to-text error: {response.status_code} - {error_text[:100]}...",
-                "status": "error"
-            }
-        
+            logger.error(f"Vapi TTS API error: {response.status_code}, {response.text}")
+            raise HTTPException(status_code=response.status_code, detail=f"Text-to-speech conversion failed: {response.text}")
+
         # Parse response
         result = response.json()
-        logger.info(f"STT successful: {result.get('text', '')[:30]}...")
+        audio_url = result.get("audio_url")
 
-        # Return transcribed text
-        return {
-            "transcribed_text": result.get("text", ""),
-            "confidence": result.get("confidence", 0),
-            "status": "success"
-        }
-        
+        if not audio_url:
+            logger.error("No audio URL returned from Vapi")
+            raise HTTPException(status_code=500, detail="No audio URL returned from TTS service")
+
+        logger.info(f"TTS successful, audio URL generated: {audio_url[:30]}...")
+
+        return {"audio_url": audio_url, "format": "mp3"}
+
     except Exception as e:
-        logger.error(f"Error in speech-to-text conversion: {str(e)}", exc_info=True)
-        return {
-            "transcribed_text": "",
-            "error": f"Error processing speech: {str(e)}",
-            "status": "error"
-        }
+        logger.error(f"Error in text-to-speech conversion: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Text-to-speech conversion failed: {str(e)}")
+
 
 @router.post("/process-input/")
 async def process_input(
@@ -283,67 +257,55 @@ async def cleanup_old_responses():
         logger.error(f"Error cleaning up old responses: {str(e)}")
 
 @router.post("/text-to-speech/")
-async def text_to_speech(
-    text: str = Form(...),
-    background_tasks: BackgroundTasks = None
-):
+async def text_to_speech(text: str = Form(...)):
     """
-    Convert text to speech using Vapi API (standard synchronous version)
+    Convert text to speech using Vapi API.
     """
     if not VAPI_API_KEY:
         logger.error("Vapi API key not configured")
         raise HTTPException(status_code=500, detail="Voice services not configured")
-        
+
     logger.info(f"Processing text-to-speech request: {text[:50]}...")
-    
+
     try:
-        # Prepare request data for Vapi
+        VAPI_TTS_URL = "https://api.vapi.ai/v1/call"  # ✅ Updated correct endpoint
+
         payload = {
             "text": text,
-            "voice_id": VAPI_VOICE_ID,
-            "audio_format": "mp3",
-            "speed": 1.0,  # Normal speed
+            "voice": VAPI_VOICE_ID,  # ✅ Ensure "voice" key is correct
+            "audio_format": "mp3",   # ✅ Check if "audio_format" is needed
+            "speed": 1.0,
             "quality": "standard"
         }
-        
+
         headers = {
             'Authorization': f'Bearer {VAPI_API_KEY}',
             'Content-Type': 'application/json'
         }
-        
+
         # Make request to Vapi text-to-speech API
-        logger.info(f"Sending TTS request to Vapi API with voice ID: {VAPI_VOICE_ID}")
-        response = requests.post(
-            'https://api.vapi.ai/text-to-speech',
-            headers=headers,
-            json=payload
-        )
-        
-        # Check response
+        response = requests.post(VAPI_TTS_URL, headers=headers, json=payload)
+
         if response.status_code != 200:
             logger.error(f"Vapi TTS API error: {response.status_code}, {response.text}")
-            raise HTTPException(status_code=response.status_code, 
-                               detail=f"Text to speech conversion failed: {response.text}")
-        
-        # Parse response to get audio URL
+            raise HTTPException(status_code=response.status_code, detail=f"Text-to-speech conversion failed: {response.text}")
+
+        # Parse response
         result = response.json()
         audio_url = result.get("audio_url")
-        
+
         if not audio_url:
-            logger.error("No audio URL in Vapi response")
+            logger.error("No audio URL returned from Vapi")
             raise HTTPException(status_code=500, detail="No audio URL returned from TTS service")
-            
+
         logger.info(f"TTS successful, audio URL generated: {audio_url[:30]}...")
-        
-        return {
-            "audio_url": audio_url,
-            "format": "mp3",
-            "duration": result.get("duration", 0)
-        }
-        
+
+        return {"audio_url": audio_url, "format": "mp3"}
+
     except Exception as e:
         logger.error(f"Error in text-to-speech conversion: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Text to speech conversion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Text-to-speech conversion failed: {str(e)}")
+
 
 # Helper functions for background processing
 async def generate_final_speech_webhook(
