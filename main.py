@@ -557,20 +557,11 @@ async def query_memory(
         )
         # Semantic Memory Filtering:
         semantic_memories = []
-        for match, score in semantic_results:
+        for match, _ in semantic_results: # Don't need score
             content = match["metadata"]["content"]
-            # Apply enhanced relevance scoring if enabled
-            if memory_system.settings.enable_enhanced_relevance:
-                relevance = memory_system._calculate_enhanced_relevance(content, score)
-            else:
-                relevance = score  # Use raw score if not enabled
-
-            # Use configured threshold
-            if relevance >= memory_system.settings.min_similarity_threshold:
-                if len(content.split()) >= 5:  # Keep only memories with 5+ words
-                    semantic_memories.append(content)
-
-        logger.info(f"[{trace_id}] Semantic memories retrieved: {len(semantic_memories)}")
+            if len(content.split()) >= 5:  # Keep only memories with 5+ words
+                semantic_memories.append(content)
+        logger.info(f"[{trace_id}] Semantic memories retrieved: {semantic_memories}")
 
 
         # --- Episodic Query ---
