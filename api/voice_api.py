@@ -1,7 +1,10 @@
 # In /app/api/voice_api.py
 import logging
 import os
+import time
+import asyncio
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, BackgroundTasks
+from pydantic import BaseModel
 import requests
 from typing import Optional, Dict, Any
 import json
@@ -21,12 +24,28 @@ router = APIRouter(
 # Environment variables with validation
 VAPI_API_KEY = os.getenv("VAPI_API_KEY")
 VAPI_VOICE_ID = os.getenv("VAPI_VOICE_ID", "11labs_voice")  # Default voice if not specified
+VAPI_WEBHOOK_URL = os.getenv("VAPI_WEBHOOK_URL", None)  # Your webhook URL
+
+# Models for request/response
+class ProcessInputRequest(BaseModel):
+    text: str
+    window_id: Optional[str] = None
+    enable_webhook: bool = True
+
+class WebhookRequest(BaseModel):
+    audio_url: str
+    session_id: str
+    window_id: Optional[str] = None
 
 # Log voice configuration at startup
 def log_voice_config():
     """Log voice API configuration status"""
     if VAPI_API_KEY:
         logger.info(f"Vapi API integration configured with voice ID: {VAPI_VOICE_ID}")
+        if VAPI_WEBHOOK_URL:
+            logger.info(f"Vapi webhook URL configured: {VAPI_WEBHOOK_URL}")
+        else:
+            logger.warning("Vapi webhook URL not configured - using synchronous processing")
     else:
         logger.warning("Vapi API key not configured - voice features will be disabled")
 
@@ -87,33 +106,107 @@ async def speech_to_text(
 
 @router.post("/process-input/")
 async def process_input(
-    text: str = Form(...),
+    data: ProcessInputRequest,
+    background_tasks: BackgroundTasks,
     memory_system = Depends(get_memory_system),
     llm_service = Depends(get_llm_service),
     case_response_template = Depends(get_case_response_template)
 ):
     """
-    Process text input through Wintermute's memory system
+    Process text input through Wintermute's memory system with streaming response
     """
-    logger.info(f"Processing voice input: {text[:50]}...")
+    if not VAPI_API_KEY:
+        logger.error("Vapi API key not configured")
+        raise HTTPException(status_code=500, detail="Voice services not configured")
+    
+    logger.info(f"Processing voice input: {data.text[:50]}...")
+    session_id = f"voice_{int(time.time())}_{os.urandom(3).hex()}"
+    window_id = data.window_id or f"window_{os.urandom(4).hex()}"
     
     try:
-        # Create query request
-        query_request = QueryRequest(query=text)
+        # 1. Send an immediate placeholder response
+        placeholder_text = "Thinking... let me get that answer for you."
+        placeholder_payload = {
+            "text": placeholder_text,
+            "voice_id": VAPI_VOICE_ID
+        }
         
-        # Use the same processing flow as the main query endpoint
-        response = await memory_system.process_query(
-            query_request, 
-            llm_service, 
-            case_response_template
+        headers = {
+            'Authorization': f'Bearer {VAPI_API_KEY}',
+            'Content-Type': 'application/json'
+        }
+        
+        logger.info(f"Sending placeholder response with voice ID: {VAPI_VOICE_ID}")
+        placeholder_response = requests.post(
+            'https://api.vapi.ai/text-to-speech',
+            headers=headers,
+            json=placeholder_payload
         )
         
-        logger.info(f"Response generated successfully: {response.response[:50]}...")
-        return response
+        if placeholder_response.status_code != 200:
+            logger.error(f"Placeholder TTS failed: {placeholder_response.status_code}, {placeholder_response.text}")
+            raise HTTPException(status_code=placeholder_response.status_code, 
+                               detail=f"Placeholder speech generation failed: {placeholder_response.text}")
         
+        placeholder_result = placeholder_response.json()
+        audio_url = placeholder_result.get("audio_url")
+        
+        # 2. Process Wintermute AI response asynchronously
+        if data.enable_webhook and VAPI_WEBHOOK_URL:
+            logger.info(f"Adding background task for webhook-based response generation, session: {session_id}")
+            background_tasks.add_task(
+                generate_final_speech_webhook, 
+                data.text, 
+                window_id, 
+                session_id,
+                memory_system, 
+                llm_service, 
+                case_response_template
+            )
+            
+            return {
+                "status": "processing", 
+                "audio_url": audio_url,
+                "session_id": session_id,
+                "webhook_enabled": True
+            }
+        else:
+            # Fallback to synchronous processing if webhook not configured
+            logger.info("Using synchronous processing (webhook disabled or not configured)")
+            background_tasks.add_task(
+                generate_final_speech_sync, 
+                data.text, 
+                window_id,
+                memory_system, 
+                llm_service, 
+                case_response_template
+            )
+            
+            return {
+                "status": "processing", 
+                "audio_url": audio_url,
+                "session_id": session_id,
+                "webhook_enabled": False
+            }
+            
     except Exception as e:
-        logger.error(f"Error processing voice input: {str(e)}", exc_info=True)
+        logger.error(f"Error initiating voice processing: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Voice input processing failed: {str(e)}")
+
+@router.post("/vapi-webhook/")
+async def vapi_webhook(data: WebhookRequest):
+    """
+    Handle Vapi webhook - receives final voice response
+    """
+    logger.info(f"Received webhook from Vapi: session {data.session_id}, audio URL: {data.audio_url[:30]}...")
+    
+    # You could store the final audio URL in a database or cache for the frontend to retrieve
+    # Here we're just acknowledging receipt
+    return {
+        "status": "success", 
+        "session_id": data.session_id,
+        "final_audio_url": data.audio_url
+    }
 
 @router.post("/text-to-speech/")
 async def text_to_speech(
@@ -121,7 +214,7 @@ async def text_to_speech(
     background_tasks: BackgroundTasks = None
 ):
     """
-    Convert text to speech using Vapi API
+    Convert text to speech using Vapi API (standard synchronous version)
     """
     if not VAPI_API_KEY:
         logger.error("Vapi API key not configured")
@@ -168,11 +261,6 @@ async def text_to_speech(
             
         logger.info(f"TTS successful, audio URL generated: {audio_url[:30]}...")
         
-        # Schedule cleanup task if needed (optional)
-        if background_tasks:
-            # Could add task to clean up temporary files, etc.
-            pass
-        
         return {
             "audio_url": audio_url,
             "format": "mp3",
@@ -183,35 +271,115 @@ async def text_to_speech(
         logger.error(f"Error in text-to-speech conversion: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Text to speech conversion failed: {str(e)}")
 
-@router.get("/health")
-async def voice_health():
-    """Check voice API health"""
-    if not VAPI_API_KEY:
-        return {"status": "disabled", "message": "Vapi API key not configured"}
-    
+# Helper functions for background processing
+async def generate_final_speech_webhook(
+    user_text: str,
+    window_id: str,
+    session_id: str,
+    memory_system,
+    llm_service,
+    case_response_template
+):
+    """
+    Generate final AI response, convert to speech, and call Vapi webhook
+    """
     try:
-        # Make a lightweight call to Vapi API to verify connectivity
-        headers = {
-            'Authorization': f'Bearer {VAPI_API_KEY}'
-        }
+        logger.info(f"Background task: Generating response for session {session_id}")
         
-        # A simple health check call to Vapi
-        response = requests.get(
-            'https://api.vapi.ai/health',  # Adjust endpoint as needed
-            headers=headers
+        # Create query request
+        query_request = QueryRequest(query=user_text)
+        
+        # Use memory system to process the query
+        logger.info(f"Processing query through Wintermute memory system: {user_text[:30]}...")
+        response = await memory_system.process_query(
+            query_request, 
+            llm_service, 
+            case_response_template
         )
         
-        if response.status_code == 200:
-            return {
-                "status": "healthy", 
-                "message": f"Vapi integration configured with voice ID: {VAPI_VOICE_ID}"
+        logger.info(f"Response generated successfully for session {session_id}")
+        response_text = response.response
+        
+        # Convert AI response to speech with webhook
+        payload = {
+            "text": response_text,
+            "voice_id": VAPI_VOICE_ID,
+            "webhook_url": VAPI_WEBHOOK_URL,
+            "webhook_data": {
+                "session_id": session_id,
+                "window_id": window_id
             }
+        }
+        
+        headers = {
+            'Authorization': f'Bearer {VAPI_API_KEY}',
+            'Content-Type': 'application/json'
+        }
+        
+        logger.info(f"Sending final TTS request with webhook for session {session_id}")
+        response = requests.post(
+            'https://api.vapi.ai/text-to-speech',
+            headers=headers,
+            json=payload
+        )
+        
+        if response.status_code != 200:
+            logger.error(f"Final TTS webhook request failed: {response.status_code}, {response.text}")
         else:
-            return {
-                "status": "unhealthy", 
-                "message": f"Vapi API returned status code: {response.status_code}"
-            }
+            logger.info(f"Final TTS webhook request sent successfully for session {session_id}")
             
     except Exception as e:
-        logger.error(f"Voice health check failed: {str(e)}")
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Error generating final speech with webhook: {str(e)}", exc_info=True)
+
+async def generate_final_speech_sync(
+    user_text: str,
+    window_id: str,
+    memory_system,
+    llm_service,
+    case_response_template
+):
+    """
+    Generate final AI response and convert to speech (synchronous version)
+    """
+    try:
+        logger.info(f"Background task: Generating response for window {window_id}")
+        
+        # Create query request
+        query_request = QueryRequest(query=user_text)
+        
+        # Use memory system to process the query
+        logger.info(f"Processing query through Wintermute memory system: {user_text[:30]}...")
+        response = await memory_system.process_query(
+            query_request, 
+            llm_service, 
+            case_response_template
+        )
+        
+        logger.info(f"Response generated successfully for window {window_id}")
+        response_text = response.response
+        
+        # Convert AI response to speech (synchronous)
+        payload = {
+            "text": response_text,
+            "voice_id": VAPI_VOICE_ID
+        }
+        
+        headers = {
+            'Authorization': f'Bearer {VAPI_API_KEY}',
+            'Content-Type': 'application/json'
+        }
+        
+        logger.info(f"Sending final TTS request for window {window_id}")
+        response = requests.post(
+            'https://api.vapi.ai/text-to-speech',
+            headers=headers,
+            json=payload
+        )
+        
+        if response.status_code != 200:
+            logger.error(f"Final TTS request failed: {response.status_code}, {response.text}")
+        else:
+            logger.info(f"Final TTS request sent successfully for window {window_id}")
+            
+    except Exception as e:
+        logger.error(f"Error generating final speech: {str(e)}", exc_info=True)
