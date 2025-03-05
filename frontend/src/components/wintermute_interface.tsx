@@ -108,10 +108,17 @@ const WintermuteInterface: React.FC = () => {
                                 
                                 // Rest of your event handlers
                                 newVapi.on('assistant-response', async (data) => {
-                                    // Your existing code
+                                    if (data.type === 'final-transcript') {
+                                        if (data.message !== undefined) {
+                                            handleVoiceInput(data.message);
+                                        } else {
+                                            console.error("Received 'final-transcript' event with undefined message.");
+                                            setErrorMessage("Received incomplete transcription data from Vapi.");
+                                        }
+                                    } else if (data.type === 'audio') {
+                                        // Handle audio event if needed
+                                    }
                                 });
-                                
-                                // Your other event handlers
                                 
                                 setVapi(newVapi);
                                 console.log("Vapi instance created successfully");
@@ -122,9 +129,6 @@ const WintermuteInterface: React.FC = () => {
                             // Clean up
                             stream.getTracks().forEach(track => track.stop());
                         })
-                        .catch(err => {
-                            // Microphone error handling
-                        });
                 })
                 .catch(error => {
                     console.error("Failed to fetch configuration:", error);
