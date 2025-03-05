@@ -613,7 +613,7 @@ async def query_memory(
         )
         logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
 
-        # --- Generate Response ---
+                # --- Generate Response ---
         # ADD RANDOM TEMPERATURE HERE
         temperature = round(random.uniform(0.6, 0.9), 2)  # Random temp between 0.6 and 0.9
         logger.info(f"[{trace_id}] Using temperature: {temperature}") #Log the temperature
@@ -627,14 +627,12 @@ async def query_memory(
 
         # --- Store Interaction (Episodic Memory) ---
         try:
-            # Use the enhanced store interaction method.
-            await memory_system.store_interaction_enhanced(
+            await memory_system.store_interaction_enhanced(  # Await the interaction storage, use ENHANCED
                 query=query.prompt,
                 response=response,
                 window_id=query.window_id,
             )
             logger.info(f"[{trace_id}] Interaction stored successfully")
-
         except Exception as e:
             logger.error(
                 f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True
