@@ -102,4 +102,4 @@ Recent Interactions:
             raise
 
 # Create instance for import
-coach_response_template = CaseResponseTemplate()  # Use new class name
+case_response_template = CaseResponseTemplate()  # Use new class name
