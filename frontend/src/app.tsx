@@ -29,10 +29,10 @@ const App: React.FC = () => {
         <LoadingScreen />
       ) : (
         <>
-          {/* Header */}
+          {/* Header - removed the text */}
           <header className="bg-gray-800 p-4 shadow-md">
             <div className="container mx-auto">
-              <h1 className="text-xl font-bold text-white">Wintermute AI Tutor</h1>
+              {/* Title text removed */}
             </div>
           </header>
           
@@ -41,10 +41,10 @@ const App: React.FC = () => {
             <WintermuteInterface key={`integrated-${mountKey}`} />
           </main>
           
-          {/* Footer */}
+          {/* Footer - removed the text */}
           <footer className="bg-gray-800 p-4">
             <div className="container mx-auto text-center text-gray-400 text-sm">
-              <p>Wintermute - AI Learning Assistant</p>
+              {/* Footer text removed */}
             </div>
           </footer>
         </>
