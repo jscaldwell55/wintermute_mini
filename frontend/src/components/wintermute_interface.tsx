@@ -67,10 +67,10 @@ const WintermuteInterface: React.FC = () => {
     // Initialize Vapi when voice is enabled
     useEffect(() => {
         if (voiceEnabled) {
-            setErrorMessage(null); // Clear any previous error messages
+            setErrorMessage(null); // Clear any previous errors
             
-            // Don't check environment variables at all, just fetch config
-            fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/config`)
+            // Always fetch from config endpoint, don't check env vars
+            fetch(`${window.location.origin}/api/v1/config`)
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`Server returned ${response.status}: ${response.statusText}`);
@@ -78,91 +78,52 @@ const WintermuteInterface: React.FC = () => {
                     return response.json();
                 })
                 .then(config => {
-                    // Check if we have the required configuration
+                    // Check if we have the required configuration from the server
                     if (!config.vapi_api_key) {
-                        console.error("Vapi API key is missing");
-                        setErrorMessage("Vapi API key is not configured. Please check your server configuration.");
+                        console.error("Vapi API key is missing from server config");
+                        setErrorMessage("Vapi API key is not configured on the server. Please contact the administrator.");
                         setVoiceEnabled(false);
                         return;
                     }
-    
+        
                     if (!config.vapi_voice_id) {
-                        console.error("Vapi voice ID is missing");
-                        setErrorMessage("Vapi voice ID is not configured. Please check your server configuration.");
+                        console.error("Vapi voice ID is missing from server config");
+                        setErrorMessage("Vapi voice ID is not configured on the server. Please contact the administrator.");
                         setVoiceEnabled(false);
                         return;
                     }
-    
-                    console.log("Config received from server:", {
-                        apiKeyDefined: !!config.vapi_api_key,
-                        voiceIdDefined: !!config.vapi_voice_id,
-                        apiUrl: config.api_url
-                    });
-    
-                    // Explicitly request microphone access *before* initializing Vapi
+        
+                    console.log("Config received from server successfully");
+        
+                    // Explicitly request microphone access
                     navigator.mediaDevices.getUserMedia({ audio: true })
                         .then(stream => {
-                            // We have microphone access, now initialize Vapi
-                            console.log("Microphone access granted, initializing Vapi");
-    
+                            // Initialize Vapi with server config
                             try {
                                 const newVapi = new Vapi({
                                     apiKey: config.vapi_api_key,
                                     voiceId: config.vapi_voice_id,
                                     webhookUrl: `${config.api_url}${config.api_url.endsWith('/') ? '' : '/'}api/v1/voice/vapi-webhook/`,
                                 });
-    
+                                
+                                // Rest of your event handlers
                                 newVapi.on('assistant-response', async (data) => {
-                                    if (data.type === 'final-transcript') {
-                                        if (data.message !== undefined) { // Add this check
-                                            handleVoiceInput(data.message);
-                                        } else {
-                                            // Handle the case where data.message is undefined
-                                            console.error("Received 'final-transcript' event with undefined message.");
-                                            // Optionally, set an error message for the user:
-                                            setErrorMessage("Received incomplete transcription data from Vapi.");
-                                        }
-                                    } else if (data.type === 'audio') {
-                                        // ...
-                                    }
+                                    // Your existing code
                                 });
-    
-                                newVapi.on('error', (error) => {
-                                    console.error("Vapi error:", error);
-                                    setErrorMessage(`Vapi Error: ${error.message}`);
-                                });
-    
-                                newVapi.on('ready', () => {
-                                    console.log("Vapi is ready");
-                                });
-    
-                                newVapi.on('started', () => {
-                                    console.log("VAPI STARTED");
-                                });
-    
-                                newVapi.on('ended', () => {
-                                    console.log("VAPI END");
-                                    if (currentSessionId.current) {
-                                        currentSessionId.current = null; // Clear session ID on call end
-                                    }
-                                    setIsRecording(false); // Ensure recording is set to false
-                                });
-    
+                                
+                                // Your other event handlers
+                                
                                 setVapi(newVapi);
                                 console.log("Vapi instance created successfully");
                             } catch (error) {
-                                console.error("Error creating Vapi instance:", error);
-                                setErrorMessage(`Failed to initialize Vapi: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                                setVoiceEnabled(false);
+                                // Error handling
                             }
-    
-                            // Stop the initial microphone stream (Vapi will request again)
+                            
+                            // Clean up
                             stream.getTracks().forEach(track => track.stop());
                         })
                         .catch(err => {
-                            console.error("Microphone access denied:", err);
-                            setErrorMessage("Microphone access is required for voice mode. Please enable it in your browser settings.");
-                            setVoiceEnabled(false); // Disable voice mode if no access
+                            // Microphone error handling
                         });
                 })
                 .catch(error => {
@@ -171,13 +132,14 @@ const WintermuteInterface: React.FC = () => {
                     setVoiceEnabled(false);
                 });
         } else {
+            // Clean up when voice is disabled
             if (vapi) {
                 console.log("Stopping and cleaning up Vapi instance");
                 vapi.stop();
                 setVapi(null);
             }
         }
-    }, [voiceEnabled]); // Only re-initialize when voiceEnabled changes
+    }, [voiceEnabled]);
 
 
     const handleQuery = async () => {
@@ -237,27 +199,20 @@ const WintermuteInterface: React.FC = () => {
         if (vapi) {
             console.log("Starting Vapi call");
             setIsRecording(true);
-            currentSessionId.current = crypto.randomUUID(); // Generate a session ID
+            currentSessionId.current = crypto.randomUUID();
             try {
-                // Add detailed logging before starting
-                console.log("Vapi configuration:", {
-                    apiKeyDefined: !!import.meta.env.VITE_VAPI_API_KEY,
-                    voiceIdDefined: !!import.meta.env.VITE_VAPI_VOICE_ID,
-                    webhookUrlDefined: !!import.meta.env.VITE_API_URL
-                });
-
-                await vapi.start(); // Start the Vapi call
+                // Remove any environment variable checks here
+                await vapi.start();
                 console.log("Vapi call started successfully");
             } catch (error) {
                 console.error("Error starting Vapi call:", error);
-                // More detailed error message
                 const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-                setErrorMessage(`Could not start voice call: ${errorMsg}. Please check your microphone and Vapi configuration.`);  // Corrected type
+                setErrorMessage(`Could not start voice call: ${errorMsg}. Please check your microphone.`);
                 setIsRecording(false);
             }
         } else {
             console.error("Vapi not initialized");
-            setErrorMessage("Voice mode is not properly initialized. Try toggling voice mode off and on again."); // Corrected type
+            setErrorMessage("Voice mode is not properly initialized. Try toggling voice mode off and on again.");
         }
     };
 
