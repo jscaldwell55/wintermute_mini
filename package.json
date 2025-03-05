@@ -4,7 +4,7 @@
   "scripts": {
     "heroku-prebuild": "cd frontend && npm install --include=dev",
     "heroku-postbuild": "cd frontend && npm run build",
-    "start": "serve -s $PWD/frontend/dist -l $PORT"
+    "start": "serve -s frontend/dist -l $PORT"
   },
   "engines": {
     "node": "18.x"
