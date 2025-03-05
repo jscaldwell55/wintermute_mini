@@ -63,7 +63,11 @@ async def speech_to_text(audio_file: UploadFile = File(...)):
     """
     if not VAPI_API_KEY:
         logger.error("Vapi API key not configured")
-        raise HTTPException(status_code=500, detail="Voice services not configured")
+        return {
+            "transcribed_text": "",
+            "error": "Voice services not configured",
+            "status": "error"
+        }
         
     logger.info(f"Processing speech-to-text request: {audio_file.filename}, content_type: {audio_file.content_type}")
     
@@ -82,52 +86,51 @@ async def speech_to_text(audio_file: UploadFile = File(...)):
             'Authorization': f'Bearer {VAPI_API_KEY}'
         }
         
-        # Make request to Vapi speech-to-text API with timeout
+        # Make request to Vapi speech-to-text API
         logger.info("Sending request to Vapi STT API")
+        
         try:
             response = requests.post(
-                'https://api.vapi.ai/speech-to-text',
+                'https://api.vapi.ai/v1/speech-to-text',  # Updated URL with v1
                 headers=headers,
                 files=files,
                 timeout=10  # Add timeout
             )
         except requests.exceptions.RequestException as e:
-            logger.error(f"Connection error to Vapi API: {str(e)}")
+            logger.error(f"Network error with Vapi API: {str(e)}")
             return {
                 "transcribed_text": "",
-                "error": f"Unable to connect to voice service: {str(e)}",
-                "fallback": True
+                "error": f"Network error with voice service: {str(e)}",
+                "status": "error"
             }
-            
+        
         # Check response
         if response.status_code != 200:
-            logger.error(f"Vapi STT API error: {response.status_code}, {response.text}")
-            
-            # Return partial success with empty text but don't raise exception
+            error_text = response.text
+            logger.error(f"Vapi STT API error: {response.status_code}, {error_text}")
             return {
                 "transcribed_text": "",
-                "error": f"Speech to text service returned error: {response.status_code}",
-                "fallback": True
+                "error": f"Speech-to-text error: {response.status_code} - {error_text[:100]}...",
+                "status": "error"
             }
         
         # Parse response
         result = response.json()
         logger.info(f"STT successful: {result.get('text', '')[:30]}...")
 
-        # Consistent naming with "transcribed_text" in WintermuteInterface
+        # Return transcribed text
         return {
             "transcribed_text": result.get("text", ""),
-            "confidence": result.get("confidence", 0)
+            "confidence": result.get("confidence", 0),
+            "status": "success"
         }
         
     except Exception as e:
         logger.error(f"Error in speech-to-text conversion: {str(e)}", exc_info=True)
-        
-        # Return partial success instead of raising exception
         return {
             "transcribed_text": "",
             "error": f"Error processing speech: {str(e)}",
-            "fallback": True
+            "status": "error"
         }
 
 @router.post("/process-input/")
