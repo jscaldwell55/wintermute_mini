@@ -196,79 +196,79 @@ class MemorySystem:
             return False
 
     async def query_memories(self, request: QueryRequest) -> QueryResponse:
-      """Query memories based on the given request, with filtering and sorting."""
-      try:
-          logger.info(f"Starting memory query with request: {request}")
-          query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
-          logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
+        """Query memories based on the given request, with filtering and sorting."""
+        try:
+            logger.info(f"Starting memory query with request: {request}")
+            query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
+            logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
 
-          pinecone_filter = {"memory_type": "SEMANTIC"}
-          if request.window_id:
-              pinecone_filter["window_id"] = request.window_id
-          logger.info(f"Querying Pinecone with filter: {pinecone_filter}")
+            pinecone_filter = {"memory_type": "SEMANTIC"}
+            if request.window_id:
+                pinecone_filter["window_id"] = request.window_id
+            logger.info(f"Querying Pinecone with filter: {pinecone_filter}")
 
-          results = await self.pinecone_service.query_memories(
-              query_vector=query_vector,
-              top_k=request.top_k,
-              filter=pinecone_filter,
-              include_metadata=True
-          )
-          logger.info(f"Received {len(results)} raw results from Pinecone.")
+            results = await self.pinecone_service.query_memories(
+                query_vector=query_vector,
+                top_k=request.top_k,
+                filter=pinecone_filter,
+                include_metadata=True
+            )
+            logger.info(f"Received {len(results)} raw results from Pinecone.")
 
-          matches: List[MemoryResponse] = []
-          similarity_scores: List[float] = []
-          current_time = datetime.utcnow()
+            matches: List[MemoryResponse] = []
+            similarity_scores: List[float] = []
+            current_time = datetime.utcnow()
 
-          for memory_data, similarity_score in results:
-              logger.debug(f"Processing memory data: {memory_data}")
-              try:
-                  if similarity_score < 0.6:
-                      logger.info(f"Skipping memory {memory_data['id']} due to low similarity score: {similarity_score}")
-                      continue
+            for memory_data, similarity_score in results:
+                logger.debug(f"Processing memory data: {memory_data}")
+                try:
+                    if similarity_score < 0.6:
+                        logger.info(f"Skipping memory {memory_data['id']} due to low similarity score: {similarity_score}")
+                        continue
 
-                  created_at = memory_data["metadata"].get("created_at")  # Already a datetime object!
-                  if not created_at:
-                      logger.warning(f"Skipping memory {memory_data['id']} due to missing created_at")
-                      continue
+                    created_at = memory_data["metadata"].get("created_at")  # Already a datetime object!
+                    if not created_at:
+                        logger.warning(f"Skipping memory {memory_data['id']} due to missing created_at")
+                        continue
 
-                  # No more type checking/string parsing
+                    # No more type checking/string parsing
 
-                  age_days = (current_time - created_at).total_seconds() / (60*60*24)
-                  time_weight = 0.7 + (0.3 / (1 + math.exp(age_days/180 - 2)))
+                    age_days = (current_time - created_at).total_seconds() / (60*60*24)
+                    time_weight = 0.7 + (0.3 / (1 + math.exp(age_days/180 - 2)))
 
-                  final_score = (similarity_score * 0.8) + (time_weight * 0.2)
-                  logger.info(f"Memory ID {memory_data['id']}: Raw Score={similarity_score:.3f}, Time Weight={time_weight:.3f}, Final Score={final_score:.3f}")
+                    final_score = (similarity_score * 0.8) + (time_weight * 0.2)
+                    logger.info(f"Memory ID {memory_data['id']}: Raw Score={similarity_score:.3f}, Time Weight={time_weight:.3f}, Final Score={final_score:.3f}")
 
-                  memory_response = MemoryResponse(
-                      id=memory_data["id"],
-                      content=memory_data["metadata"]["content"],
-                      memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                      created_at=memory_data["metadata"]["created_at"].isoformat() + "Z",  # Format as ISO string with Z here
-                      metadata=memory_data["metadata"],
-                      window_id=memory_data["metadata"].get("window_id"),
-                      semantic_vector=memory_data["vector"],
-                  )
-                  matches.append(memory_response)
-                  similarity_scores.append(final_score)
+                    memory_response = MemoryResponse(
+                        id=memory_data["id"],
+                        content=memory_data["metadata"]["content"],
+                        memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                        created_at=memory_data["metadata"]["created_at"].isoformat() + "Z",  # Format as ISO string with Z here
+                        metadata=memory_data["metadata"],
+                        window_id=memory_data["metadata"].get("window_id"),
+                        semantic_vector=memory_data["vector"],
+                    )
+                    matches.append(memory_response)
+                    similarity_scores.append(final_score)
 
-              except (ValueError, TypeError) as e:
-                logger.warning(f"Error processing timestamp for memory {memory_data['id']}: {e}")
-                continue
-              except Exception as e:
-                logger.error(f"Error processing memory {memory_data['id']}: {e}", exc_info=True)
-                continue
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Error processing timestamp for memory {memory_data['id']}: {e}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Error processing memory {memory_data['id']}: {e}", exc_info=True)
+                    continue
 
-          sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
-          matches, similarity_scores = zip(*sorted_results) if sorted_results else ([], [])
+            sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
+            matches, similarity_scores = zip(*sorted_results) if sorted_results else ([], [])
 
-          return QueryResponse(
-              matches=list(matches),
-              similarity_scores=list(similarity_scores),
-          )
+            return QueryResponse(
+                matches=list(matches),
+                similarity_scores=list(similarity_scores),
+            )
 
-      except Exception as e:
-          logger.error(f"Error querying memories: {e}", exc_info=True)
-          raise MemoryOperationError(f"Failed to query memories: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error querying memories: {e}", exc_info=True)
+            raise MemoryOperationError(f"Failed to query memories: {str(e)}")
 
     async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
         """Improved duplicate detection."""
@@ -307,7 +307,6 @@ class MemorySystem:
         except Exception as e:
             logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
             return False  # Assume not a duplicate on error
-
     async def store_interaction(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
         """Stores a user interaction (query + response) as a new episodic memory."""
         try:
@@ -319,6 +318,7 @@ class MemorySystem:
             if await self._check_recent_duplicate(interaction_text):
                 logger.warning("Duplicate interaction detected. Skipping storage.")
                 return None  # Or raise an exception, depending on desired behavior
+
 
             semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
 
@@ -369,17 +369,16 @@ class MemorySystem:
         response: str,
         window_id: Optional[str] = None
     ) -> str:
-      """Add an interaction as an episodic memory. DEPRECATED, use store_interaction"""
-      content = f"User: {user_input}\nAssistant: {response}"
-      memory_id = await self.add_memory(
-          content=content,
-          memory_type=MemoryType.EPISODIC,
-          metadata={"interaction": True},
-          window_id=window_id,
-      )
-      return memory_id
-      
+        """Add an interaction as an episodic memory."""
+        content = f"User: {user_input}\nAssistant: {response}"
+        memory_id = await self.add_memory( #add_memory to be deprecated
+            content=content,
+            memory_type=MemoryType.EPISODIC,
+            metadata={"interaction": True},
+            window_id=window_id,
+        )
+        return memory_id
 
     async def health_check(self):
         """Checks the health of the memory system."""
-        return {"status": "healthy"}
+        return {"status": "healthy"} 
