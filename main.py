@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from api.voice_api import router as voice_router
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime, timezone
@@ -684,7 +685,18 @@ async def query_memory(
         )
 # --- Include Router and Setup Static Files ---
 app.include_router(api_router)
+app.include_router(voice_router)
 setup_static_files(app)
+
+@app.on_event("startup")
+async def startup_event():
+    import os
+    
+    vapi_key = os.getenv("VAPI_API_KEY")
+    if vapi_key:
+        logger.info("VAPI integration enabled")
+    else:
+        logger.warning("VAPI_API_KEY not found - voice features will be unavailable")
 
 # Shutdown handler for rate limiter
 @app.on_event("shutdown")

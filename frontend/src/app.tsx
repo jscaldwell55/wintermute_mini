@@ -1,29 +1,55 @@
 // src/app.tsx
 import React, { useState, useEffect } from 'react';
-// Import the new component
-import WintermuteInterfaceV2 from './components/WintermuteInterfaceV2';
+import WintermuteInterface from './components/wintermute_interface';
 import LoadingScreen from './components/LoadingScreen';
 
-console.log('App loading with NEW V2 component - timestamp:', Date.now());
+console.log('App component loading with integrated voice - Version 3.0');
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
+  const [mountKey] = useState(`wintermute-${Date.now()}`);
 
   useEffect(() => {
+    console.log('App component mounted with key:', mountKey);
+    
     const timer = setTimeout(() => {
+      console.log('Loading complete, showing Wintermute interface');
       setLoading(false);
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
+    }, 2000); // Reduced loading time for better UX
+
+    return () => {
+      console.log('App component unmounting, clearing timeout');
+      clearTimeout(timer);
+    }; 
+  }, [mountKey]);
 
   return (
-    <>
+    <div className="min-h-screen bg-gray-900 flex flex-col">
       {loading ? (
         <LoadingScreen />
       ) : (
-        <WintermuteInterfaceV2 />
+        <>
+          {/* Header */}
+          <header className="bg-gray-800 p-4 shadow-md">
+            <div className="container mx-auto">
+              <h1 className="text-xl font-bold text-white">Wintermute AI Tutor</h1>
+            </div>
+          </header>
+          
+          {/* Main content */}
+          <main className="container mx-auto py-6 flex-1 flex flex-col">
+            <WintermuteInterface key={`integrated-${mountKey}`} />
+          </main>
+          
+          {/* Footer */}
+          <footer className="bg-gray-800 p-4">
+            <div className="container mx-auto text-center text-gray-400 text-sm">
+              <p>Wintermute - AI Learning Assistant</p>
+            </div>
+          </footer>
+        </>
       )}
-    </>
+    </div>
   );
 };
 

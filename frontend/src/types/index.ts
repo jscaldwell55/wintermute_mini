@@ -54,6 +54,22 @@ export interface QueryResponse {
     };
 }
 
+export interface SpeechToTextResponse {
+    transcribed_text: string;
+    error?: string;
+  }
+  
+  export interface TextToSpeechRequest {
+    response: string;
+    voice?: string;
+  }
+  
+  export interface TextToSpeechResponse {
+    audio_url: string;
+    response: string;
+    error?: string;
+  }
+
 export interface SystemStatus {
     status: 'online' | 'offline' | 'degraded';
     initialization_complete: boolean;
