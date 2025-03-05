@@ -359,6 +359,15 @@ async def health_check():
     
     return health_status
 
+@api_router.get("/config")
+async def get_frontend_config():
+    """Return configuration for the frontend"""
+    return {
+        "vapi_api_key": os.getenv("VAPI_API_KEY"),
+        "vapi_voice_id": os.getenv("VAPI_VOICE_ID"),
+        "api_url": os.getenv("FRONTEND_URL")
+    }
+
 @api_router.get("/memories")
 async def list_memories(
     limit: int = Query(default=10, ge=1, le=100),
