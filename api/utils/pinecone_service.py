@@ -1,4 +1,4 @@
-# api/utils/pinecone_service.py (CORRECTED)
+# api/utils/pinecone_service.py 
 
 import pinecone
 from pinecone import Index, Pinecone, PodSpec
