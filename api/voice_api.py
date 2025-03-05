@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
 
-from api.core.memory import MemorySystem
+from api.core.memory.memory import MemorySystem
 from api.utils.llm_service import LLMService
 from api.utils.prompt_templates import CaseResponseTemplate
 from main import get_memory_system, get_llm_service
