@@ -5,6 +5,7 @@ pydantic[dotenv]>=2.0.0
 pydantic-settings>=2.0.0
 python-dotenv>=0.20.0
 gunicorn>=21.2.0
+requests==2.31.0
 
 
 
