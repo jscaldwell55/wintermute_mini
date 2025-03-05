@@ -307,7 +307,7 @@ class MemorySystem:
         except Exception as e:
             logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
             return False  # Assume not a duplicate on error
-    async def store_interaction(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
+    async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
         """Stores a user interaction (query + response) as a new episodic memory."""
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
