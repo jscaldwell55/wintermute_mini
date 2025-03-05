@@ -59,14 +59,26 @@ export interface SpeechToTextResponse {
     error?: string;
   }
   
-  export interface TextToSpeechRequest {
-    response: string;
-    voice?: string;
-  }
-  
   export interface TextToSpeechResponse {
     audio_url: string;
     response: string;
+    error?: string;
+  }
+  
+  export interface VoiceProcessResponse {
+    status: string;
+    audio_url?: string;
+    session_id: string;
+    webhook_enabled: boolean;
+    error?: string;
+  }
+  
+  export interface VoiceStatusResponse {
+    status: 'processing' | 'completed';
+    audio_url?: string;
+    response?: string;
+    timestamp?: string;
+    message?: string;
     error?: string;
   }
 

@@ -1,18 +1,18 @@
-// src/components/wintermute_interface.tsx
+// src/components/WintermuteInterface.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { queryAPI } from '../services/api';
+import { queryAPI, speechToText, processVoiceInput, checkVoiceStatus, textToSpeech } from '../services/api';
 import { QueryResponse, ErrorDetail } from '../types';
 
-console.log("WintermuteInterface.tsx [ENHANCED WITH VOICE] is being executed");
+console.log("WintermuteInterface.tsx is being executed");
 
 // Define an interface for an interaction
 interface Interaction {
-  id: string;
   query: string;
   response: string | null;
   error: ErrorDetail | null;
-  audioUrl: string | null; // New field for voice response URL
   timestamp: string;
+  audioUrl?: string | null;
+  isProcessing?: boolean;
 }
 
 const WintermuteInterface: React.FC = () => {
@@ -20,36 +20,38 @@ const WintermuteInterface: React.FC = () => {
     const [interactions, setInteractions] = useState<Interaction[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
     const [windowId, setWindowId] = useState<string>('');
-    const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false); // Toggle for voice responses
+    const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
     const [isRecording, setIsRecording] = useState<boolean>(false);
     const [audioPlaying, setAudioPlaying] = useState<boolean>(false);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     
-    // Refs
     const interactionsEndRef = useRef<HTMLDivElement>(null);
-    const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
+    const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+    const statusPollingRef = useRef<NodeJS.Timeout | null>(null);
 
     // Generate a UUID for the session window on component mount
     useEffect(() => {
         console.log("Initializing WintermuteInterface with new windowId");
-        const newWindowId = crypto.randomUUID();
-        setWindowId(newWindowId);
-        console.log("Generated windowId:", newWindowId);
+        setWindowId(crypto.randomUUID());
         
-        // Set up audio player ref
+        // Set up audio player ref for voice mode
         if (!audioPlayerRef.current) {
-            const player = new Audio();
-            player.addEventListener('ended', () => setAudioPlaying(false));
-            audioPlayerRef.current = player;
+          const player = new Audio();
+          player.addEventListener('ended', () => setAudioPlaying(false));
+          audioPlayerRef.current = player;
         }
         
         return () => {
-            // Cleanup
-            if (audioPlayerRef.current) {
-                audioPlayerRef.current.pause();
-                audioPlayerRef.current.removeEventListener('ended', () => setAudioPlaying(false));
-            }
+          // Cleanup
+          if (audioPlayerRef.current) {
+            audioPlayerRef.current.pause();
+            audioPlayerRef.current.removeEventListener('ended', () => setAudioPlaying(false));
+          }
+          if (statusPollingRef.current) {
+            clearInterval(statusPollingRef.current);
+          }
         };
     }, []);
 
@@ -69,8 +71,77 @@ const WintermuteInterface: React.FC = () => {
         }
     }, [interactions]);
 
-    // Handle voice recording
+    // Handle text query submission
+    const handleQuery = async () => {
+        if (!query.trim()) {
+            console.log("Empty query, not submitting");
+            return;
+        }
+
+        setLoading(true);
+        const submittedQuery = query; // Capture query
+        setQuery(''); // Clear the input field
+        
+        console.log(`Submitting query: "${submittedQuery.substring(0, 50)}${submittedQuery.length > 50 ? '...' : ''}"`);
+
+        try {
+            const data: QueryResponse = await queryAPI(submittedQuery, windowId);
+            console.log("Received API response", data);
+            
+            // Create a new interaction
+            const newInteraction: Interaction = {
+                query: submittedQuery,
+                response: data.error ? null : (data.response || "No response from the AI."),
+                error: data.error || null,
+                timestamp: new Date().toISOString()
+            };
+            
+            // If voice is enabled, convert response to speech
+            if (voiceEnabled && !data.error && data.response) {
+                try {
+                    const ttsResponse = await textToSpeech(data.response);
+                    if (ttsResponse.audio_url) {
+                        newInteraction.audioUrl = ttsResponse.audio_url;
+                        
+                        // Play audio
+                        if (audioPlayerRef.current) {
+                            audioPlayerRef.current.src = ttsResponse.audio_url;
+                            audioPlayerRef.current.play();
+                            setAudioPlaying(true);
+                        }
+                    }
+                } catch (err) {
+                    console.error("Text-to-speech error", err);
+                    // Continue without audio if TTS fails
+                }
+            }
+            
+            // Add the new interaction to the history
+            setInteractions(prevInteractions => [...prevInteractions, newInteraction]);
+        } catch (err) {
+            console.error("API call failed", err);
+            
+            // Create an interaction with error
+            const errorInteraction: Interaction = {
+                query: submittedQuery,
+                response: null,
+                error: {
+                    code: 'UNKNOWN_ERROR',
+                    message: err instanceof Error ? err.message : 'An unknown error occurred',
+                    timestamp: new Date().toISOString()
+                },
+                timestamp: new Date().toISOString()
+            };
+            
+            setInteractions(prevInteractions => [...prevInteractions, errorInteraction]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Start voice recording
     const startRecording = async () => {
+        setErrorMessage(null);
         try {
             console.log("Starting voice recording");
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -84,197 +155,153 @@ const WintermuteInterface: React.FC = () => {
                 }
             };
             
-            mediaRecorder.onstop = processVoiceInput;
+            mediaRecorder.onstop = processVoiceRecording;
             
             mediaRecorder.start();
             setIsRecording(true);
         } catch (error) {
             console.error("Error starting recording:", error);
+            setErrorMessage("Could not access microphone. Please check permissions.");
         }
     };
 
+    // Stop voice recording
     const stopRecording = () => {
         if (mediaRecorderRef.current && isRecording) {
             console.log("Stopping voice recording");
             mediaRecorderRef.current.stop();
             setIsRecording(false);
+            setLoading(true);
         }
     };
 
-    const processVoiceInput = async () => {
+    // Process the voice recording
+    const processVoiceRecording = async () => {
         try {
-            console.log("Processing voice recording");
-            setLoading(true);
+            console.log("Processing recording");
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-            
-            // Create form data for API request
-            const formData = new FormData();
-            formData.append('file', audioBlob, 'recording.wav');
-            
-            // Send audio for speech-to-text
+            // Step 1: Speech to Text
             console.log("Sending audio for speech-to-text");
-            const sttResponse = await fetch('/api/v1/voice/speech-to-text/', {
-                method: 'POST',
-                body: formData
-            });
+            const sttResponse = await speechToText(audioBlob);
             
-            const sttData = await sttResponse.json();
-            
-            if (sttData.error) {
-                throw new Error(sttData.error);
+            if (sttResponse.error) {
+                throw new Error(sttResponse.error);
             }
             
-            const transcribedText = sttData.transcribed_text;
+            const transcribedText = sttResponse.transcribed_text;
             console.log("Transcribed text:", transcribedText);
             
-            // Now that we have text, process it like a normal text query
-            if (transcribedText) {
-                setQuery(transcribedText);
-                await handleQueryWithText(transcribedText);
+            if (!transcribedText.trim()) {
+                throw new Error("Could not understand speech. Please try again.");
             }
             
-        } catch (error) {
-            console.error("Error processing voice input:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Process a query with given text (used by both text input and voice input)
-    const handleQueryWithText = async (inputText: string) => {
-        if (!inputText.trim()) {
-            console.log("Empty query, not submitting");
-            return;
-        }
-
-        setLoading(true);
-        const submittedQuery = inputText;
-        const interactionId = crypto.randomUUID();
-        
-        console.log(`Submitting query: "${submittedQuery.substring(0, 50)}${submittedQuery.length > 50 ? '...' : ''}"`);
-        console.log(`Interaction ID: ${interactionId}`);
-        
-        // Clear input field if it matches what we're submitting (don't clear if voice input)
-        if (query === submittedQuery) {
-            setQuery('');
-        }
-
-        try {
-            // First, add a placeholder for this interaction
-            const placeholderInteraction: Interaction = {
-                id: interactionId,
-                query: submittedQuery,
+            // Set the transcribed text in the input field
+            setQuery(transcribedText);
+            
+            // Create a unique session ID for this interaction
+            const sessionId = crypto.randomUUID();
+            
+            // Add the user's question to interactions immediately
+            const newInteractionIndex = interactions.length;
+            setInteractions(prev => [...prev, {
+                query: transcribedText,
                 response: "Thinking...",
                 error: null,
-                audioUrl: null,
-                timestamp: new Date().toISOString()
-            };
+                timestamp: new Date().toISOString(),
+                isProcessing: true
+            }]);
             
-            // Add the placeholder to the state
-            setInteractions(prev => [...prev, placeholderInteraction]);
+            // Process with Wintermute using the webhook approach
+            console.log("Sending transcribed text to Wintermute");
+            const processResponse = await processVoiceInput(transcribedText, windowId, sessionId);
             
-            // Call the API for text response
-            const data = await queryAPI(submittedQuery, windowId);
-            console.log("Received API response", data);
-            
-            let audioUrl = null;
-            
-            // If voice is enabled, convert response to speech
-            if (voiceEnabled && data.response) {
-                try {
-                    console.log("Converting response to speech");
-                    const ttsResponse = await fetch('/api/v1/voice/text-to-speech/', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            response: data.response
-                        })
-                    });
-                    
-                    const ttsData = await ttsResponse.json();
-                    
-                    if (!ttsData.error && ttsData.audio_url) {
-                        audioUrl = ttsData.audio_url;
-                        console.log("Received audio URL:", audioUrl);
-                    }
-                } catch (ttsError) {
-                    console.error("Error converting to speech:", ttsError);
-                    // Continue without audio if TTS fails
-                }
+            if (!processResponse || processResponse.error) {
+                throw new Error(processResponse?.error || "Processing failed");
             }
             
-            // Update the interaction with the real response
-            setInteractions(prev => 
-                prev.map(interaction => 
-                    interaction.id === interactionId
-                        ? {
-                            ...interaction,
-                            response: data.response || "No response from the AI.",
-                            error: data.error || null,
-                            audioUrl: audioUrl,
-                            timestamp: new Date().toISOString()
-                          }
-                        : interaction
-                )
-            );
-            
-            // Automatically play audio if available
-            if (audioUrl && audioPlayerRef.current) {
-                audioPlayerRef.current.src = audioUrl;
+            // Play the initial "thinking" audio if available
+            if (processResponse.audio_url && audioPlayerRef.current) {
+                audioPlayerRef.current.src = processResponse.audio_url;
                 audioPlayerRef.current.play();
                 setAudioPlaying(true);
             }
             
-        } catch (err) {
-            console.error("API call failed", err);
-            
-            // Create an error object
-            const errorDetail: ErrorDetail = {
-                code: 'UNKNOWN_ERROR',
-                message: err instanceof Error ? err.message : 'An unknown error occurred',
-                timestamp: new Date().toISOString()
-            };
-            
-            // If we already added a placeholder, update it with the error
-            if (interactions.some(i => i.id === interactionId)) {
-                setInteractions(prev => 
-                    prev.map(interaction => 
-                        interaction.id === interactionId
-                            ? {
-                                ...interaction,
-                                response: null,
-                                error: errorDetail,
-                                audioUrl: null,
-                                timestamp: new Date().toISOString()
-                              }
-                            : interaction
-                    )
-                );
-            } else {
-                // If no placeholder was added (rare case), create a new interaction with the error
-                const errorInteraction: Interaction = {
-                    id: interactionId,
-                    query: submittedQuery,
-                    response: null,
-                    error: errorDetail,
-                    audioUrl: null,
-                    timestamp: new Date().toISOString()
-                };
-                
-                setInteractions(prev => [...prev, errorInteraction]);
+            // Start polling for the final response
+            if (statusPollingRef.current) {
+                clearInterval(statusPollingRef.current);
             }
+            
+            statusPollingRef.current = setInterval(async () => {
+                try {
+                    console.log(`Checking status for session ${sessionId}`);
+                    const statusData = await checkVoiceStatus(sessionId);
+                    
+                    if (statusData.status === 'completed' && statusData.audio_url) {
+                        if (statusPollingRef.current) {
+                            clearInterval(statusPollingRef.current);
+                            statusPollingRef.current = null;
+                        }
+                        
+                        console.log("Received final voice response:", statusData);
+                        
+                        // Update the interaction with the final response
+                        setInteractions(prev => prev.map((interaction, idx) => 
+                            idx === newInteractionIndex ? {
+                                ...interaction,
+                                response: statusData.response || interaction.response,
+                                audioUrl: statusData.audio_url,
+                                isProcessing: false
+                            } : interaction
+                        ));
+                        
+                        // Play the final audio if we're not already playing something
+                        if (statusData.audio_url && audioPlayerRef.current && !audioPlaying) {
+                            audioPlayerRef.current.src = statusData.audio_url;
+                            audioPlayerRef.current.play();
+                            setAudioPlaying(true);
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error checking status:", error);
+                }
+            }, 2000); // Check every 2 seconds
+            
+            // Set up cleanup after 30 seconds (timeout)
+            setTimeout(() => {
+                if (statusPollingRef.current) {
+                    clearInterval(statusPollingRef.current);
+                    statusPollingRef.current = null;
+                    
+                    // Update the interaction if it's still processing
+                    setInteractions(prev => prev.map((interaction, idx) => 
+                        idx === newInteractionIndex && interaction.isProcessing ? {
+                            ...interaction,
+                            response: "Sorry, it's taking longer than expected. Please try again.",
+                            isProcessing: false
+                        } : interaction
+                    ));
+                }
+            }, 30000);
+            
+        } catch (error) {
+            console.error("Error processing recording:", error);
+            setErrorMessage(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            
+            // Remove the "thinking" interaction if there was an error
+            setInteractions(prev => {
+                if (prev.length > 0 && prev[prev.length - 1].response === "Thinking...") {
+                    return prev.slice(0, -1);
+                }
+                return prev;
+            });
+            
         } finally {
             setLoading(false);
         }
     };
-
-    // Wrapper for text input handling
-    const handleQuery = () => handleQueryWithText(query);
     
-    // Play audio response
+    // Play audio for an interaction
     const playAudio = (url: string) => {
         if (audioPlayerRef.current && url) {
             if (audioPlaying) {
@@ -289,29 +316,18 @@ const WintermuteInterface: React.FC = () => {
 
     return (
         <div className="flex flex-col items-center justify-start w-full h-full p-8 space-y-6">
-            {/* Version indicator - helps debug if the new version is loaded */}
-            <div className="text-xs text-gray-600 absolute top-0 right-0 mr-2 mt-2">
-                v2.0 with Voice
-            </div>
-            
             {/* Voice toggle switch */}
             <div className="w-full max-w-md flex justify-end mb-2">
-                <div className="flex items-center">
-                    <span className="mr-2 text-sm text-gray-400">Voice Responses</span>
-                    <label className="relative inline-block w-12 h-6">
-                        <input
-                            type="checkbox"
-                            className="opacity-0 w-0 h-0"
-                            checked={voiceEnabled}
-                            onChange={() => setVoiceEnabled(prev => !prev)}
-                        />
-                        <span className={`absolute cursor-pointer inset-0 rounded-full transition-colors ${voiceEnabled ? 'bg-blue-600' : 'bg-gray-600'}`}>
-                            <span 
-                                className={`absolute transition-transform w-5 h-5 bg-white rounded-full top-0.5 ${voiceEnabled ? 'translate-x-6' : 'translate-x-0.5'}`}
-                            />
-                        </span>
-                    </label>
-                </div>
+                <label className="inline-flex items-center cursor-pointer">
+                    <span className="mr-3 text-sm font-medium text-gray-400">Voice Mode</span>
+                    <div className="relative">
+                        <input type="checkbox" 
+                               className="sr-only peer" 
+                               checked={voiceEnabled} 
+                               onChange={() => setVoiceEnabled(!voiceEnabled)} />
+                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </div>
+                </label>
             </div>
             
             {/* Interactions History - Scrollable container */}
@@ -320,7 +336,7 @@ const WintermuteInterface: React.FC = () => {
                     <p className="text-gray-500 text-center italic">No interactions yet. Start by sending a query below.</p>
                 ) : (
                     interactions.map((interaction, index) => (
-                        <div key={interaction.id} className="mb-6 last:mb-2">
+                        <div key={index} className="mb-6 last:mb-2">
                             {/* User query */}
                             <div className="mb-2">
                                 <div className="font-bold text-blue-400 mb-1">You:</div>
@@ -347,7 +363,7 @@ const WintermuteInterface: React.FC = () => {
                                 <div className="mt-2">
                                     <div className="font-bold text-green-400 mb-1 flex items-center justify-between">
                                         <span>Wintermute:</span>
-                                        {interaction.audioUrl && (
+                                        {voiceEnabled && interaction.audioUrl && (
                                             <button 
                                                 onClick={() => playAudio(interaction.audioUrl as string)}
                                                 className="text-sm bg-blue-600 hover:bg-blue-700 text-white py-1 px-2 rounded flex items-center"
@@ -360,8 +376,15 @@ const WintermuteInterface: React.FC = () => {
                                             </button>
                                         )}
                                     </div>
-                                    <div className="pl-3 border-l-2 border-green-400 text-gray-300 whitespace-pre-wrap">
+                                    <div className={`pl-3 border-l-2 border-green-400 text-gray-300 whitespace-pre-wrap ${interaction.isProcessing ? "italic text-gray-500" : ""}`}>
                                         {interaction.response}
+                                        {interaction.isProcessing && (
+                                            <span className="inline-flex ml-2">
+                                                <span className="animate-bounce mx-px">.</span>
+                                                <span className="animate-bounce animation-delay-200 mx-px">.</span>
+                                                <span className="animate-bounce animation-delay-400 mx-px">.</span>
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -371,51 +394,72 @@ const WintermuteInterface: React.FC = () => {
                 <div ref={interactionsEndRef} />
             </div>
 
-            {/* Input area with voice button */}
-            <div className="w-full max-w-md flex flex-col">
-                <div className="flex mb-2">
-                    <textarea
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        className="flex-grow p-4 border rounded-lg text-gray-300 bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="Enter your query here..."
-                        rows={4}
-                    />
-                    
-                    {/* Voice input button */}
+            {/* Error message */}
+            {errorMessage && (
+                <div className="w-full max-w-md p-3 bg-red-900 border border-red-500 rounded text-white mb-4">
+                    {errorMessage}
+                </div>
+            )}
+
+            {/* Input area with voice button when enabled */}
+            <div className="w-full max-w-md flex flex-col space-y-4">
+                <textarea
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    className="w-full p-4 border rounded-lg text-gray-300 bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter your query here..."
+                    rows={4}
+                    disabled={isRecording || loading}
+                />
+                
+                <div className="flex items-center space-x-2">
                     <button
-                        onClick={isRecording ? stopRecording : startRecording}
-                        disabled={loading}
-                        className={`ml-2 w-12 self-stretch rounded-lg flex items-center justify-center ${
-                            isRecording 
+                        onClick={handleQuery}
+                        disabled={loading || isRecording || !query.trim()}
+                        className="flex-1 px-6 py-2 bg-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {loading ? 'Processing...' : 'Send Query'}
+                    </button>
+                    
+                    {voiceEnabled && (
+                        <button
+                            onClick={isRecording ? stopRecording : startRecording}
+                            disabled={loading && !isRecording}
+                            className={`w-12 h-12 rounded-full flex items-center justify-center transition duration-300 ${
+                                isRecording 
                                 ? 'bg-red-600 hover:bg-red-700' 
                                 : 'bg-blue-600 hover:bg-blue-700'
-                        } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                        {isRecording ? (
-                            <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <rect x="6" y="6" width="12" height="12" strokeWidth="2" />
-                            </svg>
-                        ) : (
-                            <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                            </svg>
-                        )}
-                    </button>
+                            } ${loading && !isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                            {loading && !isRecording ? (
+                                // Loading spinner
+                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            ) : isRecording ? (
+                                // Stop icon
+                                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <rect x="6" y="6" width="12" height="12" strokeWidth="2" />
+                                </svg>
+                            ) : (
+                                // Microphone icon
+                                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                                </svg>
+                            )}
+                        </button>
+                    )}
                 </div>
                 
-                <button
-                    onClick={handleQuery}
-                    disabled={loading || !query.trim()}
-                    className="w-full px-6 py-2 bg-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {loading ? 'Processing...' : 'Send Query'}
-                </button>
-                
-                {/* Voice indicator */}
-                {isRecording && (
-                    <div className="mt-2 text-center text-red-400 animate-pulse">
-                        Recording... Click the microphone button when done.
+                {/* Voice mode instructions */}
+                {voiceEnabled && (
+                    <div className="text-center text-gray-400 text-sm">
+                        {isRecording 
+                            ? "Click the button when you're done speaking" 
+                            : loading 
+                                ? "Processing your question..." 
+                                : "Click the microphone button to speak your question"}
                     </div>
                 )}
             </div>

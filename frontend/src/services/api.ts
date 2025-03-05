@@ -1,5 +1,16 @@
 // src/services/api.ts
-import { QueryResponse, QueryRequest, OperationType, SystemStatus, ErrorDetail, RequestMetadata } from '../types';
+import { 
+  QueryResponse, 
+  QueryRequest, 
+  OperationType, 
+  SystemStatus, 
+  ErrorDetail, 
+  RequestMetadata,
+  SpeechToTextResponse,
+  TextToSpeechResponse,
+  VoiceProcessResponse,
+  VoiceStatusResponse
+} from '../types';
 
 const DEFAULT_API_URL = 'https://wintermute-staging-x-49dd432d3500.herokuapp.com';
 const API_URL = (import.meta.env.VITE_API_URL as string) || DEFAULT_API_URL;
@@ -140,5 +151,145 @@ export const getSystemHealth = async (): Promise<SystemStatus> => {
   } catch (error) {
     console.error('Health check error:', error);
     throw error;
+  }
+};
+
+/**
+ * Process voice input with immediate response placeholder
+ */
+export const speechToText = async (audioBlob: Blob): Promise<SpeechToTextResponse> => {
+  try {
+    console.log('Sending speech-to-text request');
+    
+    const formData = new FormData();
+    formData.append('audio_file', audioBlob, 'recording.webm');
+    
+    const response = await fetch(`${BASE_URL}voice/speech-to-text/`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Speech-to-text error:', errorText);
+      return { 
+        transcribed_text: '',
+        error: `API Error: ${response.status} - ${errorText}`
+      };
+    }
+    
+    const data = await response.json();
+    console.log('Speech-to-text response:', data);
+    
+    return { 
+      transcribed_text: data.text || '',
+      error: data.error
+    };
+  } catch (error) {
+    console.error('Speech-to-text error:', error);
+    return { 
+      transcribed_text: '',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+};
+
+/**
+ * Process voice input with immediate response placeholder
+ */
+export const processVoiceInput = async (text: string, windowId?: string, sessionId?: string): Promise<any> => {
+  try {
+    console.log('Sending voice process request:', text);
+    
+    const response = await fetch(`${BASE_URL}voice/process-input/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text,
+        window_id: windowId,
+        session_id: sessionId || crypto.randomUUID(), // Generate ID if not provided
+        enable_webhook: true
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Voice process error:', errorText);
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
+    }
+    
+    const data = await response.json();
+    console.log('Voice process response:', data);
+    
+    return data;
+  } catch (error) {
+    console.error('Voice process error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Check voice processing status
+ */
+export const checkVoiceStatus = async (sessionId: string): Promise<any> => {
+  try {
+    const response = await fetch(`${BASE_URL}voice/check-status/${sessionId}`);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Status check error:', errorText);
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Status check error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Convert text to speech
+ */
+export const textToSpeech = async (text: string): Promise<TextToSpeechResponse> => {
+  try {
+    console.log('Sending text-to-speech request');
+    
+    const formData = new FormData();
+    formData.append('text', text);
+    
+    const response = await fetch(`${BASE_URL}voice/text-to-speech/`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Text-to-speech error:', errorText);
+      return { 
+        audio_url: '',
+        response: text,
+        error: `API Error: ${response.status} - ${errorText}`
+      };
+    }
+    
+    const data = await response.json();
+    console.log('Text-to-speech response:', data);
+    
+    return { 
+      audio_url: data.audio_url || '',
+      response: text,
+      error: data.error
+    };
+  } catch (error) {
+    console.error('Text-to-speech error:', error);
+    return { 
+      audio_url: '',
+      response: text,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
   }
 };

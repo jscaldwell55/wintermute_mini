@@ -1,7 +1,8 @@
-# In /app/api/voice_api.py
+# /app/api/voice_api.py
 import logging
 import os
 import time
+from datetime import datetime, timezone, timedelta
 import asyncio
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
@@ -30,12 +31,17 @@ VAPI_WEBHOOK_URL = os.getenv("VAPI_WEBHOOK_URL", None)  # Your webhook URL
 class ProcessInputRequest(BaseModel):
     text: str
     window_id: Optional[str] = None
+    session_id: Optional[str] = None  # Add session_id
     enable_webhook: bool = True
 
 class WebhookRequest(BaseModel):
     audio_url: str
     session_id: str
+    response: Optional[str] = None  # Include the 'response' field
     window_id: Optional[str] = None
+
+# In-memory store for voice processing status
+voice_responses = {}
 
 # Log voice configuration at startup
 def log_voice_config():
@@ -94,9 +100,10 @@ async def speech_to_text(
         # Parse response
         result = response.json()
         logger.info(f"STT successful: {result.get('text', '')[:30]}...")
-        
+
+        # Consistent naming with "transcribed_text" in WintermuteInterface
         return {
-            "text": result.get("text", ""),
+            "transcribed_text": result.get("text", ""),
             "confidence": result.get("confidence", 0)
         }
         
@@ -119,8 +126,9 @@ async def process_input(
         logger.error("Vapi API key not configured")
         raise HTTPException(status_code=500, detail="Voice services not configured")
     
-    logger.info(f"Processing voice input: {data.text[:50]}...")
-    session_id = f"voice_{int(time.time())}_{os.urandom(3).hex()}"
+    logger.info(f"Processing voice input: {data.text[:50]}... Session ID: {data.session_id}")
+    # Use provided session_id or generate one if it's missing
+    session_id = data.session_id or f"voice_{int(time.time())}_{os.urandom(3).hex()}"
     window_id = data.window_id or f"window_{os.urandom(4).hex()}"
     
     try:
@@ -174,11 +182,12 @@ async def process_input(
             # Fallback to synchronous processing if webhook not configured
             logger.info("Using synchronous processing (webhook disabled or not configured)")
             background_tasks.add_task(
-                generate_final_speech_sync, 
-                data.text, 
+                generate_final_speech_sync,
+                data.text,
                 window_id,
-                memory_system, 
-                llm_service, 
+                session_id,  # Pass session_id here as well
+                memory_system,
+                llm_service,
                 case_response_template
             )
             
@@ -198,15 +207,58 @@ async def vapi_webhook(data: WebhookRequest):
     """
     Handle Vapi webhook - receives final voice response
     """
-    logger.info(f"Received webhook from Vapi: session {data.session_id}, audio URL: {data.audio_url[:30]}...")
+    session_id = data.session_id
+    logger.info(f"Received webhook from Vapi: session {session_id}, audio URL: {data.audio_url[:30]}...")
     
-    # You could store the final audio URL in a database or cache for the frontend to retrieve
-    # Here we're just acknowledging receipt
+    # Store the final response data
+    voice_responses[session_id] = {
+        "status": "completed",
+        "audio_url": data.audio_url,
+        "response": data.response,  # Directly use data.response
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    # Clean up old responses after a while (optional)
+    asyncio.create_task(cleanup_old_responses())
+    
     return {
         "status": "success", 
-        "session_id": data.session_id,
+        "session_id": session_id,
         "final_audio_url": data.audio_url
     }
+
+@router.get("/check-status/{session_id}")
+async def check_status(session_id: str):
+    """
+    Check the status of a voice processing request
+    """
+    logger.info(f"Checking status for session {session_id}")
+    
+    if session_id in voice_responses:
+        return voice_responses[session_id]
+    else:
+        return {
+            "status": "processing",
+            "message": "Still processing or session not found"
+        }
+
+async def cleanup_old_responses():
+    """Remove responses older than 5 minutes to prevent memory leaks"""
+    try:
+        now = datetime.utcnow()
+        to_remove = []
+        
+        for session_id, data in voice_responses.items():
+            timestamp = datetime.fromisoformat(data["timestamp"])
+            if (now - timestamp).total_seconds() > 300:  # 5 minutes
+                to_remove.append(session_id)
+        
+        for session_id in to_remove:
+            del voice_responses[session_id]
+            
+        logger.info(f"Cleaned up {len(to_remove)} old voice responses")
+    except Exception as e:
+        logger.error(f"Error cleaning up old responses: {str(e)}")
 
 @router.post("/text-to-speech/")
 async def text_to_speech(
@@ -334,6 +386,7 @@ async def generate_final_speech_webhook(
 async def generate_final_speech_sync(
     user_text: str,
     window_id: str,
+    session_id: str,  # Add session_id parameter
     memory_system,
     llm_service,
     case_response_template
@@ -342,7 +395,7 @@ async def generate_final_speech_sync(
     Generate final AI response and convert to speech (synchronous version)
     """
     try:
-        logger.info(f"Background task: Generating response for window {window_id}")
+        logger.info(f"Background task: Generating response for window {window_id}, session {session_id}")
         
         # Create query request
         query_request = QueryRequest(query=user_text)
@@ -355,31 +408,24 @@ async def generate_final_speech_sync(
             case_response_template
         )
         
-        logger.info(f"Response generated successfully for window {window_id}")
+        logger.info(f"Response generated successfully for window {window_id}, session: {session_id}")
         response_text = response.response
-        
-        # Convert AI response to speech (synchronous)
-        payload = {
-            "text": response_text,
-            "voice_id": VAPI_VOICE_ID
-        }
-        
-        headers = {
-            'Authorization': f'Bearer {VAPI_API_KEY}',
-            'Content-Type': 'application/json'
-        }
-        
-        logger.info(f"Sending final TTS request for window {window_id}")
-        response = requests.post(
-            'https://api.vapi.ai/text-to-speech',
-            headers=headers,
-            json=payload
-        )
-        
-        if response.status_code != 200:
-            logger.error(f"Final TTS request failed: {response.status_code}, {response.text}")
+
+        # Convert the response to speech using the text-to-speech endpoint
+        logger.info(f"Sending TTS request for window {window_id}, session {session_id}")
+        tts_response = await text_to_speech(text=response_text)  # Directly call the text_to_speech function
+
+        if "audio_url" in tts_response:
+            # Store the result directly
+            voice_responses[session_id] = {
+                "status": "completed",
+                "audio_url": tts_response["audio_url"],
+                "response": response_text,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            logger.info(f"Final TTS completed and stored for session {session_id}")
         else:
-            logger.info(f"Final TTS request sent successfully for window {window_id}")
+             logger.error(f"Final TTS failed for session {session_id}")
             
     except Exception as e:
         logger.error(f"Error generating final speech: {str(e)}", exc_info=True)
