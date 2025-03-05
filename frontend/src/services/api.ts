@@ -55,7 +55,6 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
     };
 
     const requestData: QueryRequest = {
-      query: query,
       prompt: query,     // For now, using same text for both
       top_k: 5,
       window_id: windowId,

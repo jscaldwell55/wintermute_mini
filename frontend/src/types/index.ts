@@ -13,7 +13,6 @@ export interface RequestMetadata {
 }
 
 export interface QueryRequest {
-    query: string;
     prompt: string;
     top_k?: number;
     window_id?: string;
