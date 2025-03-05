@@ -68,14 +68,11 @@ async def text_to_speech(text: str = Form(...)):
     logger.info(f"Processing text-to-speech request: {text[:50]}...")
 
     try:
-        VAPI_TTS_URL = "https://api.vapi.ai/v1/text-to-speech"  # Ensure correct endpoint
+        VAPI_TTS_URL = "https://api.vapi.ai/call"  # ✅ Use correct endpoint
 
         payload = {
             "text": text,
-            "voice": VAPI_VOICE_ID,  # Ensure "voice" key is correct
-            "audio_format": "mp3",
-            "speed": 1.0,
-            "quality": "standard"
+            "voice": VAPI_VOICE_ID  # ✅ Ensure "voice" key is correct
         }
 
         headers = {
@@ -83,12 +80,12 @@ async def text_to_speech(text: str = Form(...)):
             'Content-Type': 'application/json'
         }
 
-        # Make request to Vapi text-to-speech API
+        # Make request to Vapi
         response = requests.post(VAPI_TTS_URL, headers=headers, json=payload)
 
         if response.status_code != 200:
-            logger.error(f"Vapi TTS API error: {response.status_code}, {response.text}")
-            raise HTTPException(status_code=response.status_code, detail=f"Text-to-speech conversion failed: {response.text}")
+            logger.error(f"Vapi API error: {response.status_code}, {response.text}")
+            raise HTTPException(status_code=response.status_code, detail=f"TTS failed: {response.text}")
 
         # Parse response
         result = response.json()
@@ -96,7 +93,7 @@ async def text_to_speech(text: str = Form(...)):
 
         if not audio_url:
             logger.error("No audio URL returned from Vapi")
-            raise HTTPException(status_code=500, detail="No audio URL returned from TTS service")
+            raise HTTPException(status_code=500, detail="No audio URL returned")
 
         logger.info(f"TTS successful, audio URL generated: {audio_url[:30]}...")
 
@@ -104,7 +101,8 @@ async def text_to_speech(text: str = Form(...)):
 
     except Exception as e:
         logger.error(f"Error in text-to-speech conversion: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Text-to-speech conversion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"TTS failed: {str(e)}")
+
 
 
 @router.post("/process-input/")
@@ -268,7 +266,7 @@ async def text_to_speech(text: str = Form(...)):
     logger.info(f"Processing text-to-speech request: {text[:50]}...")
 
     try:
-        VAPI_TTS_URL = "https://api.vapi.ai/v1/call"  # ✅ Updated correct endpoint
+        VAPI_TTS_URL = "https://api.vapi.ai/call"  # ✅ Updated correct endpoint
 
         payload = {
             "text": text,
