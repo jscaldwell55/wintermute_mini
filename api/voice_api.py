@@ -2,6 +2,7 @@
 import logging
 import os
 import time
+import random
 from datetime import datetime, timezone, timedelta
 import asyncio
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, BackgroundTasks
@@ -338,19 +339,85 @@ async def generate_final_speech_webhook(
     try:
         logger.info(f"Background task: Generating response for session {session_id}")
         
-        # Create query request
-        query_request = QueryRequest(query=user_text)
+        # Create query request with the correct field name
+        query_request = QueryRequest(prompt=user_text, window_id=window_id)
         
-        # Use memory system to process the query
+        # Process query similar to how it's done in main.py
         logger.info(f"Processing query through Wintermute memory system: {user_text[:30]}...")
-        response = await memory_system.process_query(
-            query_request, 
-            llm_service, 
-            case_response_template
+        
+        # Get embeddings for the user query
+        user_query_embedding = await memory_system.vector_operations.create_semantic_vector(
+            query_request.prompt
+        )
+        
+        # --- Semantic Query ---
+        semantic_results = await memory_system.pinecone_service.query_memories(
+            query_vector=user_query_embedding,
+            top_k=memory_system.settings.semantic_top_k,
+            filter={"memory_type": "SEMANTIC"},
+            include_metadata=True,
+        )
+        
+        # Filter semantic memories
+        semantic_memories = []
+        for match, _ in semantic_results:
+            content = match["metadata"]["content"]
+            if len(content.split()) >= 5:  # Keep only memories with 5+ words
+                semantic_memories.append(content)
+        
+        # --- Episodic Query ---
+        episodic_results = await memory_system.pinecone_service.query_memories(
+            query_vector=user_query_embedding,
+            top_k=memory_system.settings.episodic_top_k,
+            filter={"memory_type": "EPISODIC"},
+            include_metadata=True,
+        )
+        
+        # Process episodic memories
+        episodic_memories = []
+        for match in episodic_results:
+            memory_data, _ = match
+            created_at = memory_data["metadata"].get("created_at")
+            
+            try:
+                time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
+                if time_ago < 60:
+                    time_str = f"{int(time_ago)} seconds ago"
+                elif time_ago < 3600:
+                    time_str = f"{int(time_ago / 60)} minutes ago"
+                else:
+                    time_str = f"{int(time_ago / 3600)} hours ago"
+                
+                episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")
+            except Exception as e:
+                logger.error(f"Error processing episodic memory: {e}")
+                continue
+        
+        # Construct the prompt
+        prompt = case_response_template.format(
+            query=query_request.prompt,
+            semantic_memories=semantic_memories,
+            episodic_memories=episodic_memories,
+        )
+        
+        # Generate response with random temperature
+        temperature = round(random.uniform(0.6, 0.9), 2)
+        logger.info(f"Using temperature: {temperature} for session {session_id}")
+        
+        response_text = await llm_service.generate_response_async(
+            prompt,
+            max_tokens=500,
+            temperature=temperature
         )
         
         logger.info(f"Response generated successfully for session {session_id}")
-        response_text = response.response
+        
+        # Store the interaction
+        await memory_system.store_interaction_enhanced(
+            query=query_request.prompt,
+            response=response_text,
+            window_id=window_id,
+        )
         
         # Convert AI response to speech with webhook
         payload = {
@@ -359,7 +426,8 @@ async def generate_final_speech_webhook(
             "webhook_url": VAPI_WEBHOOK_URL,
             "webhook_data": {
                 "session_id": session_id,
-                "window_id": window_id
+                "window_id": window_id,
+                "response": response_text  # Include response in webhook data
             }
         }
         
@@ -377,16 +445,34 @@ async def generate_final_speech_webhook(
         
         if response.status_code != 200:
             logger.error(f"Final TTS webhook request failed: {response.status_code}, {response.text}")
+            # Store error in voice_responses
+            voice_responses[session_id] = {
+                "status": "error",
+                "error": f"TTS request failed: {response.status_code}",
+                "timestamp": datetime.utcnow().isoformat()
+            }
         else:
             logger.info(f"Final TTS webhook request sent successfully for session {session_id}")
+            # In case webhook fails, at least store the text response
+            voice_responses[session_id] = {
+                "status": "processing_webhook",
+                "response": response_text,
+                "timestamp": datetime.utcnow().isoformat()
+            }
             
     except Exception as e:
         logger.error(f"Error generating final speech with webhook: {str(e)}", exc_info=True)
+        # Store error in voice_responses
+        voice_responses[session_id] = {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 async def generate_final_speech_sync(
     user_text: str,
     window_id: str,
-    session_id: str,  # Add session_id parameter
+    session_id: str,
     memory_system,
     llm_service,
     case_response_template
@@ -397,23 +483,89 @@ async def generate_final_speech_sync(
     try:
         logger.info(f"Background task: Generating response for window {window_id}, session {session_id}")
         
-        # Create query request
-        query_request = QueryRequest(query=user_text)
+        # Create query request with the correct field name
+        query_request = QueryRequest(prompt=user_text, window_id=window_id)
         
-        # Use memory system to process the query
+        # Process query similar to how it's done in main.py
         logger.info(f"Processing query through Wintermute memory system: {user_text[:30]}...")
-        response = await memory_system.process_query(
-            query_request, 
-            llm_service, 
-            case_response_template
+        
+        # Get embeddings for the user query
+        user_query_embedding = await memory_system.vector_operations.create_semantic_vector(
+            query_request.prompt
+        )
+        
+        # --- Semantic Query ---
+        semantic_results = await memory_system.pinecone_service.query_memories(
+            query_vector=user_query_embedding,
+            top_k=memory_system.settings.semantic_top_k,
+            filter={"memory_type": "SEMANTIC"},
+            include_metadata=True,
+        )
+        
+        # Filter semantic memories
+        semantic_memories = []
+        for match, _ in semantic_results:
+            content = match["metadata"]["content"]
+            if len(content.split()) >= 5:  # Keep only memories with 5+ words
+                semantic_memories.append(content)
+        
+        # --- Episodic Query ---
+        episodic_results = await memory_system.pinecone_service.query_memories(
+            query_vector=user_query_embedding,
+            top_k=memory_system.settings.episodic_top_k,
+            filter={"memory_type": "EPISODIC"},
+            include_metadata=True,
+        )
+        
+        # Process episodic memories
+        episodic_memories = []
+        for match in episodic_results:
+            memory_data, _ = match
+            created_at = memory_data["metadata"].get("created_at")
+            
+            try:
+                time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
+                if time_ago < 60:
+                    time_str = f"{int(time_ago)} seconds ago"
+                elif time_ago < 3600:
+                    time_str = f"{int(time_ago / 60)} minutes ago"
+                else:
+                    time_str = f"{int(time_ago / 3600)} hours ago"
+                
+                episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")
+            except Exception as e:
+                logger.error(f"Error processing episodic memory: {e}")
+                continue
+        
+        # Construct the prompt
+        prompt = case_response_template.format(
+            query=query_request.prompt,
+            semantic_memories=semantic_memories,
+            episodic_memories=episodic_memories,
+        )
+        
+        # Generate response with random temperature
+        temperature = round(random.uniform(0.6, 0.9), 2)
+        logger.info(f"Using temperature: {temperature} for session {session_id}")
+        
+        response_text = await llm_service.generate_response_async(
+            prompt,
+            max_tokens=500,
+            temperature=temperature
         )
         
         logger.info(f"Response generated successfully for window {window_id}, session: {session_id}")
-        response_text = response.response
+        
+        # Store the interaction
+        await memory_system.store_interaction_enhanced(
+            query=query_request.prompt,
+            response=response_text,
+            window_id=window_id,
+        )
 
         # Convert the response to speech using the text-to-speech endpoint
         logger.info(f"Sending TTS request for window {window_id}, session {session_id}")
-        tts_response = await text_to_speech(text=response_text)  # Directly call the text_to_speech function
+        tts_response = await text_to_speech(text=response_text)
 
         if "audio_url" in tts_response:
             # Store the result directly
@@ -425,7 +577,23 @@ async def generate_final_speech_sync(
             }
             logger.info(f"Final TTS completed and stored for session {session_id}")
         else:
-             logger.error(f"Final TTS failed for session {session_id}")
+            logger.error(f"Final TTS failed for session {session_id}")
+            voice_responses[session_id] = {
+                "status": "error",
+                "error": "Failed to generate audio",
+                "response": response_text,  # At least include the text response
+                "timestamp": datetime.utcnow().isoformat()
+            }
             
     except Exception as e:
         logger.error(f"Error generating final speech: {str(e)}", exc_info=True)
+        # Store error in voice_responses
+        voice_responses[session_id] = {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        logger.info(f"Final TTS completed and stored for session {session_id}")
+    else:
+        logger.error(f"Final TTS failed for session {session_id}")
+            
