@@ -534,7 +534,7 @@ async def query_memory(
     query: QueryRequest,
     memory_system: MemorySystem = Depends(get_memory_system),
     llm_service: LLMService = Depends(lambda: components.llm_service)
-) -> QueryResponse:
+) -> QueryResponse:  # Added return type hint
 
     trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     query.request_metadata = RequestMetadata(
@@ -544,6 +544,20 @@ async def query_memory(
     )
     try:
         logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
+
+        # --- Check for Recent Duplicates *BEFORE* doing anything else ---
+        if await memory_system._check_recent_duplicate(query.prompt):
+            logger.warning(f"[{trace_id}] Duplicate query detected. Skipping LLM call.")
+            return QueryResponse(
+                response="Looks like you just asked me that.  Try something else.", #Generic response
+                matches=[],
+                trace_id=trace_id,
+                similarity_scores=[],
+                error=None,
+                metadata={"success": True, "duplicate": True} # Indicate duplicate
+            )
+        # --- Proceed with processing if not a duplicate ---
+
         user_query_embedding = await memory_system.vector_operations.create_semantic_vector(
             query.prompt
         )
@@ -551,7 +565,7 @@ async def query_memory(
         # --- Semantic Query ---
         semantic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
-            top_k=memory_system.settings.semantic_top_k,  # Use setting
+            top_k=memory_system.settings.semantic_top_k,  # Use setting, default to 3
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
         )
@@ -567,16 +581,14 @@ async def query_memory(
         # --- Episodic Query ---
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
-            top_k=memory_system.settings.episodic_top_k, # Use setting
+            top_k=memory_system.settings.episodic_top_k,  # Increased episodic memory retrieval, Use setting
             filter={"memory_type": "EPISODIC"},  # ONLY filter by type
             include_metadata=True,
         )
         logger.info(f"[{trace_id}] Episodic memories retrieved: {len(episodic_results)}")
-
         episodic_memories = []
-        seen_contents = set() # For basic deduplication
         for match in episodic_results:
-            memory_data, score = match  # Unpack score here
+            memory_data, _ = match  # We only care about memory_data, not the score
             created_at = memory_data["metadata"].get("created_at") # Now a datetime object!
             logger.info(f"[{trace_id}] created_at: {created_at}, type: {type(created_at)}")
 
@@ -591,13 +603,7 @@ async def query_memory(
                     time_str = f"{int(time_ago / 3600)} hours ago"
 
                 # Keep only the combined interaction text, prepended with time.
-                content = memory_data['metadata']['content']
-                 # Simple deduplication (exact match)
-                content_hash = hash(content) # More efficient than string comparisons
-                if content_hash not in seen_contents:
-                    seen_contents.add(content_hash)
-                    episodic_memories.append(f"{time_str}: {content[:200]}")  # Limit to 200 chars each
-
+                episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")  # Limit to 200 chars each
             except Exception as e:
                 logger.error(f"[{trace_id}] Error processing episodic memory {memory_data['id']}: {e}")
                 continue  # Continue to the next memory
@@ -606,18 +612,18 @@ async def query_memory(
         logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
 
         # --- Construct the Prompt ---
-        prompt = case_response_template.format(
+        prompt = case_response_template.format(  # Call on INSTANCE, and use correct instance.
             query=query.prompt,
             semantic_memories=semantic_memories,  # Pass the limited list
             episodic_memories=episodic_memories,  # Pass the limited list
         )
         logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
 
-                # --- Generate Response ---
+        # --- Generate Response ---
         # ADD RANDOM TEMPERATURE HERE
         temperature = round(random.uniform(0.6, 0.9), 2)  # Random temp between 0.6 and 0.9
         logger.info(f"[{trace_id}] Using temperature: {temperature}") #Log the temperature
-        await asyncio.sleep(1) # Add the 1 second delay.
+        # await asyncio.sleep(1) # Remove the delay.
         response = await llm_service.generate_response_async(
             prompt,
             max_tokens=500,  # Increased max_tokens for response
@@ -627,7 +633,7 @@ async def query_memory(
 
         # --- Store Interaction (Episodic Memory) ---
         try:
-            await memory_system.store_interaction_enhanced(  # Await the interaction storage, use ENHANCED
+            await memory_system.store_interaction_enhanced(  # Await the interaction storage
                 query=query.prompt,
                 response=response,
                 window_id=query.window_id,
