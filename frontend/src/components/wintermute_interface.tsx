@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { queryAPI, processVoiceInput, textToSpeech, checkVoiceStatus } from '../services/api';
 import { QueryResponse, ErrorDetail } from '../types';
 import Vapi from "@vapi-ai/web"; // Corrected import (default import)
+import VapiTest from './VapiTest';
 
 // Declare global window interface extension
 declare global {
@@ -415,6 +416,8 @@ const WintermuteInterface: React.FC = () => {
 
     return (
         <div className="flex flex-col items-center justify-start w-full h-full p-8 space-y-6">
+            {/* Add the VapiTest component at the top */}
+            <VapiTest />
             {/* Voice toggle switch */}
             <div className="w-full max-w-md flex justify-end mb-2">
                 <label className="inline-flex items-center cursor-pointer">
