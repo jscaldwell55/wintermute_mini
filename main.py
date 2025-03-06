@@ -44,7 +44,7 @@ from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
 FRONTEND_CONFIG = {
-    "vapi_api_key": os.getenv("VAPI_API_KEY"),
+    "vapi_public_key": os.getenv("vapi_public_key"),
     "vapi_voice_id": os.getenv("VAPI_VOICE_ID"),
     "api_url": os.getenv("FRONTEND_URL")
 }
@@ -341,8 +341,8 @@ async def health_check():
     # Check Vapi
     try:
         # Simple check for Vapi configuration
-        vapi_api_key = os.getenv("VAPI_API_KEY")
-        if vapi_api_key:
+        vapi_public_key = os.getenv("vapi_public_key")
+        if vapi_public_key:
             health_status["components"]["vapi"] = {
                 "status": "configured",
                 "voice_id": os.getenv("VAPI_VOICE_ID", "default")
@@ -390,7 +390,7 @@ async def get_frontend_config():
     
     # Return the configuration
     result = {
-        "vapi_api_key": vapi_key,
+        "vapi_public_key": vapi_key,
         "vapi_voice_id": vapi_voice,
         "api_url": frontend_url
     }

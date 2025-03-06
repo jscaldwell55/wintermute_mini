@@ -96,7 +96,7 @@ def get_settings() -> Settings:
     logger.info(f"Pinecone API Key: {settings.pinecone_api_key}")
     logger.info(f"Pinecone Environment: {settings.pinecone_environment}")
     logger.info(f"Pinecone Index Name: {settings.pinecone_index_name}")
-    logger.info(f"Vapi Public Key configured: {'Yes' if settings.vapi_api_key else 'No'}")
+    logger.info(f"Vapi Public Key configured: {'Yes' if settings.vapi_public_key else 'No'}")
     return settings
 
 @lru_cache()

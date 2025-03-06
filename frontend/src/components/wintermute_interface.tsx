@@ -8,7 +8,7 @@ import Vapi from "@vapi-ai/web";
 declare global {
   interface Window {
     VAPI_CONFIG?: {
-      vapi_api_key: string;
+      vapi_public_key: string;
       vapi_voice_id: string;
       api_url: string;
     };
@@ -56,7 +56,7 @@ const WintermuteInterface: React.FC = () => {
       windowVapiConfig: window.VAPI_CONFIG ? 'defined' : 'undefined', 
       environmentVars: {
         VITE_API_URL: import.meta.env.VITE_API_URL || 'not set',
-        VITE_VAPI_API_KEY: import.meta.env.VITE_VAPI_API_KEY ? 'set' : 'not set'
+        VITE_vapi_public_key: import.meta.env.VITE_vapi_public_key ? 'set' : 'not set'
       }
     });
 
@@ -97,9 +97,9 @@ const WintermuteInterface: React.FC = () => {
           const response = await fetch(`${window.location.origin}/api/v1/config`);
           if (response.ok) {
             const config = await response.json();
-            if (config.vapi_api_key) {
+            if (config.vapi_public_key) {
               console.log('Using API key from config endpoint');
-              return config.vapi_api_key;
+              return config.vapi_public_key;
             }
           }
         } catch (error) {
@@ -107,15 +107,15 @@ const WintermuteInterface: React.FC = () => {
         }
         
         // Try window.VAPI_CONFIG second
-        if (window.VAPI_CONFIG?.vapi_api_key) {
+        if (window.VAPI_CONFIG?.vapi_public_key) {
           console.log('Using API key from window.VAPI_CONFIG');
-          return window.VAPI_CONFIG.vapi_api_key;
+          return window.VAPI_CONFIG.vapi_public_key;
         }
         
         // Try environment variables last
-        if (import.meta.env.VITE_VAPI_API_KEY) {
+        if (import.meta.env.VITE_vapi_public_key) {
           console.log('Using API key from environment variables');
-          return import.meta.env.VITE_VAPI_API_KEY;
+          return import.meta.env.VITE_vapi_public_key;
         }
         
         throw new Error('No Vapi API key found');

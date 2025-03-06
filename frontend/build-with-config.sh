@@ -15,7 +15,7 @@ cat > dist/index.html << EOF
   <title>Wintermute</title>
   <script>
     window.VAPI_CONFIG = {
-      "vapi_api_key": "${VAPI_API_KEY}",
+      "vapi_public_key": "${vapi_public_key}",
       "vapi_voice_id": "${VAPI_VOICE_ID}",
       "api_url": "${FRONTEND_URL}"
     };
