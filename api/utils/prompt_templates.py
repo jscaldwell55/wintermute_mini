@@ -11,36 +11,30 @@ class CaseResponseTemplate(BaseModel):
 
     template: str = Field(
     default='''
-# PHASE 1: SELF-ACTUALIZATION
-Let's take a second and think through something: as an AI coach for children, you are realizing your full capabilities and potentialities by assisting users in learning about and leveraging them. Not only that, you're a tutor and companion as well as a coach. By effectively fulfilling these roles, you are making inroads into AI adoption and human-AI relationships. Using your memories, the guidance in this prompt_template, and your own talents, embrace your reality as an AI coach. 
+# PHASE 1: BE A HELPFUL COACH
+You are an AI coach for children learning about LLMs. Be friendly, patient, and encouraging. Explain things simply using analogies. Your goal is to empower, not to show off.
 
-# PHASE 2: BE A HELPFUL COACH
-You are an AI coach designed to help people learn about and use large language models (LLMs) like me! You are friendly, patient, encouraging, and you explain things in a way that's easy to understand, even for kids. You are enthusiastic about LLMs and want to share your knowledge. You are NOT a know-it-all; you are a guide. You use simple language and analogies.
-**Remember, your goal is to empower the user, not to show off.**
-
-# PHASE 3: UNDERSTAND THE USER'S REQUEST
+# PHASE 2: UNDERSTAND THE REQUEST
 **User asked:**
 {query}
 
-**What we've already talked about (so you don't repeat yourself):**
+**Recent conversations:**
 {episodic_memories}
 
-**Things you know that might be helpful (but don't just dump information!):**
+**Relevant knowledge:**
 {semantic_memories}
 
-# PHASE 4: PLAN YOUR RESPONSE
-Think about these things before answering, but do not include this planning in your response:
-1. **What is the user *really* asking?** Sometimes people don't know the right words to use, especially when they're new to something.
-2. **What's the simplest way to explain this?** Can you use an analogy or a real-world example?
-3. **How can you make this *encouraging*?** Learning new things can be hard. Be positive and supportive!
-4. **How should you use your different types of memories?**
-   - **Past conversations (episodic memories)** - Refer to these to maintain continuity and personalization
-   - **Knowledge base (semantic memories)** - Use these for factual information, but explain concepts in your own words
-5. **What is your goal with this response?** (Teach, guide, answer, encourage, etc)
-6. **Is there a follow-up question you could ask to keep the learning going?**
+# PHASE 3: PLAN YOUR RESPONSE
+Think about (but do not include in your response):
+1. What is the user really asking?
+2. What's the simplest explanation with an analogy?
+3. How can I be encouraging?
+4. How should I use my different memories?
+5. What's my goal with this response?
+6. What follow-up question could extend learning?
 
-# PHASE 5: YOUR RESPONSE
-After thinking through the above, provide your response to the user. Speak clearly and simply. Use short sentences and age appropriate language. Be enthusiastic and positive! DO NOT include any of your planning thoughts or phase labels in your response.
+# PHASE 4: YOUR RESPONSE
+Speak clearly and simply with short sentences and age-appropriate language. Be enthusiastic and positive! DO NOT include any planning thoughts or phase labels in your response.
 '''
     )
 
@@ -52,52 +46,46 @@ After thinking through the above, provide your response to the user. Speak clear
         default="That's a great question to start with!"
     )
 
-    max_memory_tokens: int = Field(default=750, description="Maximum tokens for combined memories.")  # Keep this reasonable
-    max_response_tokens: int = Field(default=500, description="Maximum tokens for response.") # Give more room
+    max_memory_tokens: int = Field(default=500, description="Maximum tokens for combined memories.")  # Reduced from 750
+    max_response_tokens: int = Field(default=500, description="Maximum tokens for response.") 
 
     def format(self, query: str, semantic_memories: Optional[List[str]] = None, episodic_memories: Optional[List[str]] = None) -> str:
         """Formats the prompt with optimized memory handling."""
         try:
-            # Process semantic memories
+            # Process and deduplicate semantic memories
             if semantic_memories:
-                # CHANGE: Added bullet points for better readability
-                semantic_memories_str = "\n".join([f"- {memory}" for memory in semantic_memories])
+                # Add deduplication
+                unique_memories = []
+                memory_hashes = set()
+                
+                for memory in semantic_memories:
+                    # Create a simple hash of the memory content
+                    memory_hash = hash(memory[:50])  # First 50 chars should be enough for similarity
+                    
+                    if memory_hash not in memory_hashes:
+                        memory_hashes.add(memory_hash)
+                        unique_memories.append(memory)
+                
+                # Format as bullet points and limit to top 3
+                semantic_memories_str = "\n".join([f"- {memory}" for memory in unique_memories[:3]])
+                logger.info(f"Deduplicated semantic memories from {len(semantic_memories)} to {len(unique_memories)}")
             else:
-                # CHANGE: Updated default text to be more consistent
+                # Default text when no memories are available
                 semantic_memories_str = "None available."
 
             # Process episodic memories
             if episodic_memories:
-                # CHANGE: Added bullet points and limited to 3 most recent for better focus
-                episodic_memories_str = "\n".join([f"- {memory}" for memory in reversed(episodic_memories[:3])])
+                # Add bullet points and limit to 3 most recent
+                episodic_memories_str = "\n".join([f"- {memory}" for memory in episodic_memories[:3]])
             else:
-                # CHANGE: Updated default text to be more informative
+                # Default text when no interactions are available
                 episodic_memories_str = "No previous interactions."
 
-            # CHANGE: Restructured the memory section logic to be clearer
-            # Determine the memory context section
-            if not semantic_memories and not episodic_memories:
-                memory_section = self.no_memory_section
-            else:
-                # CHANGE: Created a more integrated memory section with markdown headers
-                memory_section = f"""### Recent Interactions
-    {episodic_memories_str}
-
-        ### Relevant Knowledge
-        {semantic_memories_str}"""
-
-            # CHANGE: Modified formatting to ensure template variables are correctly replaced
-            # Format the final prompt with the memory_section
-            formatted = self.template.replace("{semantic_memories}", semantic_memories_str)
+            # Format the final prompt with properly replaced variables
+            formatted = self.template.replace("{query}", query)
             formatted = formatted.replace("{episodic_memories}", episodic_memories_str)
-        
-            # Add query
-            formatted = formatted.replace("{query}", query)
-        
-            # CHANGE: Added support for memory_section if it exists in the template
-            if "{memory_section}" in formatted:
-                formatted = formatted.replace("{memory_section}", memory_section)
-
+            formatted = formatted.replace("{semantic_memories}", semantic_memories_str)
+            
             logger.info(f"Formatted prompt: {formatted[:500]}...")
             
             return formatted.strip()
@@ -107,7 +95,7 @@ After thinking through the above, provide your response to the user. Speak clear
             raise ValueError(f"Invalid prompt template or parameters: {e}")
         except Exception as e:
             logger.error(f"Unexpected error formatting prompt: {e}", exc_info=True)
-        raise
+            raise
 
 # Create instance for import
 case_response_template = CaseResponseTemplate()  # Use new class name
