@@ -789,33 +789,7 @@ async def shutdown_event():
 
 
 
-# Add the root route with embedded config
-@app.get("/")
-async def read_root():
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Wintermute</title>
-        <script>
-            window.VAPI_CONFIG = {{
-                "vapi_api_key": "{os.getenv('VAPI_API_KEY', '')}",
-                "vapi_voice_id": "{os.getenv('VAPI_VOICE_ID', '')}",
-                "api_url": "{os.getenv('FRONTEND_URL', '')}"
-            }};
-        </script>
-        <!-- Your existing frontend assets -->
-        <link rel="stylesheet" href="/assets/main-Ci3rcHx3.css">
-    </head>
-    <body>
-        <div id="root"></div>
-        <!-- Add type="module" to your script tags -->
-        <script src="/assets/vendor-D4I5kSlY.js" type="module"></script>
-        <script src="/assets/main-Bx_lkUZU.js" type="module"></script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
+
 
 setup_static_files(app)
 
