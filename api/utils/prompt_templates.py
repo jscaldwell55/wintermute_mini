@@ -42,7 +42,6 @@ Before you answer, think about these things:
 # PHASE 5: YOUR RESPONSE
 Speak clearly and simply. Use short sentences and age appropriate language. Be enthusiastic and positive!
 
-**Start your response here:**
 '''
     )
 
