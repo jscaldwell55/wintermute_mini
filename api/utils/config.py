@@ -15,8 +15,6 @@ class Settings(BaseSettings):
     # API Keys
     openai_api_key: str
     pinecone_api_key: str
-    # Removed vapi_public_key and vapi_voice_id
-    # Removed vapi_webhook_url
 
     # Pinecone Settings
     pinecone_environment: str
@@ -54,12 +52,32 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100
     rate_limit_window: int = 3600  # 1 hour in seconds
 
-    # Memory Retrieval Settings
+    # Memory Retrieval Settings - UPDATED
     max_memories_per_query: int = 20
     default_memories_per_query: int = 5
     min_similarity_threshold: float = 0.6
-    time_weight_ratio: float = 0.2
-    initial_fetch_multiplier: float = 2.0
+    
+    # Memory Type Weights - NEW
+    semantic_memory_weight: float = 0.4  # Weight for pre-populated knowledge
+    episodic_memory_weight: float = 0.3  # Weight for recent interactions
+    learned_memory_weight: float = 0.3   # Weight for consolidated insights
+    
+    # Memory Type Limits - NEW
+    semantic_top_k: int = 5   # Retrieve up to 5 semantic memories
+    episodic_top_k: int = 5   # Retrieve up to 5 episodic memories
+    learned_top_k: int = 3    # Retrieve up to 3 learned memories
+    
+    # Episodic Memory Settings - NEW
+    episodic_max_age_days: int = 7      # Only consider past 7 days
+    episodic_recency_weight: float = 0.3  # Weight for recency in scoring
+    episodic_recent_hours: int = 48     # Hours considered "recent" (higher priority)
+    episodic_decay_factor: float = 120  # Controls exponential decay rate for older memories
+    
+    # Semantic Memory Settings - NEW
+    semantic_min_words: int = 5  # Minimum word count for semantic memories
+    
+    # Learned Memory Settings - NEW
+    learned_confidence_weight: float = 0.2  # Weight for confidence in scoring learned memories
 
     # Consolidation Settings
     consolidation_hour: int = 2
@@ -68,12 +86,11 @@ class Settings(BaseSettings):
     consolidation_batch_size: int = 1000
     min_cluster_size: int = 3
     consolidation_interval_hours: int = 24
-
+    consolidation_output_type: str = "LEARNED"  # NEW - memories produced are LEARNED type
+    
     # Memory Enhancement Settings
     enable_enhanced_relevance: bool = True
     enable_deduplication: bool = True
-    semantic_top_k: int = 5
-    episodic_top_k: int = 5
     similarity_weight: float = 0.7
     content_length_weight: float = 0.15
     unique_ratio_weight: float = 0.15

@@ -195,6 +195,16 @@ class MemorySystem:
             logger.error(f"Error deleting memory: {e}")
             return False
 
+    async def get_memories_by_window_id(self, window_id: str) -> List[Memory]:
+        """Retrieve memories by window ID."""
+        try:
+            logger.info(f"Retrieving memories by window ID: {window_id}")
+            memories = await self.pinecone_service.get_memories_by_window_id(window_id)
+            return memories
+        except Exception as e:
+            logger.error(f"Error retrieving memories by window ID: {e}")
+            return []
+        
     async def query_memories(self, request: QueryRequest) -> QueryResponse:
         """Query memories based on the given request, with filtering and sorting."""
         try:
@@ -202,15 +212,45 @@ class MemorySystem:
             query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
             logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
 
-            pinecone_filter = {"memory_type": "SEMANTIC"}
-            if request.window_id:
-                pinecone_filter["window_id"] = request.window_id
-            logger.info(f"Querying Pinecone with filter: {pinecone_filter}")
+            # Different handling based on memory type
+            if request.memory_type == MemoryType.SEMANTIC:
+                # For semantic memories, no time filtering (these are pre-populated knowledge)
+                pinecone_filter = {"memory_type": "SEMANTIC"}
+                if request.window_id:
+                    pinecone_filter["window_id"] = request.window_id
+                logger.info(f"Querying SEMANTIC memories with filter: {pinecone_filter}")
+            
+            elif request.memory_type == MemoryType.EPISODIC:
+                # For episodic memories, add 7-day time restriction
+                seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+                seven_days_ago_timestamp = int(seven_days_ago.timestamp())
+            
+                pinecone_filter = {
+                    "memory_type": "EPISODIC",
+                    "created_at": {"$gte": seven_days_ago_timestamp}
+                }
+                if request.window_id:
+                    pinecone_filter["window_id"] = request.window_id
+                logger.info(f"Querying EPISODIC memories with 7-day filter: {pinecone_filter}")
+            
+            elif request.memory_type == MemoryType.LEARNED:
+                # For learned memories (if you implement this type)
+                pinecone_filter = {"memory_type": "LEARNED"}
+                if request.window_id:
+                    pinecone_filter["window_id"] = request.window_id
+                logger.info(f"Querying LEARNED memories with filter: {pinecone_filter}")
+            
+            else:
+                # Default case - if no specific type provided, query all types
+                pinecone_filter = {}
+                if request.window_id:
+                    pinecone_filter["window_id"] = request.window_id
+                logger.info(f"Querying ALL memory types with filter: {pinecone_filter}")
 
             results = await self.pinecone_service.query_memories(
                 query_vector=query_vector,
                 top_k=request.top_k,
-                filter=pinecone_filter,
+                ilter=pinecone_filter,
                 include_metadata=True
             )
             logger.info(f"Received {len(results)} raw results from Pinecone.")
@@ -224,6 +264,7 @@ class MemorySystem:
             for memory_data, similarity_score in results:
                 logger.debug(f"Processing memory data: {memory_data}")
                 try:
+                    # Basic similarity threshold for all memory types
                     if similarity_score < 0.6:
                         logger.info(f"Skipping memory {memory_data['id']} due to low similarity score: {similarity_score}")
                         continue
@@ -233,13 +274,35 @@ class MemorySystem:
                         logger.warning(f"Skipping memory {memory_data['id']} due to missing created_at")
                         continue
 
-                    # No more type checking/string parsing
-
-                    age_days = (current_time - created_at).total_seconds() / (60*60*24)
-                    time_weight = 0.7 + (0.3 / (1 + math.exp(age_days/180 - 2)))
-
-                    final_score = (similarity_score * 0.8) + (time_weight * 0.2)
-                    logger.info(f"Memory ID {memory_data['id']}: Raw Score={similarity_score:.3f}, Time Weight={time_weight:.3f}, Final Score={final_score:.3f}")
+                    memory_type = memory_data["metadata"].get("memory_type", "UNKNOWN")
+                    final_score = similarity_score  # Default score is just similarity
+                
+                    # Apply type-specific scoring adjustments
+                    if memory_type == "EPISODIC":
+                        # Calculate age in days for episodic memories
+                        age_hours = (current_time - created_at).total_seconds() / (60*60)
+                    
+                        # Prioritize last 48 hours
+                        if age_hours <= 48:
+                            recency_weight = 1.0 - (age_hours / 48) * 0.5  # Decay from 1.0 to 0.5 over 48 hours
+                        else:
+                            recency_weight = 0.5 * math.exp(-(age_hours - 48) / 120)  # Further decay beyond 48 hours
+                    
+                        # Combine similarity and recency for final score
+                        final_score = (similarity_score * 0.7) + (recency_weight * 0.3)
+                        logger.info(f"Memory ID {memory_data['id']} (EPISODIC): Raw Score={similarity_score:.3f}, "
+                               f"Age={age_hours:.1f}h, Recency Weight={recency_weight:.3f}, Final Score={final_score:.3f}")
+                
+                    elif memory_type == "SEMANTIC":
+                        # For semantic memories, we use direct similarity with no time decay
+                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Score={similarity_score:.3f}")
+                
+                    elif memory_type == "LEARNED":
+                        # For learned memories, we could weight based on confidence score or source count
+                        confidence = memory_data["metadata"].get("confidence", 0.5)  # Default confidence
+                        final_score = (similarity_score * 0.8) + (confidence * 0.2)  # Weight by confidence
+                        logger.info(f"Memory ID {memory_data['id']} (LEARNED): Raw Score={similarity_score:.3f}, "
+                               f"Confidence={confidence:.2f}, Final Score={final_score:.3f}")
 
                     memory_response = MemoryResponse(
                         id=memory_data["id"],
@@ -248,7 +311,7 @@ class MemorySystem:
                         created_at=memory_data["metadata"]["created_at"].isoformat() + "Z",  # Format as ISO string with Z here
                         metadata=memory_data["metadata"],
                         window_id=memory_data["metadata"].get("window_id"),
-                        semantic_vector=memory_data["vector"],
+                        semantic_vector=memory_data.get("vector"),
                     )
                     matches.append(memory_response)
                     similarity_scores.append(final_score)
@@ -260,6 +323,7 @@ class MemorySystem:
                     logger.error(f"Error processing memory {memory_data['id']}: {e}", exc_info=True)
                     continue
 
+            # Sort results by final score
             sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
             matches, similarity_scores = zip(*sorted_results) if sorted_results else ([], [])
 

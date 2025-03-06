@@ -122,3 +122,7 @@ backstory_memories.txt
 populate.py
 populate2.py
 populate_coach.py
+semantic_memories.json
+generate_embeds.py
+semantic_memories_with_embeddings.json
+upsert_memories.py

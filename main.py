@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 from contextlib import asynccontextmanager
 import logging
+import math
 from datetime import datetime, timezone
 import asyncio
 import sys
@@ -16,6 +17,8 @@ import uvicorn
 from pydantic import ValidationError
 import uuid
 import time
+from datetime import datetime, timezone, timedelta
+
 from starlette.routing import Mount
 from functools import lru_cache
 import random
@@ -622,37 +625,76 @@ async def query_memory(
 
 
         # --- Episodic Query ---
+        # Calculate the timestamp for 7 days ago
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        seven_days_ago_timestamp = int(seven_days_ago.timestamp())
+
+        logger.info(f"[{trace_id}] Querying episodic memories from the past 7 days (since {seven_days_ago.isoformat()})")
+
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
-            top_k=memory_system.settings.episodic_top_k,  # Increased episodic memory retrieval, Use setting
-            filter={"memory_type": "EPISODIC"},  # ONLY filter by type
+            top_k=memory_system.settings.episodic_top_k,
+            filter={
+                "memory_type": "EPISODIC",
+                "created_at": {"$gte": seven_days_ago_timestamp}  # Only memories from past 7 days
+            },
             include_metadata=True,
         )
         logger.info(f"[{trace_id}] Episodic memories retrieved: {len(episodic_results)}")
+
+        # Process and score memories with recency weighting
         episodic_memories = []
+        scored_memories = []
+
         for match in episodic_results:
-            memory_data, _ = match  # We only care about memory_data, not the score
-            created_at = memory_data["metadata"].get("created_at") # Now a datetime object!
-            logger.info(f"[{trace_id}] created_at: {created_at}, type: {type(created_at)}")
+            memory_data, similarity_score = match
+            created_at = memory_data["metadata"].get("created_at")  # Now a datetime object!
+            logger.info(f"[{trace_id}] Processing memory {memory_data['id']}, created_at: {created_at}, similarity: {similarity_score:.4f}")
 
             try:
-                # No more string parsing needed! We get a datetime object directly.
-                time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
-                if time_ago < 60:
-                    time_str = f"{int(time_ago)} seconds ago"
-                elif time_ago < 3600:
-                    time_str = f"{int(time_ago / 60)} minutes ago"
+                # Calculate time ago in hours
+                time_ago_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
+                time_ago_hours = time_ago_seconds / 3600
+        
+                # Prioritize last 48 hours with linear decay for user-friendly display
+                if time_ago_seconds < 60:
+                    time_str = f"{int(time_ago_seconds)} seconds ago"
+                elif time_ago_seconds < 3600:
+                    time_str = f"{int(time_ago_seconds / 60)} minutes ago"
+                elif time_ago_hours < 24:
+                    time_str = f"{int(time_ago_hours)} hours ago"
                 else:
-                    time_str = f"{int(time_ago / 3600)} hours ago"
+                    time_str = f"{int(time_ago_hours / 24)} days ago"
+        
+                # Calculate recency weight - higher weight for more recent memories
+                if time_ago_hours <= 48:
+                    recency_weight = 1.0 - (time_ago_hours / 48) * 0.5  # Decay from 1.0 to 0.5 over 48 hours
+                else:
+                    recency_weight = 0.5 * math.exp(-(time_ago_hours - 48) / 120)  # Further decay beyond 48 hours
+        
+                # Combine similarity and recency for final score
+                final_score = (similarity_score * 0.7) + (recency_weight * 0.3)
+        
+                logger.info(f"[{trace_id}] Memory {memory_data['id']}: time_ago={time_ago_hours:.1f}h, " 
+                   f"recency_weight={recency_weight:.2f}, final_score={final_score:.4f}")
 
-                # Keep only the combined interaction text, prepended with time.
-                episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")  # Limit to 200 chars each
+                # Create memory entry with time prefix
+                memory_entry = f"{time_str}: {memory_data['metadata']['content'][:200]}"  # Limit to 200 chars
+        
+                # Store both the entry and its score for sorting
+                scored_memories.append((memory_entry, final_score))
+        
             except Exception as e:
                 logger.error(f"[{trace_id}] Error processing episodic memory {memory_data['id']}: {e}")
                 continue  # Continue to the next memory
 
+        # Sort memories by final score (descending)
+        scored_memories.sort(key=lambda x: x[1], reverse=True)
 
-        logger.info(f"[{trace_id}] Processed episodic memories: {episodic_memories}")
+        # Extract just the formatted memory strings in the new order
+        episodic_memories = [memory for memory, _ in scored_memories]
+
+        logger.info(f"[{trace_id}] Processed and sorted {len(episodic_memories)} episodic memories")
 
         # --- Construct the Prompt ---
         prompt = case_response_template.format(  # Call on INSTANCE, and use correct instance.

@@ -1,4 +1,4 @@
-# vector_operations.py
+# core/vector/vector_operations.py
 from typing import List
 import numpy as np
 from openai import AsyncOpenAI

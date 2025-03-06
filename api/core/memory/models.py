@@ -9,6 +9,7 @@ from uuid import uuid4
 class MemoryType(str, Enum):
     EPISODIC = "EPISODIC"
     SEMANTIC = "SEMANTIC"
+    LEARNED = "LEARNED"
 
 class OperationType(str, Enum):
     """Type of operation being performed"""
