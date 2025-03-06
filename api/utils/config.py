@@ -97,6 +97,29 @@ class Settings(BaseSettings):
     deduplication_window_minutes: int = 60
     duplicate_similarity_threshold: float = 0.98
 
+    # Graph Memory Settings
+    enable_graph_memory: bool = False  # Toggle for enabling/disabling graph memory (for A/B testing)
+    graph_memory_weight: float = 0.3   # Weight for graph-based retrievals in combined results
+    vector_memory_weight: float = 0.7  # Weight for vector-based retrievals in combined results
+    
+    # Graph Traversal Settings
+    max_graph_depth: int = 2           # Maximum hops in graph traversal
+    max_memories_per_hop: int = 3      # Maximum memories to retrieve per hop
+    association_score_decay: float = 0.7  # Score decay per hop in graph
+    min_association_score: float = 0.3    # Minimum score to include an associated memory
+    
+    # Relationship Detection Settings
+    semantic_similarity_threshold: float = 0.75  # Threshold for semantic relationships
+    temporal_proximity_minutes: int = 30         # Time window for temporal relationships
+    max_relationships_per_memory: int = 10       # Max number of relationships per memory
+    
+    # Prompt Template Settings
+    template_type: str = "standard"    # "standard" or "graph_enhanced"
+    
+    # Evaluation Settings
+    enable_memory_evaluation: bool = False  # Toggle for evaluation framework
+    evaluation_sample_rate: float = 0.1     # Percentage of queries to evaluate
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
     )
