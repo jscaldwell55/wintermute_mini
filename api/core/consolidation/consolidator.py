@@ -1,4 +1,3 @@
-# api/core/consolidation/consolidator.py (Using Euclidean Distance with Normalization)
 import asyncio
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +24,8 @@ def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
     return ConsolidationConfig(
         min_cluster_size=settings.min_cluster_size,
+        max_episodic_age_days=7,
+        max_memories_per_consolidation=1000
     )
 
 class MemoryConsolidator:
@@ -41,22 +42,31 @@ class MemoryConsolidator:
     async def consolidate_memories(self) -> None:
         """
         Consolidation process:
-        1.  Fetch episodic memories.
-        2.  Cluster using HDBSCAN.
-        3.  Generate semantic memories from clusters.
+        1. Fetch recent episodic memories (last 7 days only).
+        2. Cluster using HDBSCAN.
+        3. Generate learned memories from clusters.
         """
         try:
             logger.info("Starting memory consolidation process")
+            
+            # Calculate the cutoff date for 7 days ago
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.config.max_episodic_age_days)
+            cutoff_date_str = cutoff_date.isoformat() + "Z"  # Add Z for UTC timezone
+            
+            logger.info(f"Using cutoff date for episodic memories: {cutoff_date_str}")
 
-            # 1. Fetch Episodic Memories (NO Time-Based filter)
+            # 1. Fetch Episodic Memories with 7-day time filter
             query_results = await self.pinecone_service.query_memories(
                 query_vector=[0.0] * self.pinecone_service.embedding_dimension,
-                top_k=1000,
-                filter={"memory_type": "EPISODIC"},
+                top_k=self.config.max_memories_per_consolidation,
+                filter={
+                    "memory_type": "EPISODIC",
+                    "created_at": {"$gte": cutoff_date_str}  # Only consider memories created in last 7 days
+                },
                 include_metadata=True
             )
 
-            logger.info(f"Pinecone query results: {len(query_results)} memories")
+            logger.info(f"Pinecone query results: {len(query_results)} memories within last 7 days")
             episodic_memories = []
 
             for i, mem in enumerate(query_results):
@@ -117,7 +127,7 @@ class MemoryConsolidator:
 
             logger.info(f"Unique cluster labels (before removing -1): {np.unique(clusters)}")
 
-            # 4. Create Semantic Memories (Simplified)
+            # 4. Create Learned Memories (instead of Semantic)
             for cluster_idx in np.unique(clusters):
                 if cluster_idx == -1:
                     logger.info(f"Skipping noise cluster (-1)")
@@ -129,26 +139,26 @@ class MemoryConsolidator:
                 ]
                 logger.info(f"Cluster {cluster_idx}: Found {len(cluster_memories)} memories.")
 
-                await self._create_semantic_memory(cluster_memories)
+                await self._create_learned_memory(cluster_memories)
 
         except Exception as e:
             logger.error(f"Memory consolidation failed: {str(e)}")
             raise MemoryOperationError("consolidation", str(e))
 
-    async def _create_semantic_memory(self, cluster_memories: List[Memory]) -> None:
-        """Creates a semantic memory from a cluster of episodic memories."""
+    async def _create_learned_memory(self, cluster_memories: List[Memory]) -> None:
+        """Creates a learned memory from a cluster of episodic memories."""
         if not cluster_memories:
             return
 
         try:
-            logger.info(f"Creating semantic memory from {len(cluster_memories)} episodic memories")
+            logger.info(f"Creating learned memory from {len(cluster_memories)} episodic memories")
             combined_content = "\n".join([mem.content for mem in cluster_memories])
 
             logger.info(f"Combined content for LLM: {combined_content[:200]}...")
             consolidated_content = await self.llm_service.generate_summary(combined_content)
 
             if not consolidated_content:
-                logger.warning("LLM returned empty content for semantic memory. Skipping.")
+                logger.warning("LLM returned empty content for learned memory. Skipping.")
                 return
 
             logger.info(f"LLM generated content: {consolidated_content[:200]}...")
@@ -157,24 +167,28 @@ class MemoryConsolidator:
             # --- Normalize the centroid ---
             centroid_vector = normalize(centroid_vector.reshape(1, -1))[0] # Reshape and normalize
 
-
-            semantic_memory_id = str(uuid.uuid4())
+            # Create learned memory ID with prefix
+            learned_memory_id = f"mem_{str(uuid.uuid4())}"
+            
+            # Use the required structure for learned memories
             metadata = {
                 "content": consolidated_content,
-                "memory_type": "SEMANTIC",
-                "created_at": datetime.utcnow().isoformat() + "Z",
-                "source_episodic_ids": [mem.id for mem in cluster_memories],
-                "creation_method": "consolidation_hdbscan",
-                "cluster_size": len(cluster_memories)
+                "memory_type": "LEARNED",
+                "created_at": datetime.now(timezone.utc).isoformat() + "Z",
+                "source": "learned memories"
+                # Additional metadata for debugging that won't affect functionality
+                # "source_episodic_ids": [mem.id for mem in cluster_memories],
+                # "creation_method": "consolidation_hdbscan",
+                # "cluster_size": len(cluster_memories)
             }
 
             await self.pinecone_service.create_memory(
-                memory_id=semantic_memory_id,
+                memory_id=learned_memory_id,
                 vector=centroid_vector.tolist(),  # tolist() after normalization
                 metadata=metadata
             )
-            logger.info(f"Semantic memory '{semantic_memory_id}' created successfully.")
+            logger.info(f"Learned memory '{learned_memory_id}' created successfully.")
 
         except Exception as e:
-            logger.error(f"Failed to create semantic memory: {e}")
-            #Don't raise, keep processing other clusters.
+            logger.error(f"Failed to create learned memory: {e}")
+            # Don't raise, keep processing other clusters
