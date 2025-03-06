@@ -1,4 +1,3 @@
-# api/utils/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, Optional
 from functools import lru_cache
@@ -16,9 +15,8 @@ class Settings(BaseSettings):
     # API Keys
     openai_api_key: str
     pinecone_api_key: str
-    vapi_public_key: str
-    vapi_voice_id: str = ""  # Optional with default
-    vapi_webhook_url: str = ""  # Optional with default
+    # Removed vapi_public_key and vapi_voice_id
+    # Removed vapi_webhook_url
 
     # Pinecone Settings
     pinecone_environment: str
@@ -59,9 +57,9 @@ class Settings(BaseSettings):
     # Memory Retrieval Settings
     max_memories_per_query: int = 20
     default_memories_per_query: int = 5
-    min_similarity_threshold: float = 0.6 # No longer used now that we enhance relevance.
-    time_weight_ratio: float = 0.2 # No longer used
-    initial_fetch_multiplier: float = 2.0 #No longer used
+    min_similarity_threshold: float = 0.6
+    time_weight_ratio: float = 0.2
+    initial_fetch_multiplier: float = 2.0
 
     # Consolidation Settings
     consolidation_hour: int = 2
@@ -74,14 +72,13 @@ class Settings(BaseSettings):
     # Memory Enhancement Settings
     enable_enhanced_relevance: bool = True
     enable_deduplication: bool = True
-    semantic_top_k: int = 5  # NO LONGER USED, REMOVE
-    episodic_top_k: int = 5 # NO LONGER USED, REMOVE
-    min_similarity_threshold: float = 0.4  # NO LONGER USED, REMOVE, handled by enhanced relevance
-    similarity_weight: float = 0.7 # Added. Used by enhanced relevance
-    content_length_weight: float = 0.15 # Added.  Used by enhanced relevance
-    unique_ratio_weight: float = 0.15 # Added.  Used by enhanced relevance
-    deduplication_window_minutes: int = 60 # Added.
-    duplicate_similarity_threshold: float = 0.98 # Added. Very high threshold.
+    semantic_top_k: int = 5
+    episodic_top_k: int = 5
+    similarity_weight: float = 0.7
+    content_length_weight: float = 0.15
+    unique_ratio_weight: float = 0.15
+    deduplication_window_minutes: int = 60
+    duplicate_similarity_threshold: float = 0.98
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
@@ -96,7 +93,7 @@ def get_settings() -> Settings:
     logger.info(f"Pinecone API Key: {settings.pinecone_api_key}")
     logger.info(f"Pinecone Environment: {settings.pinecone_environment}")
     logger.info(f"Pinecone Index Name: {settings.pinecone_index_name}")
-    logger.info(f"Vapi Public Key configured: {'Yes' if settings.vapi_public_key else 'No'}")
+    # Removed VAPI logging
     return settings
 
 @lru_cache()

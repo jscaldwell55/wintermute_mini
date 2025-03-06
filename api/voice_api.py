@@ -1,20 +1,19 @@
-# /app/api/voice_api.py
+# /app/api/voice_api.py (CORRECTED - Scoping Fix and Complete)
 import logging
 import os
 import time
 import random
 from datetime import datetime, timezone, timedelta
 import asyncio
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, BackgroundTasks, Response
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Response
 from pydantic import BaseModel
 import requests
 from typing import Optional, Dict, Any
 import json
 
 from api.dependencies import get_memory_system, get_llm_service, get_case_response_template
-from api.core.memory.models import QueryRequest, QueryResponse  # Assuming this exists
-from api.utils.responses import create_response # and this
-from api.utils.config import get_settings
+from api.utils.responses import create_response
+from api.utils.config import get_settings  # Make sure this imports correctly
 
 # Set up enhanced logging
 logger = logging.getLogger(__name__)
@@ -24,11 +23,23 @@ router = APIRouter(
     tags=["voice"],
 )
 
-# Environment variables with validation
-settings = get_settings()
-VAPI_PUBLIC_KEY = os.getenv("VAPI_PUBLIC_KEY")
-VAPI_VOICE_ID = os.getenv("VAPI_VOICE_ID")  # Default voice if not specified
-VAPI_WEBHOOK_URL = os.getenv("VAPI_WEBHOOK_URL")  # Your webhook URL
+# Environment variables with validation - USING get_settings()
+settings = get_settings() # This is where your .env file is loaded.
+
+# Log voice configuration at startup - VERY IMPORTANT
+def log_voice_config():
+    logger.info(f"Vapi Public Key: {settings.vapi_public_key}") #check to ensure public key env var is correctly configured.
+    if settings.vapi_public_key:
+        logger.info(f"Vapi API integration configured with voice ID: {settings.vapi_voice_id}")
+        if settings.vapi_webhook_url:
+            logger.info(f"Vapi webhook URL configured: {settings.vapi_webhook_url}")
+        else:
+            logger.warning("Vapi webhook URL not configured - using synchronous processing")
+    else:
+        logger.warning("Vapi API key not configured - voice features will be disabled")
+
+# Call the logging function.  Best practice is to do this *outside* of a route.
+log_voice_config()
 
 # Models for request/response
 class ProcessInputRequest(BaseModel):
@@ -52,23 +63,12 @@ class SpeechToTextRequest(BaseModel): # Model for the new speech-to-text endpoin
 # In-memory store for voice processing status
 voice_responses = {}
 
-# Log voice configuration at startup
-def log_voice_config():
-    if VAPI_PUBLIC_KEY:
-        logger.info(f"Vapi API integration configured with voice ID: {VAPI_VOICE_ID}")
-        if VAPI_WEBHOOK_URL:
-            logger.info(f"Vapi webhook URL configured: {VAPI_WEBHOOK_URL}")
-        else:
-            logger.warning("Vapi webhook URL not configured - using synchronous processing")
-    else:
-        logger.warning("Vapi API key not configured - voice features will be disabled")
-
 @router.post("/text-to-speech/")
-async def text_to_speech(text: str = Form(...)):
+async def text_to_speech(text: str):
     """
     Convert text to speech using Vapi API.  This is your *synchronous* TTS.
     """
-    if not VAPI_PUBLIC_KEY:
+    if not settings.vapi_public_key:
         raise HTTPException(status_code=500, detail="Voice services not configured")
 
     logger.info(f"Processing text-to-speech request: {text[:50]}...")
@@ -76,10 +76,10 @@ async def text_to_speech(text: str = Form(...)):
         VAPI_TTS_URL = "https://api.vapi.ai/v1/audio/tts"  # Correct TTS endpoint
         payload = {
             "text": text,
-            "voice": VAPI_VOICE_ID,  # Use 'voice' consistently
+            "voice": settings.vapi_voice_id,  # Use 'voice' consistently, and get from settings
         }
         headers = {
-            'Authorization': f'Bearer {VAPI_PUBLIC_KEY}',
+            'Authorization': f'Bearer {settings.vapi_public_key}',  # Get from settings
             'Content-Type': 'application/json'
         }
         response = requests.post(VAPI_TTS_URL, headers=headers, json=payload)
@@ -110,7 +110,7 @@ async def process_input(
 ):
     """Process text input (initial placeholder)"""
 
-    if not VAPI_PUBLIC_KEY:
+    if not settings.vapi_public_key:
         raise HTTPException(status_code=500, detail="Vapi API key not set")
 
     session_id = data.session_id or f"voice_{int(time.time())}_{os.urandom(3).hex()}"
@@ -123,7 +123,7 @@ async def process_input(
         audio_url = placeholder_response["audio_url"]
 
         # Choose webhook or synchronous processing
-        if data.enable_webhook and VAPI_WEBHOOK_URL:
+        if data.enable_webhook and settings.vapi_webhook_url:
             background_tasks.add_task(
                 generate_final_speech_webhook,
                 data.text, window_id, session_id, memory_system, llm_service, case_response_template
@@ -208,7 +208,7 @@ async def speech_to_text(
     Handles incoming transcribed text from Vapi (likely via your frontend).
     This endpoint processes the text and initiates the response generation.
     """
-    if not VAPI_PUBLIC_KEY:
+    if not settings.vapi_public_key:
         raise HTTPException(status_code=500, detail="Vapi API key not set")
 
     session_id = data.session_id or f"voice_{int(time.time())}_{os.urandom(3).hex()}"
@@ -237,21 +237,23 @@ async def process_transcribed_text(
     generate_final_speech_sync/webhook logic, but now triggered by the
     speech-to-text endpoint.
     """
+    from api.core.memory.models import QueryRequest, QueryResponse  # Import HERE
+
     try:
         logger.info(f"Background task: Processing transcribed text for session {session_id}")
 
         # --- (Rest of your LLM interaction and response generation logic here) ---
         # Create query request with the correct field name
         query_request = QueryRequest(prompt=user_text, window_id=window_id)
-        
+
         # Process query similar to how it's done in main.py
         logger.info(f"Processing query through Wintermute memory system: {user_text[:30]}...")
-        
+
         # Get embeddings for the user query
         user_query_embedding = await memory_system.vector_operations.create_semantic_vector(
             query_request.prompt
         )
-        
+
         # --- Semantic Query ---
         semantic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
@@ -259,14 +261,14 @@ async def process_transcribed_text(
             filter={"memory_type": "SEMANTIC"},
             include_metadata=True,
         )
-        
+
         # Filter semantic memories
         semantic_memories = []
         for match, _ in semantic_results:
             content = match["metadata"]["content"]
             if len(content.split()) >= 5:  # Keep only memories with 5+ words
                 semantic_memories.append(content)
-        
+
         # --- Episodic Query ---
         episodic_results = await memory_system.pinecone_service.query_memories(
             query_vector=user_query_embedding,
@@ -274,13 +276,13 @@ async def process_transcribed_text(
             filter={"memory_type": "EPISODIC"},
             include_metadata=True,
         )
-        
+
         # Process episodic memories
         episodic_memories = []
         for match in episodic_results:
             memory_data, _ = match
             created_at = memory_data["metadata"].get("created_at")
-            
+
             try:
                 time_ago = (datetime.now(timezone.utc) - created_at).total_seconds()
                 if time_ago < 60:
@@ -289,31 +291,31 @@ async def process_transcribed_text(
                     time_str = f"{int(time_ago / 60)} minutes ago"
                 else:
                     time_str = f"{int(time_ago / 3600)} hours ago"
-                
+
                 episodic_memories.append(f"{time_str}: {memory_data['metadata']['content'][:200]}")
             except Exception as e:
                 logger.error(f"Error processing episodic memory: {e}")
                 continue
-        
+
         # Construct the prompt
         prompt = case_response_template.format(
             query=query_request.prompt,
             semantic_memories=semantic_memories,
             episodic_memories=episodic_memories,
         )
-        
+
         # Generate response with random temperature
         temperature = round(random.uniform(0.6, 0.9), 2)
         logger.info(f"Using temperature: {temperature} for session {session_id}")
-        
+
         response_text = await llm_service.generate_response_async(
             prompt,
             max_tokens=500,
             temperature=temperature
         )
-        
+
         logger.info(f"Response generated successfully for session {session_id}")
-        
+
         # Store the interaction
         await memory_system.store_interaction_enhanced(
             query=query_request.prompt,
@@ -323,12 +325,12 @@ async def process_transcribed_text(
         # --- (End of your LLM interaction logic) ---
 
         # Now, convert the AI response to speech and send to Vapi (either webhook or sync)
-        if VAPI_WEBHOOK_URL:
+        if settings.VAPI_WEBHOOK_URL:
             # Webhook version
             payload = {
                 "text": response_text,
-                "voice": VAPI_VOICE_ID,
-                "webhook_url": VAPI_WEBHOOK_URL,
+                "voice": settings.VAPI_VOICE_ID,
+                "webhook_url": settings.VAPI_WEBHOOK_URL,
                 "webhook_data": {
                     "session_id": session_id,
                     "window_id": window_id,
@@ -336,7 +338,7 @@ async def process_transcribed_text(
                 }
             }
             headers = {
-                'Authorization': f'Bearer {VAPI_PUBLIC_KEY}',
+                'Authorization': f'Bearer {settings.VAPI_PUBLIC_KEY}',
                 'Content-Type': 'application/json'
             }
             logger.info(f"Sending final TTS request with webhook for session {session_id}")

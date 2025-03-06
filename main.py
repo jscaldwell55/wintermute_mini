@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
-from api.voice_api import router as voice_router, log_voice_config
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime, timezone
@@ -43,11 +42,6 @@ from api.core.consolidation.consolidator import MemoryConsolidator, get_consolid
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
-FRONTEND_CONFIG = {
-    "vapi_public_key": os.getenv("vapi_public_key"),
-    "vapi_voice_id": os.getenv("VAPI_VOICE_ID"),
-    "api_url": os.getenv("FRONTEND_URL")
-}
 
 # Keep only ONE router definition here:
 api_router = APIRouter()  # No prefix here!
@@ -339,25 +333,7 @@ async def health_check():
         }
     
     # Check Vapi
-    try:
-        # Simple check for Vapi configuration
-        vapi_public_key = os.getenv("vapi_public_key")
-        if vapi_public_key:
-            health_status["components"]["vapi"] = {
-                "status": "configured",
-                "voice_id": os.getenv("VAPI_VOICE_ID", "default")
-            }
-        else:
-            health_status["components"]["vapi"] = {
-                "status": "disabled",
-                "message": "API key not configured"
-            }
-    except Exception as e:
-        logger.error(f"Vapi config check failed: {str(e)}")
-        health_status["components"]["vapi"] = {
-            "status": "error",
-            "message": str(e)
-        }
+    
     
     # Determine overall status
     if any(component.get("status") == "error" for component in health_status["components"].values()):
@@ -369,20 +345,15 @@ async def health_check():
 async def get_frontend_config():
     """Return configuration for the frontend"""
     vapi_key = os.getenv("VAPI_PUBLIC_KEY")
-    vapi_voice = os.getenv("VAPI_VOICE_ID")
     frontend_url = os.getenv("FRONTEND_URL")
     
     # Log values for debugging
-    logger.info(f"Config endpoint called, environment values: VAPI key={vapi_key}, VAPI voice={vapi_voice}, Frontend URL={frontend_url}")
+    logger.info(f"Config endpoint called, environment values: VAPI key={vapi_key}, Frontend URL={frontend_url}")
     
     # If environment variables are missing, use hardcoded values for testing
     if not vapi_key:
         vapi_key = "d00ebf05-5874-4a86-a4df-8a69e079d811"
         logger.warning(f"VAPI API key not found in environment, using hardcoded test key")
-    
-    if not vapi_voice:
-        vapi_voice = "s3://voice-cloning-zero-shot/801a663f-efd0-4254-98d0-5c175514c3e8/jennifer/manifest.json"
-        logger.warning(f"VAPI voice ID not found in environment, using hardcoded test voice ID")
     
     if not frontend_url:
         frontend_url = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"
@@ -391,7 +362,6 @@ async def get_frontend_config():
     # Return the configuration
     result = {
         "vapi_public_key": vapi_key,
-        "vapi_voice_id": vapi_voice,
         "api_url": frontend_url
     }
     
@@ -756,23 +726,15 @@ async def query_memory(
 # Correct: Only include `voice_router` if it's not inside `api_router`
 app.include_router(api_router, prefix="/api/v1")
 
-if "voice" not in api_router.routes:
-    app.include_router(voice_router, prefix="/api/v1/voice")
+
 
 
 @app.on_event("startup")
 async def startup_event():
     logger = logging.getLogger(__name__)
     logger.info("Starting up Wintermute application")
-    logger.info(f"FRONTEND CONFIG: {FRONTEND_CONFIG}")
     import os
-    vapi_key = os.getenv("VAPI_PUBLIC_KEY")
-    if vapi_key:
-        logger.info("VAPI integration enabled")
-    else:
-        logger.warning("VAPI_PUBLIC_KEY not found - voice features will be unavailable")
-
-        log_voice_config()
+   
 
     logger.info("Wintermute startup complete")
     
