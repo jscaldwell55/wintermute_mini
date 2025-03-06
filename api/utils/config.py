@@ -52,12 +52,12 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100
     rate_limit_window: int = 3600  # 1 hour in seconds
 
-    # Memory Retrieval Settings - UPDATED
+ # Memory Retrieval Settings
     max_memories_per_query: int = 20
     default_memories_per_query: int = 5
     min_similarity_threshold: float = 0.6
     
-    # Memory Type Weights - NEW
+    # Memory Type Weights
     semantic_memory_weight: float = 0.4  # Weight for pre-populated knowledge
     episodic_memory_weight: float = 0.3  # Weight for recent interactions
     learned_memory_weight: float = 0.3   # Weight for consolidated insights

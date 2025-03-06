@@ -1,16 +1,13 @@
-# api/core/memory/memory.py
 from datetime import datetime, timezone, timedelta
 import uuid
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 import logging
-
-logging.basicConfig(level=logging.INFO)
+import math
 import asyncio
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
-import math
 
-# Corrected imports:  Import from the correct locations
+# Corrected imports: Import from the correct locations
 from api.utils.config import get_settings, Settings
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
@@ -20,7 +17,7 @@ from api.core.memory.models import (Memory, MemoryType, CreateMemoryRequest,
 from api.core.memory.exceptions import MemoryOperationError
 from api.utils.utils import normalize_timestamp  # Import the helper
 
-
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class MemorySystem:
@@ -35,7 +32,6 @@ class MemorySystem:
         self.settings = settings or get_settings()  # Use provided settings or get defaults
         self._initialized = False
 
-
     async def initialize(self) -> bool:
         """Initialize the memory system and its components."""
         try:
@@ -46,7 +42,6 @@ class MemorySystem:
             # Verify Pinecone initialization (if it has an initialize method)
             if hasattr(self.pinecone_service, 'initialize'):
                 await self.pinecone_service.initialize()
-
 
             self._initialized = True
             logger.info("Memory system initialized successfully")
@@ -62,7 +57,6 @@ class MemorySystem:
         if not self._initialized:
             return await self.initialize()
         return True
-
 
     async def batch_create_memories(
         self,
@@ -110,7 +104,6 @@ class MemorySystem:
         except Exception as e:
             logger.error(f"Batch memory creation failed: {e}")
             raise MemoryOperationError(f"Failed to create memories in batch: {str(e)}")
-
 
     async def create_memory_from_request(
         self,
@@ -171,20 +164,19 @@ class MemorySystem:
                 error=ErrorDetail(code="MEMORY_CREATION_FAILED", message=str(e)),
             )
 
-
     async def get_memory_by_id(self, memory_id: str) -> Optional[Memory]:
-      try:
-        logger.info(f"Retrieving memory by ID: {memory_id}")
-        memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
-        if memory_data:
-            # we are now getting a datetime object from pinecone service
-            return Memory(**memory_data)
-        else:
-            logger.info(f"Memory with ID '{memory_id}' not found.")
-            return None
-      except Exception as e:
-        logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
-        raise
+        try:
+            logger.info(f"Retrieving memory by ID: {memory_id}")
+            memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
+            if memory_data:
+                # we are now getting a datetime object from pinecone service
+                return Memory(**memory_data)
+            else:
+                logger.info(f"Memory with ID '{memory_id}' not found.")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
+            raise
 
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID."""
@@ -250,7 +242,7 @@ class MemorySystem:
             results = await self.pinecone_service.query_memories(
                 query_vector=query_vector,
                 top_k=request.top_k,
-                ilter=pinecone_filter,
+                filter=pinecone_filter,  # Fixed typo in 'filter'
                 include_metadata=True
             )
             logger.info(f"Received {len(results)} raw results from Pinecone.")
@@ -264,8 +256,8 @@ class MemorySystem:
             for memory_data, similarity_score in results:
                 logger.debug(f"Processing memory data: {memory_data}")
                 try:
-                    # Basic similarity threshold for all memory types
-                    if similarity_score < 0.6:
+                    # Basic similarity threshold
+                    if similarity_score < self.settings.min_similarity_threshold:
                         logger.info(f"Skipping memory {memory_data['id']} due to low similarity score: {similarity_score}")
                         continue
 
@@ -277,32 +269,51 @@ class MemorySystem:
                     memory_type = memory_data["metadata"].get("memory_type", "UNKNOWN")
                     final_score = similarity_score  # Default score is just similarity
                 
-                    # Apply type-specific scoring adjustments
+                    # Apply type-specific scoring adjustments with the new weighting system
                     if memory_type == "EPISODIC":
-                        # Calculate age in days for episodic memories
+                        # Calculate age in hours for episodic memories
                         age_hours = (current_time - created_at).total_seconds() / (60*60)
                     
-                        # Prioritize last 48 hours
-                        if age_hours <= 48:
-                            recency_weight = 1.0 - (age_hours / 48) * 0.5  # Decay from 1.0 to 0.5 over 48 hours
+                        # Apply recency boosting for recent memories
+                        if age_hours <= self.settings.recent_boost_hours:
+                            # Linear decrease from 1.0 to 0.7 during the boost period
+                            recency_score = 1.0 - (age_hours / self.settings.recent_boost_hours) * 0.3
                         else:
-                            recency_weight = 0.5 * math.exp(-(age_hours - 48) / 120)  # Further decay beyond 48 hours
-                    
-                        # Combine similarity and recency for final score
-                        final_score = (similarity_score * 0.7) + (recency_weight * 0.3)
-                        logger.info(f"Memory ID {memory_data['id']} (EPISODIC): Raw Score={similarity_score:.3f}, "
-                               f"Age={age_hours:.1f}h, Recency Weight={recency_weight:.3f}, Final Score={final_score:.3f}")
+                            # Exponential decay for older memories
+                            max_age_hours = self.settings.max_age_days * 24
+                            relative_age = (age_hours - self.settings.recent_boost_hours) / (max_age_hours - self.settings.recent_boost_hours)
+                            # Exponential decay from 0.7 to 0.1
+                            recency_score = 0.7 * (0.1/0.7) ** relative_age
+                        
+                        # Ensure recency score is between 0-1
+                        recency_score = max(0.0, min(1.0, recency_score))
+                        
+                        # Calculate combined score: (1-w)*similarity + w*recency
+                        relevance_weight = 1 - self.settings.episodic_recency_weight
+                        combined_score = (
+                            relevance_weight * similarity_score + 
+                            self.settings.episodic_recency_weight * recency_score
+                        )
+                        
+                        # Apply memory type weight
+                        final_score = combined_score * self.settings.episodic_memory_weight
+                        
+                        logger.info(f"Memory ID {memory_data['id']} (EPISODIC): Raw={similarity_score:.3f}, "
+                               f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, Final={final_score:.3f}")
                 
                     elif memory_type == "SEMANTIC":
-                        # For semantic memories, we use direct similarity with no time decay
-                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Score={similarity_score:.3f}")
+                        # For semantic memories, apply the semantic memory weight
+                        final_score = similarity_score * self.settings.semantic_memory_weight
+                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, Final={final_score:.3f}")
                 
                     elif memory_type == "LEARNED":
-                        # For learned memories, we could weight based on confidence score or source count
-                        confidence = memory_data["metadata"].get("confidence", 0.5)  # Default confidence
-                        final_score = (similarity_score * 0.8) + (confidence * 0.2)  # Weight by confidence
-                        logger.info(f"Memory ID {memory_data['id']} (LEARNED): Raw Score={similarity_score:.3f}, "
-                               f"Confidence={confidence:.2f}, Final Score={final_score:.3f}")
+                        # For learned memories, apply learned memory weight
+                        # Could also include confidence if available
+                        confidence = memory_data["metadata"].get("confidence", 0.5)  # Default confidence if not present
+                        combined_score = (similarity_score * 0.8) + (confidence * 0.2)  # Weight by confidence
+                        final_score = combined_score * self.settings.learned_memory_weight
+                        logger.info(f"Memory ID {memory_data['id']} (LEARNED): Raw={similarity_score:.3f}, "
+                               f"Confidence={confidence:.2f}, Final={final_score:.3f}")
 
                     memory_response = MemoryResponse(
                         id=memory_data["id"],
@@ -373,6 +384,7 @@ class MemorySystem:
         except Exception as e:
             logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
             return False  # Assume not a duplicate on error
+
     async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
         """Stores a user interaction (query + response) as a new episodic memory."""
         try:
@@ -384,7 +396,6 @@ class MemorySystem:
             if await self._check_recent_duplicate(interaction_text):
                 logger.warning("Duplicate interaction detected. Skipping storage.")
                 return None  # Or raise an exception, depending on desired behavior
-
 
             semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
 
@@ -420,15 +431,6 @@ class MemorySystem:
             logger.error(f"Failed to store interaction: {e}", exc_info=True)
             raise MemoryOperationError("store_interaction", str(e))
 
-    async def delete_memory(self, memory_id: str) -> bool:
-        """Delete a memory by ID."""
-        try:
-            await self.pinecone_service.delete_memory(memory_id)
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting memory: {e}")
-            return False
-
     async def add_interaction(
         self,
         user_input: str,
@@ -447,4 +449,4 @@ class MemorySystem:
 
     async def health_check(self):
         """Checks the health of the memory system."""
-        return {"status": "healthy"} 
+        return {"status": "healthy"}

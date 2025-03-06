@@ -126,3 +126,5 @@ semantic_memories.json
 generate_embeds.py
 semantic_memories_with_embeddings.json
 upsert_memories.py
+dedup_semantic_memories.py
+generate_semantic_memories.py
