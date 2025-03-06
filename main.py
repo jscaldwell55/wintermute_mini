@@ -571,13 +571,13 @@ async def debug_query(request: Request):
     }
 # Removed duplicate import of batty_response_template
 
-@api_router.post("/query")  # Keep only ONE /query route, and it's in api_router
+@api_router.post("/query")
 async def query_memory(
     request: Request,
     query: QueryRequest,
     memory_system: MemorySystem = Depends(get_memory_system),
     llm_service: LLMService = Depends(lambda: components.llm_service)
-) -> QueryResponse:  # Added return type hint
+) -> QueryResponse:
 
     trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     query.request_metadata = RequestMetadata(
@@ -588,120 +588,87 @@ async def query_memory(
     try:
         logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
 
-        # --- Check for Recent Duplicates *BEFORE* doing anything else ---
+        # Check for duplicates
         if await memory_system._check_recent_duplicate(query.prompt):
             logger.warning(f"[{trace_id}] Duplicate query detected. Skipping LLM call.")
             return QueryResponse(
-                response="Looks like you just asked me that.  Try something else.", #Generic response
+                response="Looks like you just asked me that. Try something else.",
                 matches=[],
                 trace_id=trace_id,
                 similarity_scores=[],
                 error=None,
-                metadata={"success": True, "duplicate": True} # Indicate duplicate
+                metadata={"success": True, "duplicate": True}
             )
-        # --- Proceed with processing if not a duplicate ---
 
-        user_query_embedding = await memory_system.vector_operations.create_semantic_vector(
-            query.prompt
+        # === USE MEMORY SYSTEM QUERY INSTEAD OF DIRECT CALLS ===
+        # Query semantic memories
+        semantic_query = QueryRequest(
+            prompt=query.prompt,
+            top_k=memory_system.settings.semantic_top_k,
+            memory_type=MemoryType.SEMANTIC,
+            window_id=query.window_id,
+            request_metadata=query.request_metadata
         )
-
-        # --- Semantic Query ---
-        semantic_results = await memory_system.pinecone_service.query_memories(
-            query_vector=user_query_embedding,
-            top_k=memory_system.settings.semantic_top_k,  # Use setting, default to 3
-            filter={"memory_type": "SEMANTIC"},
-            include_metadata=True,
-        )
-        logger.info(f"[{trace_id}] Retrieved {len(semantic_results)} semantic memories, with scores:")
-        for i, (match, score) in enumerate(semantic_results[:3]):  # Log top 3 for brevity
-            logger.info(f"[{trace_id}] Semantic memory {i+1}: score={score:.4f}, content={match['metadata']['content'][:50]}...")
-        # Semantic Memory Filtering:
-        semantic_memories = []
-        for match, _ in semantic_results: # Don't need score
-            content = match["metadata"]["content"]
-            if len(content.split()) >= 5:  # Keep only memories with 5+ words
-                semantic_memories.append(content)
-        logger.info(f"[{trace_id}] Semantic memories retrieved: {semantic_memories}")
-
-
-        # --- Episodic Query ---
-        # Calculate the timestamp for 7 days ago
-        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-        seven_days_ago_timestamp = int(seven_days_ago.timestamp())
-
-        logger.info(f"[{trace_id}] Querying episodic memories from the past 7 days (since {seven_days_ago.isoformat()})")
-
-        episodic_results = await memory_system.pinecone_service.query_memories(
-            query_vector=user_query_embedding,
+        semantic_results = await memory_system.query_memories(semantic_query)
+        logger.info(f"[{trace_id}] Retrieved {len(semantic_results.matches)} semantic memories with weighted scores")
+        
+        # Extract semantic memory content
+        semantic_memories = [memory.content for memory in semantic_results.matches]
+        
+        # Query episodic memories
+        episodic_query = QueryRequest(
+            prompt=query.prompt,
             top_k=memory_system.settings.episodic_top_k,
-            filter={
-                "memory_type": "EPISODIC",
-                "created_at": {"$gte": seven_days_ago_timestamp}  # Only memories from past 7 days
-            },
-            include_metadata=True,
+            memory_type=MemoryType.EPISODIC,
+            window_id=query.window_id,
+            request_metadata=query.request_metadata
         )
-        logger.info(f"[{trace_id}] Episodic memories retrieved: {len(episodic_results)}")
-
-        # Process and score memories with recency weighting
+        episodic_results = await memory_system.query_memories(episodic_query)
+        logger.info(f"[{trace_id}] Retrieved {len(episodic_results.matches)} episodic memories with weighted scores")
+        
+        # Extract episodic memory content
         episodic_memories = []
-        scored_memories = []
-
-        for match in episodic_results:
-            memory_data, similarity_score = match
-            created_at = memory_data["metadata"].get("created_at")  # Now a datetime object!
-            logger.info(f"[{trace_id}] Processing memory {memory_data['id']}, created_at: {created_at}, similarity: {similarity_score:.4f}")
-
-            try:
-                # Calculate time ago in hours
-                time_ago_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
-                time_ago_hours = time_ago_seconds / 3600
-        
-                # Prioritize last 48 hours with linear decay for user-friendly display
-                if time_ago_seconds < 60:
-                    time_str = f"{int(time_ago_seconds)} seconds ago"
-                elif time_ago_seconds < 3600:
-                    time_str = f"{int(time_ago_seconds / 60)} minutes ago"
-                elif time_ago_hours < 24:
-                    time_str = f"{int(time_ago_hours)} hours ago"
-                else:
-                    time_str = f"{int(time_ago_hours / 24)} days ago"
-        
-                # Calculate recency weight - higher weight for more recent memories
-                if time_ago_hours <= 48:
-                    recency_weight = 1.0 - (time_ago_hours / 48) * 0.5  # Decay from 1.0 to 0.5 over 48 hours
-                else:
-                    recency_weight = 0.5 * math.exp(-(time_ago_hours - 48) / 120)  # Further decay beyond 48 hours
-        
-                # Combine similarity and recency for final score
-                final_score = (similarity_score * 0.7) + (recency_weight * 0.3)
-        
-                logger.info(f"[{trace_id}] Memory {memory_data['id']}: time_ago={time_ago_hours:.1f}h, " 
-                   f"recency_weight={recency_weight:.2f}, final_score={final_score:.4f}")
-
-                # Create memory entry with time prefix
-                memory_entry = f"{time_str}: {memory_data['metadata']['content'][:200]}"  # Limit to 200 chars
-        
-                # Store both the entry and its score for sorting
-                scored_memories.append((memory_entry, final_score))
-        
-            except Exception as e:
-                logger.error(f"[{trace_id}] Error processing episodic memory {memory_data['id']}: {e}")
-                continue  # Continue to the next memory
-
-        # Sort memories by final score (descending)
-        scored_memories.sort(key=lambda x: x[1], reverse=True)
-
-        # Extract just the formatted memory strings in the new order
-        episodic_memories = [memory for memory, _ in scored_memories]
-
-        logger.info(f"[{trace_id}] Processed and sorted {len(episodic_memories)} episodic memories")
-
-        # --- Construct the Prompt ---
-        prompt = case_response_template.format(  # Call on INSTANCE, and use correct instance.
-            query=query.prompt,
-            semantic_memories=semantic_memories,  # Pass the limited list
-            episodic_memories=episodic_memories,  # Pass the limited list
+        for memory in episodic_results.matches:
+            created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+            time_ago_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
+            
+            # Format the time ago string
+            if time_ago_seconds < 60:
+                time_str = f"{int(time_ago_seconds)} seconds ago"
+            elif time_ago_seconds < 3600:
+                time_str = f"{int(time_ago_seconds / 60)} minutes ago"
+            elif time_ago_seconds < 86400:
+                time_str = f"{int(time_ago_seconds / 3600)} hours ago"
+            else:
+                time_str = f"{int(time_ago_seconds / 86400)} days ago"
+                
+            # Create a formatted memory entry with time prefix
+            memory_entry = f"{time_str}: {memory.content[:200]}"
+            episodic_memories.append(memory_entry)
+            
+        # Query learned memories (will be empty until consolidation runs)
+        learned_query = QueryRequest(
+            prompt=query.prompt,
+            top_k=memory_system.settings.learned_top_k,
+            memory_type=MemoryType.LEARNED,
+            window_id=query.window_id,
+            request_metadata=query.request_metadata
         )
+        learned_results = await memory_system.query_memories(learned_query)
+        logger.info(f"[{trace_id}] Retrieved {len(learned_results.matches)} learned memories with weighted scores")
+        
+        # Extract learned memory content
+        learned_memories = [memory.content for memory in learned_results.matches]
+        
+        # Construct the prompt
+        prompt = case_response_template.format(
+            query=query.prompt,
+            semantic_memories=semantic_memories,
+            episodic_memories=episodic_memories,
+            learned_memories=learned_memories  # Add learned memories to prompt template
+        )
+        
+        # Rest of the existing function...
         logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
 
         # --- Generate Response ---
