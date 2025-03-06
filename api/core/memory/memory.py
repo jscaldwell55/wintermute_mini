@@ -205,18 +205,23 @@ class MemorySystem:
             logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
 
             # Different handling based on memory type
-            if request.memory_type == MemoryType.SEMANTIC:
+            if not hasattr(request, 'memory_type') or request.memory_type is None:
+                # Default case - if no specific type provided, query all types
+                pinecone_filter = {}
+                if request.window_id:
+                    pinecone_filter["window_id"] = request.window_id
+                logger.info(f"Querying ALL memory types with filter: {pinecone_filter}")
+            elif request.memory_type == MemoryType.SEMANTIC:
                 # For semantic memories, no time filtering (these are pre-populated knowledge)
                 pinecone_filter = {"memory_type": "SEMANTIC"}
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying SEMANTIC memories with filter: {pinecone_filter}")
-            
             elif request.memory_type == MemoryType.EPISODIC:
                 # For episodic memories, add 7-day time restriction
                 seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
                 seven_days_ago_timestamp = int(seven_days_ago.timestamp())
-            
+
                 pinecone_filter = {
                     "memory_type": "EPISODIC",
                     "created_at": {"$gte": seven_days_ago_timestamp}
@@ -224,20 +229,18 @@ class MemorySystem:
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying EPISODIC memories with 7-day filter: {pinecone_filter}")
-            
             elif request.memory_type == MemoryType.LEARNED:
-                # For learned memories (if you implement this type)
+                # For learned memories
                 pinecone_filter = {"memory_type": "LEARNED"}
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying LEARNED memories with filter: {pinecone_filter}")
-            
             else:
-                # Default case - if no specific type provided, query all types
+                # Fallback case for unknown memory types
                 pinecone_filter = {}
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
-                logger.info(f"Querying ALL memory types with filter: {pinecone_filter}")
+                logger.info(f"Querying with unknown memory type, using ALL types with filter: {pinecone_filter}")
 
             results = await self.pinecone_service.query_memories(
                 query_vector=query_vector,
@@ -299,7 +302,7 @@ class MemorySystem:
                         final_score = combined_score * self.settings.episodic_memory_weight
                         
                         logger.info(f"Memory ID {memory_data['id']} (EPISODIC): Raw={similarity_score:.3f}, "
-                               f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, Final={final_score:.3f}")
+                            f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, Final={final_score:.3f}")
                 
                     elif memory_type == "SEMANTIC":
                         # For semantic memories, apply the semantic memory weight
@@ -313,7 +316,7 @@ class MemorySystem:
                         combined_score = (similarity_score * 0.8) + (confidence * 0.2)  # Weight by confidence
                         final_score = combined_score * self.settings.learned_memory_weight
                         logger.info(f"Memory ID {memory_data['id']} (LEARNED): Raw={similarity_score:.3f}, "
-                               f"Confidence={confidence:.2f}, Final={final_score:.3f}")
+                            f"Confidence={confidence:.2f}, Final={final_score:.3f}")
 
                     memory_response = MemoryResponse(
                         id=memory_data["id"],

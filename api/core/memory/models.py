@@ -101,7 +101,6 @@ class MemoryResponse(BaseModel):
         )
 
 class QueryRequest(BaseModel):
-    #query: str  <- REMOVE THIS.  You're using "prompt"
     prompt: str = Field(..., description="The query prompt")
     top_k: int = Field(
         default=5,  # Default to 5
@@ -111,6 +110,8 @@ class QueryRequest(BaseModel):
     )
     window_id: Optional[str] = Field(None, description="Optional window ID to filter context")
     request_metadata: Optional[RequestMetadata] = None
+    # Add this new field:
+    memory_type: Optional[MemoryType] = Field(None, description="Type of memories to retrieve (EPISODIC, SEMANTIC, or LEARNED)")
 
 class QueryResponse(BaseModel):
     """Response model for memory queries"""
