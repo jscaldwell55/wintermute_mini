@@ -368,8 +368,35 @@ async def health_check():
 @api_router.get("/config")
 async def get_frontend_config():
     """Return configuration for the frontend"""
-    logger.info(f"Config endpoint called, returning: {FRONTEND_CONFIG}")
-    return FRONTEND_CONFIG
+    vapi_key = os.getenv("VAPI_API_KEY")
+    vapi_voice = os.getenv("VAPI_VOICE_ID")
+    frontend_url = os.getenv("FRONTEND_URL")
+    
+    # Log values for debugging
+    logger.info(f"Config endpoint called, environment values: VAPI key={vapi_key}, VAPI voice={vapi_voice}, Frontend URL={frontend_url}")
+    
+    # If environment variables are missing, use hardcoded values for testing
+    if not vapi_key:
+        vapi_key = "d00ebf05-5874-4a86-a4df-8a69e079d811"
+        logger.warning(f"VAPI API key not found in environment, using hardcoded test key")
+    
+    if not vapi_voice:
+        vapi_voice = "s3://voice-cloning-zero-shot/801a663f-efd0-4254-98d0-5c175514c3e8/jennifer/manifest.json"
+        logger.warning(f"VAPI voice ID not found in environment, using hardcoded test voice ID")
+    
+    if not frontend_url:
+        frontend_url = "https://wintermute-staging-x-49dd432d3500.herokuapp.com"
+        logger.warning(f"Frontend URL not found in environment, using hardcoded test URL")
+    
+    # Return the configuration
+    result = {
+        "vapi_api_key": vapi_key,
+        "vapi_voice_id": vapi_voice,
+        "api_url": frontend_url
+    }
+    
+    logger.info(f"Config endpoint returning: {result}")
+    return result
         
                
     
@@ -732,7 +759,6 @@ app.include_router(api_router, prefix="/api/v1")
 if "voice" not in api_router.routes:
     app.include_router(voice_router, prefix="/api/v1/voice")
 
-setup_static_files(app)
 
 @app.on_event("startup")
 async def startup_event():
@@ -760,13 +786,8 @@ async def shutdown_event():
             await middleware.shutdown()
 
 
-app.include_router(api_router, prefix="/api/v1")
 
-if "voice" not in api_router.routes:
-    app.include_router(voice_router, prefix="/api/v1/voice")
 
-# Set up static files
-setup_static_files(app)
 
 # Add the root route with embedded config
 @app.get("/")
@@ -796,15 +817,9 @@ async def read_root():
     """
     return HTMLResponse(content=html_content)
 
-@app.on_event("startup")
-async def startup_event():
-    # Your existing startup code
-    pass
+setup_static_files(app)
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    # Your existing shutdown code
-    pass
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
