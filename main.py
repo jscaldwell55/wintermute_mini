@@ -792,7 +792,6 @@ async def shutdown_event():
 # Add the root route with embedded config
 @app.get("/")
 async def read_root():
-    # Create an HTML response with embedded config
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -810,8 +809,9 @@ async def read_root():
     </head>
     <body>
         <div id="root"></div>
-        <script src="/assets/vendor-D4I5kSlY.js"></script>
-        <script src="/assets/main-Bx_lkUZU.js"></script>
+        <!-- Add type="module" to your script tags -->
+        <script src="/assets/vendor-D4I5kSlY.js" type="module"></script>
+        <script src="/assets/main-Bx_lkUZU.js" type="module"></script>
     </body>
     </html>
     """
