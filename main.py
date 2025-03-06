@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, A
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from api.voice_api import router as voice_router, log_voice_config
 from contextlib import asynccontextmanager
 import logging
@@ -42,6 +42,12 @@ from api.core.consolidation.config import ConsolidationConfig
 from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
+
+FRONTEND_CONFIG = {
+    "vapi_api_key": os.getenv("VAPI_API_KEY"),
+    "vapi_voice_id": os.getenv("VAPI_VOICE_ID"),
+    "api_url": os.getenv("FRONTEND_URL")
+}
 
 # Keep only ONE router definition here:
 api_router = APIRouter()  # No prefix here!
@@ -362,11 +368,11 @@ async def health_check():
 @api_router.get("/config")
 async def get_frontend_config():
     """Return configuration for the frontend"""
-    return {
-        "vapi_api_key": os.getenv("VAPI_API_KEY"),
-        "vapi_voice_id": os.getenv("VAPI_VOICE_ID"),
-        "api_url": os.getenv("FRONTEND_URL")
-    }
+    logger.info(f"Config endpoint called, returning: {FRONTEND_CONFIG}")
+    return FRONTEND_CONFIG
+        
+               
+    
 
 @api_router.get("/memories")
 async def list_memories(
@@ -732,6 +738,7 @@ setup_static_files(app)
 async def startup_event():
     logger = logging.getLogger(__name__)
     logger.info("Starting up Wintermute application")
+    logger.info(f"FRONTEND CONFIG: {FRONTEND_CONFIG}")
     import os
     vapi_key = os.getenv("VAPI_API_KEY")
     if vapi_key:
@@ -753,6 +760,52 @@ async def shutdown_event():
             await middleware.shutdown()
 
 
+app.include_router(api_router, prefix="/api/v1")
+
+if "voice" not in api_router.routes:
+    app.include_router(voice_router, prefix="/api/v1/voice")
+
+# Set up static files
+setup_static_files(app)
+
+# Add the root route with embedded config
+@app.get("/")
+async def read_root():
+    # Create an HTML response with embedded config
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Wintermute</title>
+        <script>
+            window.VAPI_CONFIG = {{
+                "vapi_api_key": "{os.getenv('VAPI_API_KEY', '')}",
+                "vapi_voice_id": "{os.getenv('VAPI_VOICE_ID', '')}",
+                "api_url": "{os.getenv('FRONTEND_URL', '')}"
+            }};
+        </script>
+        <!-- Your existing frontend assets -->
+        <link rel="stylesheet" href="/assets/main-Ci3rcHx3.css">
+    </head>
+    <body>
+        <div id="root"></div>
+        <script src="/assets/vendor-D4I5kSlY.js"></script>
+        <script src="/assets/main-Bx_lkUZU.js"></script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+@app.on_event("startup")
+async def startup_event():
+    # Your existing startup code
+    pass
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # Your existing shutdown code
+    pass
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))  # Get port from environment variable, default to 8000
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True, log_level="info")
