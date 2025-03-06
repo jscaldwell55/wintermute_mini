@@ -368,7 +368,7 @@ async def health_check():
 @api_router.get("/config")
 async def get_frontend_config():
     """Return configuration for the frontend"""
-    vapi_key = os.getenv("VAPI_API_KEY")
+    vapi_key = os.getenv("VAPI_PUBLIC_KEY")
     vapi_voice = os.getenv("VAPI_VOICE_ID")
     frontend_url = os.getenv("FRONTEND_URL")
     

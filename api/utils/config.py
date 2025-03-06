@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # API Keys
     openai_api_key: str
     pinecone_api_key: str
-    vapi_api_key: str
+    vapi_public_key: str
     vapi_voice_id: str = ""  # Optional with default
     vapi_webhook_url: str = ""  # Optional with default
 
