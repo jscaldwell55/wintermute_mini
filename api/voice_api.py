@@ -26,7 +26,7 @@ router = APIRouter(
 
 # Environment variables with validation
 settings = get_settings()
-VAPI_API_KEY = os.getenv("VAPI_API_KEY")
+VAPI_PUBLIC_KEY = os.getenv("VAPI_PUBLIC_KEY")
 VAPI_VOICE_ID = os.getenv("VAPI_VOICE_ID")  # Default voice if not specified
 VAPI_WEBHOOK_URL = os.getenv("VAPI_WEBHOOK_URL")  # Your webhook URL
 
@@ -54,7 +54,7 @@ voice_responses = {}
 
 # Log voice configuration at startup
 def log_voice_config():
-    if VAPI_API_KEY:
+    if VAPI_PUBLIC_KEY:
         logger.info(f"Vapi API integration configured with voice ID: {VAPI_VOICE_ID}")
         if VAPI_WEBHOOK_URL:
             logger.info(f"Vapi webhook URL configured: {VAPI_WEBHOOK_URL}")
@@ -68,7 +68,7 @@ async def text_to_speech(text: str = Form(...)):
     """
     Convert text to speech using Vapi API.  This is your *synchronous* TTS.
     """
-    if not VAPI_API_KEY:
+    if not VAPI_PUBLIC_KEY:
         raise HTTPException(status_code=500, detail="Voice services not configured")
 
     logger.info(f"Processing text-to-speech request: {text[:50]}...")
@@ -79,7 +79,7 @@ async def text_to_speech(text: str = Form(...)):
             "voice": VAPI_VOICE_ID,  # Use 'voice' consistently
         }
         headers = {
-            'Authorization': f'Bearer {VAPI_API_KEY}',
+            'Authorization': f'Bearer {VAPI_PUBLIC_KEY}',
             'Content-Type': 'application/json'
         }
         response = requests.post(VAPI_TTS_URL, headers=headers, json=payload)
@@ -110,7 +110,7 @@ async def process_input(
 ):
     """Process text input (initial placeholder)"""
 
-    if not VAPI_API_KEY:
+    if not VAPI_PUBLIC_KEY:
         raise HTTPException(status_code=500, detail="Vapi API key not set")
 
     session_id = data.session_id or f"voice_{int(time.time())}_{os.urandom(3).hex()}"
@@ -208,7 +208,7 @@ async def speech_to_text(
     Handles incoming transcribed text from Vapi (likely via your frontend).
     This endpoint processes the text and initiates the response generation.
     """
-    if not VAPI_API_KEY:
+    if not VAPI_PUBLIC_KEY:
         raise HTTPException(status_code=500, detail="Vapi API key not set")
 
     session_id = data.session_id or f"voice_{int(time.time())}_{os.urandom(3).hex()}"
@@ -336,7 +336,7 @@ async def process_transcribed_text(
                 }
             }
             headers = {
-                'Authorization': f'Bearer {VAPI_API_KEY}',
+                'Authorization': f'Bearer {VAPI_PUBLIC_KEY}',
                 'Content-Type': 'application/json'
             }
             logger.info(f"Sending final TTS request with webhook for session {session_id}")

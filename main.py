@@ -766,11 +766,11 @@ async def startup_event():
     logger.info("Starting up Wintermute application")
     logger.info(f"FRONTEND CONFIG: {FRONTEND_CONFIG}")
     import os
-    vapi_key = os.getenv("VAPI_API_KEY")
+    vapi_key = os.getenv("VAPI_PUBLIC_KEY")
     if vapi_key:
         logger.info("VAPI integration enabled")
     else:
-        logger.warning("VAPI_API_KEY not found - voice features will be unavailable")
+        logger.warning("VAPI_PUBLIC_KEY not found - voice features will be unavailable")
 
         log_voice_config()
 
