@@ -18,10 +18,12 @@ declare global {
   
   // Define configuration interface
   interface VapiConfig {
-    vapi_api_key: string;
-    vapi_voice_id: string;
-    api_url: string;
+    apiKey: string;           // Just need the API key now
+    voiceId?: string;         // Optional, may be used elsewhere
+    webhookUrl?: string;      // Optional, may be used elsewhere
   }
+
+  
   
   // Existing interaction interface
   interface Interaction {
@@ -98,58 +100,43 @@ const WintermuteInterface: React.FC = () => {
     // Initialize Vapi when voice is enabled
     useEffect(() => {
         if (voiceEnabled) {
-          setErrorMessage(null);
-          
-          // Try multiple config sources in order of preference
-          const getConfig = async (): Promise<VapiConfig> => {
+          // Try to get configuration from different sources
+          const getConfig = async (): Promise<string> => {
             try {
-              // First try the API endpoint
+              // From API endpoint
               const response = await fetch(`${window.location.origin}/api/v1/config`);
               if (response.ok) {
                 const config = await response.json();
-                console.log('Config from API endpoint:', config);
-                
                 if (config.vapi_api_key) {
-                  return config;
+                  return config.vapi_api_key;
                 }
               }
             } catch (error) {
-              console.error('Error fetching config:', error);
+              console.error('API config fetch error:', error);
             }
             
-            // Then try window.VAPI_CONFIG if available
+            // From window global
             if (window.VAPI_CONFIG?.vapi_api_key) {
-              console.log('Using window.VAPI_CONFIG');
-              return window.VAPI_CONFIG;
+              return window.VAPI_CONFIG.vapi_api_key;
             }
             
-            // Finally, try environment variables
+            // From environment
             if (import.meta.env.VITE_VAPI_API_KEY) {
-              console.log('Using environment variables');
-              return {
-                vapi_api_key: import.meta.env.VITE_VAPI_API_KEY,
-                vapi_voice_id: import.meta.env.VITE_VAPI_VOICE_ID,
-                api_url: import.meta.env.VITE_API_URL || window.location.origin
-              };
+              return import.meta.env.VITE_VAPI_API_KEY;
             }
             
-            // No config found
-            throw new Error('No valid configuration found');
+            throw new Error('No Vapi API key found');
           };
           
-          // Get config and initialize Vapi
           getConfig()
-            .then(config => {
-              console.log('Using config:', config);
-              return initializeVapi(config);  // Use the initialization function here
-            })
+            .then(apiKey => initializeVapi(apiKey))
             .catch(error => {
               console.error('Configuration error:', error);
               setErrorMessage(`Could not initialize voice mode: ${error.message}`);
               setVoiceEnabled(false);
             });
         } else {
-          // Clean up when disabled
+          // Cleanup
           if (vapi) {
             vapi.stop();
             setVapi(null);
@@ -158,16 +145,12 @@ const WintermuteInterface: React.FC = () => {
       }, [voiceEnabled]);
     
     // Helper function to initialize Vapi with configuration
-    const initializeVapi = (config: VapiConfig) => {
+    const initializeVapi = (apiKey: string) => {
         return navigator.mediaDevices.getUserMedia({ audio: true })
           .then(stream => {
             try {
-              // Initialize Vapi with config
-              const newVapi = new Vapi({
-                apiKey: config.vapi_api_key,
-                voiceId: config.vapi_voice_id,
-                webhookUrl: `${config.api_url}/api/v1/voice/vapi-webhook/`,
-              });
+              // Initialize Vapi with just the API key string
+              const newVapi = new Vapi(apiKey as any);
               
               // Add event handlers
               newVapi.on('assistant-response', async (data) => {
