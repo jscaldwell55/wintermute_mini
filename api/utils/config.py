@@ -55,7 +55,7 @@ class Settings(BaseSettings):
  # Memory Retrieval Settings
     max_memories_per_query: int = 20
     default_memories_per_query: int = 5
-    min_similarity_threshold: float = 0.6
+    min_similarity_threshold: float = 0.5
     
     # Memory Type Weights
     semantic_memory_weight: float = 0.4  # Weight for pre-populated knowledge
