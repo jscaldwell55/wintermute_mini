@@ -16,7 +16,7 @@ class BaseResponseTemplate(BaseModel):
     """Base template with common functionality."""
     
     max_memory_tokens: int = Field(default=600, description="Maximum tokens for combined memories.")
-    max_response_tokens: int = Field(default=250, description="Maximum tokens for response.")
+    max_response_tokens: int = Field(default=200, description="Maximum tokens for response.")
     
     def _process_memories(self, memories: Optional[List[str]], limit: int = 3) -> str:
         """Process and deduplicate memories."""
