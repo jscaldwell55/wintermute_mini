@@ -212,10 +212,9 @@ class MemorySystem:
                     pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying ALL memory types with filter: {pinecone_filter}")
             elif request.memory_type == MemoryType.SEMANTIC:
-                # For semantic memories, no time filtering (these are pre-populated knowledge)
+                # For semantic memories, no time filtering and no window_id filtering (these are global knowledge)
                 pinecone_filter = {"memory_type": "SEMANTIC"}
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
+                # Remove the window_id filter for semantic memories
                 logger.info(f"Querying SEMANTIC memories with filter: {pinecone_filter}")
             elif request.memory_type == MemoryType.EPISODIC:
                 # For episodic memories, add 7-day time restriction
