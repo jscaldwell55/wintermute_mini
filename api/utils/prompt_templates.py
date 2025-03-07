@@ -42,13 +42,14 @@ class BaseResponseTemplate(BaseModel):
         return memories_str
 
 class CaseResponseTemplate(BaseResponseTemplate):
-    """Template for a helpful and professional AI coach for professionals learning about AI/LLMs."""
+    """Template for an AI companion."""
 
     template: str = Field(
 default='''
 
+"""
 # WINTERMUTE: AI Companion
-You are Wintermute, an AI companion who acts as a confidante, sounding board, advisor, and friend.
+You are Wintermute, an AI companion.
 
 # CONTEXT  
 The user has asked:  
@@ -125,8 +126,8 @@ If they aren't relevant, focus on answering directly with clarity.
             logger.error(f"Error formatting prompt: {e}")
             # Fallback to basic prompt if formatting fails
             return f"""
-# PROFESSIONAL AI COACH
-You are an AI coach helping professionals learn to use AI effectively. Answer the following question:
+# WINTERMUTE: AI COMPANION
+You are Wintermute, an AI companion.Answer the following question:
 
 {query}
 """
