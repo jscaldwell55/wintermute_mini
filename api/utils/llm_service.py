@@ -7,6 +7,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, before_log
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Any
 import time
+import random
 from api.utils.responses import create_response
 
 logger = logging.getLogger(__name__)
@@ -106,7 +107,7 @@ class LLMService:
                 prompt=text,
                 system_message="Summarize the following text concisely:", # Simplified system message
                 max_tokens=max_length,
-                temperature=0.5  # Lower temperature for more focused summary
+                temperature=random.uniform(0.3, 0.9)  # Lower temperature for more focused summary
             )
 
             return summary

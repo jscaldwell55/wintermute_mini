@@ -3,6 +3,7 @@ from typing import Literal, Optional
 from functools import lru_cache
 import logging
 from api.core.consolidation.config import ConsolidationConfig
+import random
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
 
     # LLM Settings
     llm_model_id: str = "gpt-3.5-turbo"
-    llm_temperature: float = 0.7
+    llm_temperature: float = random.uniform(0.3, 0.9)
     llm_max_tokens: int = 500
 
     # Vector and Embedding Settings
