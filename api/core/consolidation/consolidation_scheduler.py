@@ -18,9 +18,10 @@ class ConsolidationScheduler:
         config: ConsolidationConfig,
         pinecone_service: PineconeService,
         llm_service: LLMService,
-        run_interval_hours: int = 168,  # Changed to 168 hours (7 days)
+        run_interval_hours: int = 168,  # 168 hours (7 days)
         timezone: str = "UTC"
     ):
+        self.settings = get_settings()
         self.pinecone_service = pinecone_service
         self.llm_service = llm_service
         self.run_interval_hours = run_interval_hours
@@ -29,17 +30,79 @@ class ConsolidationScheduler:
         self.task = None
         self.config = config
         self.last_run = None
+        self.memory_graph = None
+        self.relationship_detector = None
         logger.info(f"Scheduler initialized with {run_interval_hours} hour interval ({run_interval_hours/24} days)")
 
     async def start(self):
         """Start the scheduled consolidation task."""
-        self.consolidator = MemoryConsolidator(
-            config=self.config,
-            pinecone_service=self.pinecone_service,
-            llm_service=self.llm_service
-        )
+        # Check if graph memory is enabled
+        if hasattr(self.settings, 'enable_graph_memory') and self.settings.enable_graph_memory:
+            logger.info("Graph memory is enabled, using enhanced consolidator")
+            
+            # Initialize graph components
+            from api.core.memory.graph.memory_graph import MemoryGraph
+            from api.core.memory.graph.relationship_detector import MemoryRelationshipDetector
+            from api.core.consolidation.enhanced_memory_consolidator import EnhancedMemoryConsolidator
+            
+            self.memory_graph = MemoryGraph()
+            self.relationship_detector = MemoryRelationshipDetector(self.llm_service)
+            
+            # Use enhanced consolidator
+            self.consolidator = EnhancedMemoryConsolidator(
+                config=self.config,
+                pinecone_service=self.pinecone_service,
+                llm_service=self.llm_service,
+                memory_graph=self.memory_graph,
+                relationship_detector=self.relationship_detector
+            )
+            logger.info("Enhanced memory consolidator initialized with graph support")
+            
+            # Initialize graph with existing memories (in background)
+            asyncio.create_task(self._initialize_graph_from_existing_memories())
+        else:
+            logger.info("Using standard consolidator without graph memory")
+            # Use original consolidator
+            self.consolidator = MemoryConsolidator(
+                config=self.config,
+                pinecone_service=self.pinecone_service,
+                llm_service=self.llm_service
+            )
+        
         self.task = asyncio.create_task(self._schedule_consolidation())
         logger.info(f"Consolidation scheduler started, will run every {self.run_interval_hours} hours")
+
+    async def _initialize_graph_from_existing_memories(self):
+        """Initialize the graph with existing memories from Pinecone."""
+        if not self.memory_graph or not self.relationship_detector:
+            logger.warning("Cannot initialize graph: graph components not available")
+            return
+            
+        try:
+            logger.info("Starting initialization of graph from existing memories...")
+            
+            # Use GraphMemoryFactory to perform initialization
+            from api.core.memory.graph.memory_factory import GraphMemoryFactory
+            
+            success = await GraphMemoryFactory.initialize_graph_from_existing_memories(
+                memory_graph=self.memory_graph,
+                relationship_detector=self.relationship_detector,
+                pinecone_service=self.pinecone_service,
+                batch_size=50,
+                max_memories=500  # Limit to a reasonable number for initial population
+            )
+            
+            if success:
+                logger.info("Successfully initialized graph from existing memories")
+                # Log graph statistics
+                stats = self.memory_graph.get_graph_stats()
+                logger.info(f"Memory graph statistics: {stats}")
+            else:
+                logger.warning("Graph initialization completed with errors")
+                
+        except Exception as e:
+            logger.error(f"Error initializing graph from existing memories: {e}", exc_info=True)
+            # Continue execution - the graph will still work, just with fewer initial connections
 
     async def _schedule_consolidation(self):
         """Schedule consolidation to run at specified interval."""
