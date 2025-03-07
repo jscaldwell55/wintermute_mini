@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # LLM Settings
     llm_model_id: str = "gpt-3.5-turbo"
     llm_temperature: float = random.uniform(0.3, 0.9)
-    llm_max_tokens: int = 350
+    llm_max_tokens: int = 300
     llm_memory_tokens: int = 600
 
     # Vector and Embedding Settings
