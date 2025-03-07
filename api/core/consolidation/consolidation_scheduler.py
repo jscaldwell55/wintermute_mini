@@ -18,7 +18,7 @@ class ConsolidationScheduler:
         config: ConsolidationConfig,
         pinecone_service: PineconeService,
         llm_service: LLMService,
-        run_interval_hours: int = 168,  # 168 hours (7 days)
+        run_interval_hours: int = 48,  
         timezone: str = "UTC"
     ):
         self.settings = get_settings()
@@ -152,12 +152,11 @@ async def main():
         llm_service = LLMService()
         config = get_consolidation_config()
 
-        # Initialize scheduler with 7-day (168-hour) interval
         scheduler = ConsolidationScheduler(
             config=config,
             pinecone_service=pinecone_service,
             llm_service=llm_service,
-            run_interval_hours=168,  # Set to 168 hours (7 days)
+            run_interval_hours=48, 
             timezone=settings.timezone
         )
 
