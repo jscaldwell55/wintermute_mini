@@ -679,7 +679,7 @@ async def query_memory(
         # await asyncio.sleep(1) # Remove the delay.
         response = await llm_service.generate_response_async(
             prompt,
-            max_tokens=random.randint(200, 400),
+            max_tokens=random.randint(200, 350),
             temperature=temperature  # Pass the random temperature
         )
         logger.info(f"[{trace_id}] Generated response successfully")

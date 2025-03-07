@@ -33,7 +33,7 @@ class LLMService:
 
         # Default parameters
         self.default_temperature = round(random.uniform(0.3, 0.9), 2) 
-        self.default_max_tokens = random.randint(200, 400)
+        self.default_max_tokens = random.randint(200, 350)
         self.default_top_p = 0.8
         self.default_frequency_penalty = 0.0
         self.default_presence_penalty = 0.0
