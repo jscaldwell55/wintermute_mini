@@ -33,7 +33,7 @@ class LLMService:
 
         # Default parameters
         self.default_temperature = 0.7
-        self.default_max_tokens = 500  # Increased default, BUT can be overridden
+        self.default_max_tokens = 400  # Increased default, BUT can be overridden
         self.default_top_p = 0.8
         self.default_frequency_penalty = 0.0
         self.default_presence_penalty = 0.0
