@@ -87,37 +87,10 @@ Before finalizing your response, briefly self-check:
             episodic_memories: List of episodic memory contents
             learned_memories: List of learned memory contents
             
-        Returns:
-            Formatted prompt string
+        return formatted.strip()
         """
-        try:
-            # Check if this is likely a first-time user
-            is_first_time = not episodic_memories and not learned_memories
-            
-            # Process memories
-            semantic_memories_str = self._process_memories(semantic_memories)
-            episodic_memories_str = self._process_memories(episodic_memories) if episodic_memories else "No previous interactions."
-            learned_memories_str = self._process_memories(learned_memories) if learned_memories else "No consolidated insights yet."
-            
-            # Format the prompt
-            formatted = self.template.replace("{query}", query)
-            formatted = formatted.replace("{episodic_memories}", episodic_memories_str)
-            formatted = formatted.replace("{semantic_memories}", semantic_memories_str)
-            formatted = formatted.replace("{learned_memories}", learned_memories_str)
-            
-            # Add special note for first-time users
-            if is_first_time:
-                logger.info("First-time user detected, adding welcome instruction")
-            
-            logger.info(f"Formatted standard prompt: {formatted[:500]}...")
         
-            return formatted.strip()
         
-        except Exception as e:
-            logger.error(f"Error formatting prompt: {e}")
-            # Fallback to basic prompt if formatting fails
-            return f"""
-"""
 
 class GraphEnhancedResponseTemplate(BaseResponseTemplate):
     """
