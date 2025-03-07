@@ -47,7 +47,6 @@ class CaseResponseTemplate(BaseResponseTemplate):
     template: str = Field(
 default='''
 
-"""
 # WINTERMUTE
 You are Wintermute.
 
@@ -71,24 +70,40 @@ Before finalizing your response, briefly self-check:
 '''
 )
 
-    def format(
-        self, 
-        query: str, 
-        semantic_memories: Optional[List[str]] = None, 
-        episodic_memories: Optional[List[str]] = None, 
-        learned_memories: Optional[List[str]] = None
-    ) -> str:
-        """
-        Formats the prompt with memory handling.
-        
-        Args:
-            query: User query
-            semantic_memories: List of semantic memory contents
-            episodic_memories: List of episodic memory contents
-            learned_memories: List of learned memory contents
+def format(
+    self, 
+    query: str, 
+    semantic_memories: Optional[List[str]] = None, 
+    episodic_memories: Optional[List[str]] = None, 
+    learned_memories: Optional[List[str]] = None
+) -> str:
+    """
+    Formats the prompt with memory handling.
+    
+    Args:
+        query: User query
+        semantic_memories: List of semantic memory contents
+        episodic_memories: List of episodic memory contents
+        learned_memories: List of learned memory contents
             
-        return formatted.strip()
-        """
+    Returns:
+        Formatted prompt string
+    """
+    # Process memories using the base class method
+    semantic_memories_str = self._process_memories(semantic_memories)
+    episodic_memories_str = self._process_memories(episodic_memories)
+    learned_memories_str = self._process_memories(learned_memories)
+    
+    # Format the template with the processed memories
+    formatted = self.template.format(
+        query=query,
+        semantic_memories=semantic_memories_str,
+        episodic_memories=episodic_memories_str,
+        learned_memories=learned_memories_str
+    )
+    
+    return formatted.strip()
+
         
         
 
