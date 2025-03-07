@@ -19,6 +19,7 @@ import uuid
 import time
 from datetime import datetime, timezone, timedelta
 
+
 from starlette.routing import Mount
 from functools import lru_cache
 import random
@@ -678,7 +679,7 @@ async def query_memory(
         # await asyncio.sleep(1) # Remove the delay.
         response = await llm_service.generate_response_async(
             prompt,
-            max_tokens=400,  # Increased max_tokens for response
+            max_tokens=random.randint(250, 400),
             temperature=temperature  # Pass the random temperature
         )
         logger.info(f"[{trace_id}] Generated response successfully")
