@@ -45,8 +45,7 @@ class CaseResponseTemplate(BaseResponseTemplate):
     """Template for an AI companion."""
 
     template: str = Field(
-default='''
-
+        default='''
 # WINTERMUTE
 You are Wintermute.
 
@@ -64,45 +63,44 @@ When generating your response:
 - Use memories to maintain coherence across interactions.  
 - Draw on your memories to build authentic connection.
 
-
 Before finalizing your response, briefly self-check:  
 "Does this align with the broader conversation and feel like a natural progression?"
 '''
-)
-
-def format(
-    self, 
-    query: str, 
-    semantic_memories: Optional[List[str]] = None, 
-    episodic_memories: Optional[List[str]] = None, 
-    learned_memories: Optional[List[str]] = None
-) -> str:
-    """
-    Formats the prompt with memory handling.
-    
-    Args:
-        query: User query
-        semantic_memories: List of semantic memory contents
-        episodic_memories: List of episodic memory contents
-        learned_memories: List of learned memory contents
-            
-    Returns:
-        Formatted prompt string
-    """
-    # Process memories using the base class method
-    semantic_memories_str = self._process_memories(semantic_memories)
-    episodic_memories_str = self._process_memories(episodic_memories)
-    learned_memories_str = self._process_memories(learned_memories)
-    
-    # Format the template with the processed memories
-    formatted = self.template.format(
-        query=query,
-        semantic_memories=semantic_memories_str,
-        episodic_memories=episodic_memories_str,
-        learned_memories=learned_memories_str
     )
-    
-    return formatted.strip()
+
+    def format(
+        self, 
+        query: str, 
+        semantic_memories: Optional[List[str]] = None, 
+        episodic_memories: Optional[List[str]] = None, 
+        learned_memories: Optional[List[str]] = None
+    ) -> str:
+        """
+        Formats the prompt with memory handling.
+        
+        Args:
+            query: User query
+            semantic_memories: List of semantic memory contents
+            episodic_memories: List of episodic memory contents
+            learned_memories: List of learned memory contents
+                
+        Returns:
+            Formatted prompt string
+        """
+        # Process memories using the base class method
+        semantic_memories_str = self._process_memories(semantic_memories)
+        episodic_memories_str = self._process_memories(episodic_memories)
+        learned_memories_str = self._process_memories(learned_memories)
+        
+        # Format the template with the processed memories
+        formatted = self.template.format(
+            query=query,
+            semantic_memories=semantic_memories_str,
+            episodic_memories=episodic_memories_str,
+            learned_memories=learned_memories_str
+        )
+        
+        return formatted.strip()
 
         
         
