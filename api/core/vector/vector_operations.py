@@ -90,8 +90,7 @@ class VectorOperationsImpl(VectorOperations):
         import re
         
         # Extract just the user's query from the conversation
-        query_match = re.match(r"User: (.*?)(\nAssistant:|$)", content)
-        
+        query_match = re.search(r"User: (.*?)(?=\nAssistant:|$)", content, re.DOTALL)
         if query_match:
             user_query = query_match.group(1)
             logger.info(f"Extracted user query for vectorization: {user_query[:50]}...")

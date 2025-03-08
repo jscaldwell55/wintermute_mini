@@ -273,6 +273,17 @@ class MemorySystem:
                     logger.info(f"Content: {memory_data['metadata'].get('content', '')[:100]}...")
                     created_at_raw = memory_data['metadata'].get('created_at')
                     logger.info(f"Created at: {created_at_raw} (Type: {type(created_at_raw)})")
+                    # In your diagnostic section, add this after finding no results with window ID:
+                    if len(basic_results) == 0:
+                        logger.info("No results with window ID filter, trying without window ID")
+                        basic_filter = {"memory_type": "EPISODIC"}
+                        basic_results = await self.pinecone_service.query_memories(
+                            query_vector=query_vector,
+                            top_k=5,
+                            filter=basic_filter,
+                            include_metadata=True
+                        )
+                        logger.info(f"Query without window ID returned {len(basic_results)} results")
 
             matches: List[MemoryResponse] = []
             similarity_scores: List[float] = []
@@ -351,8 +362,6 @@ class MemorySystem:
                         logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, Final={final_score:.3f}")
                 
                     elif memory_type == "LEARNED":
-                        # For learned memories, apply learned memory weight
-                        # Could also include confidence if available
                         confidence = memory_data["metadata"].get("confidence", 0.5)  # Default confidence if not present
                         combined_score = (similarity_score * 0.8) + (confidence * 0.2)  # Weight by confidence
                         final_score = combined_score * self.settings.learned_memory_weight
