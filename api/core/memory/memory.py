@@ -15,7 +15,7 @@ from api.core.memory.models import (Memory, MemoryType, CreateMemoryRequest,
                                       MemoryResponse, QueryRequest, QueryResponse,
                                       RequestMetadata, OperationType, ErrorDetail)
 from api.core.memory.exceptions import MemoryOperationError
-from api.utils.utils import normalize_timestamp  # Import the helper
+from api.utils.utils import normalize_timestamp  # 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -399,8 +399,7 @@ class MemorySystem:
                 logger.warning("Duplicate interaction detected. Skipping storage.")
                 return None  # Or raise an exception, depending on desired behavior
 
-            semantic_vector = await self.vector_operations.create_semantic_vector(interaction_text)
-
+            semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
             memory_id = f"mem_{uuid.uuid4().hex}"
             created_at = datetime.now(timezone.utc).isoformat() + "Z"  # Use consistent format here
             metadata = {
@@ -440,14 +439,13 @@ class MemorySystem:
         window_id: Optional[str] = None
     ) -> str:
         """Add an interaction as an episodic memory."""
-        content = f"User: {user_input}\nAssistant: {response}"
-        memory_id = await self.add_memory( #add_memory to be deprecated
-            content=content,
-            memory_type=MemoryType.EPISODIC,
-            metadata={"interaction": True},
-            window_id=window_id,
+        # Call store_interaction_enhanced but only return the ID
+        memory = await self.store_interaction_enhanced(
+            query=user_input,
+            response=response,
+            window_id=window_id
         )
-        return memory_id
+        return memory.id if memory else None
 
     async def health_check(self):
         """Checks the health of the memory system."""

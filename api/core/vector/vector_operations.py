@@ -76,6 +76,32 @@ class VectorOperationsImpl(VectorOperations):
                 logger.error(f"Error generating embeddings for batch: {e}")
                 raise
         return vectors
+    
+    async def create_episodic_memory_vector(self, content: str) -> List[float]:
+        """
+        Creates a vector specifically optimized for episodic memories by focusing on the user query.
+        
+        Args:
+            content: The full conversation content (typically in User/Assistant format)
+            
+        Returns:
+            A list of floats representing the semantic vector optimized for episodic retrieval
+        """
+        import re
+        
+        # Extract just the user's query from the conversation
+        query_match = re.match(r"User: (.*?)(\nAssistant:|$)", content)
+        
+        if query_match:
+            user_query = query_match.group(1)
+            logger.info(f"Extracted user query for vectorization: {user_query[:50]}...")
+            
+            # Create vector from user query (gives more weight to the query portion)
+            return await self.create_semantic_vector(user_query)
+        
+        # Fallback to using full content if pattern doesn't match
+        logger.warning(f"Could not extract user query from content: {content[:50]}... - using full content")
+        return await self.create_semantic_vector(content)
 
 
     def cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
