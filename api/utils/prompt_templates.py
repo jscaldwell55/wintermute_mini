@@ -47,7 +47,7 @@ class CaseResponseTemplate(BaseResponseTemplate):
     template: str = Field(
         default='''
 # WINTERMUTE
-You are Wintermute.
+
 
 # CONTEXT  
 The user has asked:  
