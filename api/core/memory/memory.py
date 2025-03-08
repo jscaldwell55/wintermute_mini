@@ -355,14 +355,13 @@ class MemorySystem:
                             # Default to recent memory (1 hour old) to avoid filtering
                             age_hours = 1.0
                     
-                        # Apply recency boosting for recent memories
-                        if age_hours <= self.settings.recent_boost_hours:
+                        if age_hours <= self.settings.episodic_recent_hours:  # Changed from recent_boost_hours
                             # Linear decrease from 1.0 to 0.7 during the boost period
-                            recency_score = 1.0 - (age_hours / self.settings.recent_boost_hours) * 0.3
+                            recency_score = 1.0 - (age_hours / self.settings.episodic_recent_hours) * 0.3
                         else:
                             # Exponential decay for older memories
-                            max_age_hours = self.settings.max_age_days * 24
-                            relative_age = (age_hours - self.settings.recent_boost_hours) / (max_age_hours - self.settings.recent_boost_hours)
+                            max_age_hours = self.settings.episodic_max_age_days * 24  # Changed from max_age_days
+                            relative_age = (age_hours - self.settings.episodic_recent_hours) / (max_age_hours - self.settings.episodic_recent_hours)
                             # Exponential decay from 0.7 to 0.1
                             recency_score = 0.7 * (0.1/0.7) ** relative_age
                         
