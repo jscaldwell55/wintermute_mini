@@ -15,10 +15,9 @@ class TemplateType(Enum):
 class BaseResponseTemplate(BaseModel):
     """Base template with common functionality."""
     
-    max_memory_tokens: int = Field(default=1500, description="Maximum tokens for combined memories.")
-    max_response_tokens: int = Field(default=700, description="Maximum tokens for response.")
 
-    class BaseResponseTemplate(BaseModel):
+
+class BaseResponseTemplate(BaseModel):
         """Base template with common functionality."""
         
         max_memory_tokens: int = Field(default=1500, description="Maximum tokens for combined memories.")
