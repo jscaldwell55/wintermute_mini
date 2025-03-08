@@ -10,7 +10,7 @@ from enum import Enum
 # Corrected imports: Import from the correct locations
 from api.utils.config import get_settings, Settings
 from api.core.memory.interfaces.memory_service import MemoryService
-from api.core.memory.interfaces.vector_operations import VectorOperations
+from api.core.vector.vector_operations import VectorOperations
 from api.core.memory.models import (Memory, MemoryType, CreateMemoryRequest,
                                       MemoryResponse, QueryRequest, QueryResponse,
                                       RequestMetadata, OperationType, ErrorDetail)
