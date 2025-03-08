@@ -607,37 +607,33 @@ async def query_memory(
                 metadata={"success": True, "duplicate": True}
             )
 
-        # === USE MEMORY SYSTEM QUERY INSTEAD OF DIRECT CALLS ===
-        # Query semantic memories
-        semantic_query = QueryRequest(
-            prompt=query.prompt,
-            top_k=memory_system.settings.semantic_top_k,
-            memory_type=MemoryType.SEMANTIC,
+        # === USE BATCH MEMORY SYSTEM QUERY INSTEAD OF INDIVIDUAL CALLS ===
+        # Batch query all memory types in one operation with their respective settings
+        memory_results = await memory_system.batch_query_memories(
+            query=query.prompt,
             window_id=query.window_id,
-            request_metadata=query.request_metadata,
-            enable_keyword_search=enable_keyword_search 
+            top_k_per_type={
+                MemoryType.SEMANTIC: memory_system.settings.semantic_top_k,
+                MemoryType.EPISODIC: memory_system.settings.episodic_top_k,
+                MemoryType.LEARNED: memory_system.settings.learned_top_k
+            },
+            enable_keyword_search=enable_keyword_search,
+            request_metadata=query.request_metadata
         )
-        semantic_results = await memory_system.query_memories(semantic_query)
-        logger.info(f"[{trace_id}] Retrieved {len(semantic_results.matches)} semantic memories with weighted scores")
-        
+
+        # Process semantic memories
+        semantic_memories_raw = memory_results.get(MemoryType.SEMANTIC, [])
+        logger.info(f"[{trace_id}] Retrieved {len(semantic_memories_raw)} semantic memories with weighted scores")
         # Extract semantic memory content
-        semantic_memories = [memory.content for memory in semantic_results.matches]
-        
-        # Query episodic memories
-        episodic_query = QueryRequest(
-            prompt=query.prompt,
-            top_k=memory_system.settings.episodic_top_k,
-            memory_type=MemoryType.EPISODIC,
-            window_id=query.window_id,
-            request_metadata=query.request_metadata,
-            enable_keyword_search=enable_keyword_search 
-        )
-        episodic_results = await memory_system.query_memories(episodic_query)
-        logger.info(f"[{trace_id}] Retrieved {len(episodic_results.matches)} episodic memories with weighted scores")
-        
-        # Extract episodic memory content
+        semantic_memories = [memory.content for memory, _ in semantic_memories_raw]
+
+        # Process episodic memories
+        episodic_memories_raw = memory_results.get(MemoryType.EPISODIC, [])
+        logger.info(f"[{trace_id}] Retrieved {len(episodic_memories_raw)} episodic memories with weighted scores")
+
+        # Extract and format episodic memory content with time ago
         episodic_memories = []
-        for memory in episodic_results.matches:
+        for memory, _ in episodic_memories_raw:
             created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
             time_ago_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
             
@@ -654,25 +650,19 @@ async def query_memory(
             # Create a formatted memory entry with time prefix
             memory_entry = f"{time_str}: {memory.content[:200]}"
             episodic_memories.append(memory_entry)
-            logger.info(f"Formatting {len(episodic_results.matches)} episodic memories")
-            for i, memory in enumerate(episodic_results.matches):
-                logger.info(f"Episodic memory {i+1}: id={memory.id}, created_at={memory.created_at}, content={memory.content[:100]}...")
             
-        # Query learned memories (will be empty until consolidation runs)
-        learned_query = QueryRequest(
-            prompt=query.prompt,
-            top_k=memory_system.settings.learned_top_k,
-            memory_type=MemoryType.LEARNED,
-            window_id=query.window_id,
-            request_metadata=query.request_metadata,
-            enable_keyword_search=enable_keyword_search 
-        )
-        learned_results = await memory_system.query_memories(learned_query)
-        logger.info(f"[{trace_id}] Retrieved {len(learned_results.matches)} learned memories with weighted scores")
-        
+        # Log detailed episodic memory information
+        if episodic_memories_raw:
+            logger.info(f"Formatting {len(episodic_memories_raw)} episodic memories")
+            for i, (memory, _) in enumerate(episodic_memories_raw):
+                logger.info(f"Episodic memory {i+1}: id={memory.id}, created_at={memory.created_at}, content={memory.content[:100]}...")
+
+        # Process learned memories
+        learned_memories_raw = memory_results.get(MemoryType.LEARNED, [])
+        logger.info(f"[{trace_id}] Retrieved {len(learned_memories_raw)} learned memories with weighted scores")
         # Extract learned memory content
-        learned_memories = [memory.content for memory in learned_results.matches]
-        
+        learned_memories = [memory.content for memory, _ in learned_memories_raw]
+
         # Construct the prompt
         prompt = case_response_template.format(
             query=query.prompt,

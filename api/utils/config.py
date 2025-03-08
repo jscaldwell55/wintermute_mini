@@ -247,6 +247,7 @@ class Settings(BaseSettings):
     vector_search_weight: float = 0.7
     keyword_search_top_k: int = 20
     min_keyword_score_threshold: float = 0.15
+    keyword_search_enabled: bool = False
 
 
     # Graph Memory Settings

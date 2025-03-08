@@ -164,7 +164,7 @@ class MemorySystem:
                 vector=semantic_vector,
                 metadata=memory.metadata
             )
-            if hasattr(self, 'keyword_index'):
+            if hasattr(self, 'keyword_index') and getattr(self.settings, 'keyword_search_enabled', False):
                 # Add to keyword index
                 self.keyword_index.add_to_index(memory)
                 logger.info(f"Added memory {memory_id} to keyword index")
@@ -229,14 +229,30 @@ class MemorySystem:
         
     async def query_memories(self, request: QueryRequest) -> QueryResponse:
         """Query memories based on the given request, with hybrid vector and keyword search."""
-
-        max_attempts = 3
-        attempt_count = 0
         try:
             logger.info(f"Starting memory query with request: {request}")
             
-            # Generate query vector
-            query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
+            # Set a limit on processing attempts to avoid infinite loops
+            max_attempts = 3
+            attempt_count = 0
+                
+            # Create a request-specific embedding cache
+            # This will be used for this query only
+            embedding_cache = {}
+                
+            # Function to get embedding with caching
+            async def get_cached_embedding(text: str) -> List[float]:
+                if text in embedding_cache:
+                    logger.info(f"Using cached embedding for: {text[:50]}...")
+                    return embedding_cache[text]
+                        
+                logger.info(f"Generating new embedding for: {text[:50]}...")
+                embedding = await self.vector_operations.create_semantic_vector(text)
+                embedding_cache[text] = embedding
+                return embedding
+                    
+            # Generate query vector (using cache)
+            query_vector = await get_cached_embedding(request.prompt)
             logger.info(f"Query vector generated (first 5 elements): {query_vector[:5]}")
             
             # Extract keywords for keyword search
@@ -356,7 +372,7 @@ class MemorySystem:
                 tasks.append(("vector_unknown", vector_task))
             
             # Add keyword search task if we have keywords
-            if keywords:
+            if keywords and getattr(self.settings, 'keyword_search_enabled', False):
                 keyword_task = asyncio.create_task(
                     self.keyword_index.search(
                         keywords=keywords,
@@ -545,6 +561,235 @@ class MemorySystem:
         
         logger.info(f"Extracted keywords from query: {keywords}")
         return keywords
+    
+    async def batch_query_memories(
+        self, 
+        query: str, 
+        window_id: Optional[str] = None, 
+        top_k_per_type: int = 5,
+        enable_keyword_search: bool = True
+    ) -> Dict[MemoryType, List[Tuple[MemoryResponse, float]]]:
+        """
+        Query all memory types in a single batched operation.
+        
+        Args:
+            query: The query text
+            window_id: Optional window ID for filtering
+            top_k_per_type: Number of memories to retrieve per type
+            enable_keyword_search: Whether to include keyword search
+            
+        Returns:
+            Dictionary mapping memory types to lists of (memory, score) tuples
+        """
+        logger.info(f"Starting batch memory query: '{query[:50]}...'")
+        
+        # Create embedding cache for this query
+        embedding_cache = {}
+        async def get_cached_embedding(text: str) -> List[float]:
+            if text in embedding_cache:
+                return embedding_cache[text]
+            embedding = await self.vector_operations.create_semantic_vector(text)
+            embedding_cache[text] = embedding
+            return embedding
+        
+        # Generate query vector once
+        query_vector = await get_cached_embedding(query)
+        
+        # Extract keywords once
+        keywords = []
+        if enable_keyword_search and getattr(self.settings, 'keyword_search_enabled', False):
+            keywords = self._extract_keywords(query)
+        # Create tasks for each memory type
+        tasks = []
+        for memory_type in [MemoryType.SEMANTIC, MemoryType.EPISODIC, MemoryType.LEARNED]:
+            # Create query request
+            request = QueryRequest(
+                prompt=query,
+                top_k=top_k_per_type,
+                window_id=window_id,
+                memory_type=memory_type,
+                enable_keyword_search=enable_keyword_search,
+                request_metadata=RequestMetadata(
+                    operation_type=OperationType.QUERY,
+                    window_id=window_id
+                )
+            )
+            
+            # Use the cached vector and pre-extracted keywords
+            task = asyncio.create_task(
+                self._query_memory_type(
+                    request=request,
+                    pre_computed_vector=query_vector,
+                    pre_extracted_keywords=keywords
+                )
+            )
+            tasks.append((memory_type, task))
+        
+        # Wait for all tasks to complete
+        results = {}
+        for memory_type, task in tasks:
+            try:
+                query_response = await task
+                results[memory_type] = list(zip(query_response.matches, query_response.similarity_scores))
+            except Exception as e:
+                logger.error(f"Error querying {memory_type} memories: {e}")
+                results[memory_type] = []
+        
+        return results
+    
+    async def _query_memory_type(
+        self, 
+        request: QueryRequest,
+        pre_computed_vector: Optional[List[float]] = None
+    ) -> QueryResponse:
+        """
+        Query a specific memory type using pre-computed vector if available.
+        This is an internal helper for batch_query_memories.
+        """
+        try:
+            # Use pre-computed vector if provided
+            if pre_computed_vector is not None:
+                query_vector = pre_computed_vector
+                logger.info("Using pre-computed vector for memory retrieval")
+            else:
+                query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
+                logger.info(f"Generated new vector for memory retrieval (first 5 elements): {query_vector[:5]}")
+            
+            # Determine memory type filter and prepare filter
+            memory_type_value = request.memory_type.value
+            logger.info(f"Querying memory type: {memory_type_value}")
+            
+            # Define the filter based on memory type
+            if request.memory_type == MemoryType.SEMANTIC:
+                pinecone_filter = {"memory_type": "SEMANTIC"}
+            elif request.memory_type == MemoryType.EPISODIC:
+                seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+                seven_days_ago_timestamp = int(seven_days_ago.timestamp())
+                pinecone_filter = {
+                    "memory_type": "EPISODIC",
+                    "created_at": {"$gte": seven_days_ago_timestamp}
+                }
+                if request.window_id:
+                    pinecone_filter["window_id"] = request.window_id
+            elif request.memory_type == MemoryType.LEARNED:
+                pinecone_filter = {"memory_type": "LEARNED"}
+                if request.window_id:
+                    pinecone_filter["window_id"] = request.window_id
+            else:
+                pinecone_filter = {}
+                if request.window_id:
+                    pinecone_filter["window_id"] = request.window_id
+            
+            # Execute vector search
+            vector_results = await self.pinecone_service.query_memories(
+                query_vector=query_vector,
+                top_k=request.top_k,
+                filter=pinecone_filter,
+                include_metadata=True
+            )
+            logger.info(f"Vector search returned {len(vector_results)} results")
+            
+            # Process vector results
+            matches = []
+            similarity_scores = []
+            current_time = datetime.utcnow()
+
+            for memory_data, similarity_score in vector_results:
+                try:
+                    # Apply basic similarity threshold
+                    if similarity_score < self.settings.min_similarity_threshold:
+                        continue
+
+                    # Process created_at timestamp
+                    created_at_raw = memory_data["metadata"].get("created_at")
+                    if not created_at_raw:
+                        continue
+                    
+                    # Convert timestamp to datetime
+                    if isinstance(created_at_raw, str):
+                        created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                    else:
+                        created_at = created_at_raw
+
+                    # Get memory type and calculate final score based on memory type
+                    memory_type = memory_data["metadata"].get("memory_type", "UNKNOWN")
+                    final_score = similarity_score
+                    
+                    # Apply memory-type specific scoring
+                    if memory_type == "EPISODIC":
+                        # Adjust for timezone if needed
+                        if current_time.tzinfo is None and created_at.tzinfo is not None:
+                            current_time = current_time.replace(tzinfo=timezone.utc)
+                        elif current_time.tzinfo is not None and created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=timezone.utc)
+                        
+                        # Calculate age and recency score
+                        age_hours = (current_time - created_at).total_seconds() / (60*60)
+                        
+                        if age_hours <= self.settings.episodic_recent_hours:
+                            recency_score = 1.0 - (age_hours / self.settings.episodic_recent_hours) * 0.3
+                        else:
+                            max_age_hours = self.settings.episodic_max_age_days * 24
+                            relative_age = (age_hours - self.settings.episodic_recent_hours) / (max_age_hours - self.settings.episodic_recent_hours)
+                            recency_score = 0.7 * (0.1/0.7) ** relative_age
+                        
+                        recency_score = max(0.0, min(1.0, recency_score))
+                        
+                        # Combine relevance and recency
+                        relevance_weight = 1 - self.settings.episodic_recency_weight
+                        combined_score = (
+                            relevance_weight * similarity_score + 
+                            self.settings.episodic_recency_weight * recency_score
+                        )
+                        
+                        final_score = combined_score * self.settings.episodic_memory_weight
+                        
+                        logger.info(f"Memory ID {memory_data['id']} (EPISODIC): Raw={similarity_score:.3f}, " +
+                            f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, Final={final_score:.3f}")
+                    
+                    elif memory_type == "SEMANTIC":
+                        final_score = similarity_score * self.settings.semantic_memory_weight
+                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, Final={final_score:.3f}")
+                    
+                    elif memory_type == "LEARNED":
+                        confidence = memory_data["metadata"].get("confidence", 0.5)
+                        combined_score = (similarity_score * 0.8) + (confidence * 0.2)
+                        final_score = combined_score * self.settings.learned_memory_weight
+                        logger.info(f"Memory ID {memory_data['id']} (LEARNED): Raw={similarity_score:.3f}, " +
+                            f"Confidence={confidence:.2f}, Final={final_score:.3f}")
+
+                    # Create memory response
+                    memory_response = MemoryResponse(
+                        id=memory_data["id"],
+                        content=memory_data["metadata"]["content"],
+                        memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                        created_at=created_at.isoformat() + "Z",
+                        metadata=memory_data["metadata"],
+                        window_id=memory_data["metadata"].get("window_id"),
+                        semantic_vector=memory_data.get("vector"),
+                    )
+                    matches.append(memory_response)
+                    similarity_scores.append(final_score)
+
+                except Exception as e:
+                    logger.error(f"Error processing memory {memory_data.get('id', 'unknown')}: {e}")
+                    continue
+
+            # Sort results by final score
+            if matches and similarity_scores:
+                sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
+                matches, similarity_scores = zip(*sorted_results)
+            else:
+                matches, similarity_scores = [], []
+
+            return QueryResponse(
+                matches=list(matches),
+                similarity_scores=list(similarity_scores),
+            )
+
+        except Exception as e:
+            logger.error(f"Error in _query_memory_type: {e}", exc_info=True)
+            return QueryResponse(matches=[], similarity_scores=[])
 
     async def _combine_search_results(
         self, 
@@ -665,6 +910,84 @@ class MemorySystem:
         except Exception as e:
             logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
             return False  # Assume not a duplicate on error
+        
+    def _select_memories_for_prompt(
+        self, 
+        memories: List[Tuple[MemoryResponse, float]], 
+        max_tokens: int = 1500,
+        max_memories: int = 10,
+        min_score: float = 0.1
+    ) -> List[str]:
+        """
+        Select memories to include in prompt based on token budget and relevance.
+        
+        Args:
+            memories: List of (memory, score) tuples
+            max_tokens: Maximum token budget for all memories
+            max_memories: Maximum number of memories to include
+            min_score: Minimum score threshold
+            
+        Returns:
+            List of formatted memory contents
+        """
+        if not memories:
+            return []
+        
+        # Sort by score (descending)
+        sorted_memories = sorted(memories, key=lambda x: x[1], reverse=True)
+        
+        # Filter by minimum score
+        filtered_memories = [(m, s) for m, s in sorted_memories if s >= min_score]
+        
+        # Select memories within token budget and count limit
+        selected = []
+        total_tokens = 0
+        
+        for memory, score in filtered_memories[:max_memories]:
+            # Estimate tokens (4 chars ≈ 1 token as rough estimate)
+            est_tokens = len(memory.content) // 4
+            
+            # Skip if this would exceed our budget
+            if total_tokens + est_tokens > max_tokens:
+                break
+            
+            # Format the memory content
+            formatted = memory.content
+            
+            # Add type-specific formatting if needed
+            if memory.memory_type == MemoryType.EPISODIC:
+                # For episodic memories, extract creation time
+                created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                time_ago = self._format_time_ago(created_at)
+                formatted = f"{time_ago}: {formatted}"
+                
+            selected.append(formatted)
+            total_tokens += est_tokens
+        
+        logger.info(f"Selected {len(selected)}/{len(memories)} memories for prompt " +
+                    f"(~{total_tokens} tokens, {max_tokens} max)")
+        
+        return selected
+
+    def _format_time_ago(self, timestamp: datetime) -> str:
+        """Format a timestamp as a human-readable time ago string."""
+        now = datetime.now(timezone.utc)
+        diff = now - timestamp
+        
+        # Format based on how long ago
+        if diff.days > 30:
+            months = diff.days // 30
+            return f"{months} months ago"
+        elif diff.days > 0:
+            return f"{diff.days} days ago"
+        elif diff.seconds >= 3600:
+            hours = diff.seconds // 3600
+            return f"{hours} hours ago"
+        elif diff.seconds >= 60:
+            minutes = diff.seconds // 60
+            return f"{minutes} minutes ago"
+        else:
+            return "Just now"
 
     async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
         """Stores a user interaction (query + response) as a new episodic memory."""
@@ -713,10 +1036,10 @@ class MemorySystem:
             logger.info(f"Episodic memory stored successfully: {memory_id}")
 
             # Add to keyword index if available
-            if hasattr(self, 'keyword_index') and memory:
+            if hasattr(self, 'keyword_index') and getattr(self.settings, 'keyword_search_enabled', False):
                 # Add to keyword index
                 self.keyword_index.add_to_index(memory)
-                logger.info(f"Added interaction memory {memory_id} to keyword index")
+                logger.info(f"Added memory {memory_id} to keyword index")
 
             return memory
 
