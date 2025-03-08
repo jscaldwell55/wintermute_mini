@@ -302,8 +302,21 @@ class MemorySystem:
                 
                     # Apply type-specific scoring adjustments with the new weighting system
                     if memory_type == "EPISODIC":
+                        # Ensure compatible timezone handling
+                        if current_time.tzinfo is None and created_at.tzinfo is not None:
+                            # Make current_time timezone-aware if it isn't already
+                            current_time = current_time.replace(tzinfo=timezone.utc)
+                        elif current_time.tzinfo is not None and created_at.tzinfo is None:
+                            # Make created_at timezone-aware if it isn't already
+                            created_at = created_at.replace(tzinfo=timezone.utc)
+                        
                         # Calculate age in hours for episodic memories
-                        age_hours = (current_time - created_at).total_seconds() / (60*60)
+                        try:
+                            age_hours = (current_time - created_at).total_seconds() / (60*60)
+                        except Exception as e:
+                            logger.warning(f"Error calculating age for memory {memory_data['id']}: {e}")
+                            # Default to recent memory (1 hour old) to avoid filtering
+                            age_hours = 1.0
                     
                         # Apply recency boosting for recent memories
                         if age_hours <= self.settings.recent_boost_hours:
