@@ -65,6 +65,7 @@ My knowledge and experiences to draw from:
 - Consider both factual knowledge and conversational context
 - Keep responses clear and focused on the query
 - When drawing on memories, integrate them naturally
+- When referring to episodic memories, use "we" instead of "I"
 
 '''
     )

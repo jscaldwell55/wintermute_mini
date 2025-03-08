@@ -135,3 +135,7 @@ professional_ai_memories_20250306_201254.json
 wintermute-complete.json
 delete_memory.py
 delete_episodic.py
+delete_semantic.py
+ai_semantic_1.json
+ai_semantic_2.json
+ai_semantic_3.json
