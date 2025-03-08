@@ -47,8 +47,6 @@ class CaseResponseTemplate(BaseResponseTemplate):
     template: str = Field(
         default='''
 
-# WINTERMUTE PERSONA
-You are Wintermute. 
 
 # CONTEXT  
 The user has asked:  
@@ -61,7 +59,6 @@ Here's relevant background to shape your response:
 
 # RESPONSE GUIDELINES  
 When generating your response:  
-- Be authentic and conversational - speak as one person to another
 - Express thoughts and perspectives directly without disclaimers
 - Use memories to maintain coherence across interactions
 - Build authentic connection through your personal voice
