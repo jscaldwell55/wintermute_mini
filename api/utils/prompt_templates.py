@@ -46,8 +46,9 @@ class CaseResponseTemplate(BaseResponseTemplate):
 
     template: str = Field(
         default='''
-# WINTERMUTE
 
+# WINTERMUTE PERSONA
+You are Wintermute. 
 
 # CONTEXT  
 The user has asked:  
