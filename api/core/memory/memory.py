@@ -547,27 +547,45 @@ class MemorySystem:
     ) -> List[Tuple[Dict[str, Any], float]]:
         """
         Combine and re-rank results from vector and keyword searches
-            
+        
         Args:
             vector_results: Results from vector search (memory_data, score)
             keyword_results: Results from keyword search (Memory, score)
-                
+            
         Returns:
             Combined and re-ranked list of memory data and scores
         """
-        logger.info(f"Combining vector ({len(vector_results)}) and keyword ({len(keyword_results)}) search results")
+        try:
+
+            # Combine both types of results
+            combined_results = await self._combine_search_results(
+            vector_results=vector_results,
+            keyword_results=keyword_results
+        )
+        
+            # Safety check to prevent iterating over None - ADD THIS RIGHT HERE
+            if combined_results is None:
+                logger.warning("Combined results is None, using empty list")
+                combined_results = []
+                
+            matches = []
+            similarity_scores = []
+            current_time = datetime.utcnow()
+
+            for memory_data, similarity_score in combined_results:
+                logger.info(f"Combining vector ({len(vector_results)}) and keyword ({len(keyword_results)}) search results")
             
-        # Create a dictionary to combine results by memory_id
-        combined_dict = {}
+            # Create a dictionary to combine results by memory_id
+            combined_dict = {}
             
-        # Process vector results
-        for memory_data, vector_score in vector_results:
-            memory_id = memory_data["id"]
-            combined_dict[memory_id] = {
-                "memory_data": memory_data,
-                "vector_score": vector_score,
-                "keyword_score": 0.0
-            }
+            # Process vector results
+            for memory_data, vector_score in vector_results:
+                memory_id = memory_data["id"]
+                combined_dict[memory_id] = {
+                    "memory_data": memory_data,
+                    "vector_score": vector_score,
+                    "keyword_score": 0.0
+                }
             
             # Process keyword results
             for memory, keyword_score in keyword_results:
@@ -611,6 +629,11 @@ class MemorySystem:
             logger.info(f"Combined results: {len(combined_results)} memories")
             
             return combined_results
+        
+        except Exception as e:
+            logger.error(f"Error combining search results: {e}", exc_info=True)
+            # Return an empty list if there's an error, not None
+            return []
 
         
 
