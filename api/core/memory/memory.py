@@ -428,6 +428,7 @@ class MemorySystem:
                 content=interaction_text,
                 memory_type=MemoryType.EPISODIC,
                 created_at= datetime.fromisoformat(normalize_timestamp(created_at)), # Pass datetime object
+
                 metadata=metadata,
                 window_id=window_id,
                 semantic_vector=semantic_vector,
