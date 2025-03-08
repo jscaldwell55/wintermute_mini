@@ -646,6 +646,9 @@ async def query_memory(
             # Create a formatted memory entry with time prefix
             memory_entry = f"{time_str}: {memory.content[:200]}"
             episodic_memories.append(memory_entry)
+            logger.info(f"Formatting {len(episodic_results.matches)} episodic memories")
+            for i, memory in enumerate(episodic_results.matches):
+                logger.info(f"Episodic memory {i+1}: id={memory.id}, created_at={memory.created_at}, content={memory.content[:100]}...")
             
         # Query learned memories (will be empty until consolidation runs)
         learned_query = QueryRequest(
