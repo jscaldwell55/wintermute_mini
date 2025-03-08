@@ -204,6 +204,9 @@ class MemorySystem:
             query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
             logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
 
+            # Initialize results as empty list to avoid UnboundLocalError
+            results = []
+
             # Different handling based on memory type
             if not hasattr(request, 'memory_type') or request.memory_type is None:
                 # Default case - if no specific type provided, query all types
@@ -211,11 +214,24 @@ class MemorySystem:
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying ALL memory types with filter: {pinecone_filter}")
+                results = await self.pinecone_service.query_memories(
+                    query_vector=query_vector,
+                    top_k=request.top_k,
+                    filter=pinecone_filter,
+                    include_metadata=True
+                )
+                
             elif request.memory_type == MemoryType.SEMANTIC:
-                # For semantic memories, no time filtering and no window_id filtering (these are global knowledge)
+                # For semantic memories, no time filtering and no window_id filtering
                 pinecone_filter = {"memory_type": "SEMANTIC"}
-                # Remove the window_id filter for semantic memories
                 logger.info(f"Querying SEMANTIC memories with filter: {pinecone_filter}")
+                results = await self.pinecone_service.query_memories(
+                    query_vector=query_vector,
+                    top_k=request.top_k,
+                    filter=pinecone_filter,
+                    include_metadata=True
+                )
+                
             elif request.memory_type == MemoryType.EPISODIC:
                 # Base filter with just time and memory type
                 seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
@@ -254,48 +270,49 @@ class MemorySystem:
                         filter=window_filter,
                         include_metadata=True
                     )
-                
-                logger.info(f"Received {len(results)} raw results from Pinecone.")
-
-            if request.memory_type == MemoryType.EPISODIC and len(results) == 0:
-                logger.info(f"No episodic memories found with filter: {pinecone_filter}")
-                
-                # Try a basic query without time filter
-                basic_filter = {"memory_type": "EPISODIC"}
+                    
+                # If we still have no results, try without the time constraint
+                if len(results) == 0:
+                    logger.info("No results found with time filter, trying without time constraint")
+                    basic_filter = {"memory_type": "EPISODIC"}
+                    
+                    results = await self.pinecone_service.query_memories(
+                        query_vector=query_vector,
+                        top_k=request.top_k,
+                        filter=basic_filter,
+                        include_metadata=True
+                    )
+                    
+            elif request.memory_type == MemoryType.LEARNED:
+                # For learned memories
+                pinecone_filter = {"memory_type": "LEARNED"}
                 if request.window_id:
-                    basic_filter["window_id"] = request.window_id
-                
-                logger.info(f"Trying basic filter: {basic_filter}")
-                
-                basic_results = await self.pinecone_service.query_memories(
+                    pinecone_filter["window_id"] = request.window_id
+                logger.info(f"Querying LEARNED memories with filter: {pinecone_filter}")
+                results = await self.pinecone_service.query_memories(
                     query_vector=query_vector,
-                    top_k=5,
-                    filter=basic_filter,
+                    top_k=request.top_k,
+                    filter=pinecone_filter,
                     include_metadata=True
                 )
                 
-                logger.info(f"Basic filter returned {len(basic_results)} results")
-                
-                # Log what we found
-                for i, (memory_data, score) in enumerate(basic_results[:3]):  # Log first 3
-                    logger.info(f"Memory {i+1}: ID={memory_data['id']}, Score={score:.4f}")
-                    logger.info(f"Content: {memory_data['metadata'].get('content', '')[:100]}...")
-                    created_at_raw = memory_data['metadata'].get('created_at')
-                    logger.info(f"Created at: {created_at_raw} (Type: {type(created_at_raw)})")
-                    # In your diagnostic section, add this after finding no results with window ID:
-                    if len(basic_results) == 0:
-                        logger.info("No results with window ID filter, trying without window ID")
-                        basic_filter = {"memory_type": "EPISODIC"}
-                        basic_results = await self.pinecone_service.query_memories(
-                            query_vector=query_vector,
-                            top_k=5,
-                            filter=basic_filter,
-                            include_metadata=True
-                        )
-                        logger.info(f"Query without window ID returned {len(basic_results)} results")
+            else:
+                # Fallback case for unknown memory types
+                pinecone_filter = {}
+                if request.window_id:
+                    pinecone_filter["window_id"] = request.window_id
+                logger.info(f"Querying with unknown memory type, using ALL types with filter: {pinecone_filter}")
+                results = await self.pinecone_service.query_memories(
+                    query_vector=query_vector,
+                    top_k=request.top_k,
+                    filter=pinecone_filter,
+                    include_metadata=True
+                )
 
-            matches: List[MemoryResponse] = []
-            similarity_scores: List[float] = []
+            logger.info(f"Received {len(results)} raw results from Pinecone.")
+
+            matches = []
+            similarity_scores = []
             current_time = datetime.utcnow()
 
             for memory_data, similarity_score in results:
@@ -381,7 +398,7 @@ class MemorySystem:
                         id=memory_data["id"],
                         content=memory_data["metadata"]["content"],
                         memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                        created_at=memory_data["metadata"]["created_at"].isoformat() + "Z",  # Format as ISO string with Z here
+                        created_at=created_at.isoformat() + "Z",  # Format as ISO string with Z here
                         metadata=memory_data["metadata"],
                         window_id=memory_data["metadata"].get("window_id"),
                         semantic_vector=memory_data.get("vector"),
@@ -397,8 +414,11 @@ class MemorySystem:
                     continue
 
             # Sort results by final score
-            sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
-            matches, similarity_scores = zip(*sorted_results) if sorted_results else ([], [])
+            if matches and similarity_scores:
+                sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
+                matches, similarity_scores = zip(*sorted_results)
+            else:
+                matches, similarity_scores = [], []
 
             return QueryResponse(
                 matches=list(matches),
