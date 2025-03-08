@@ -219,11 +219,11 @@ class MemorySystem:
             elif request.memory_type == MemoryType.EPISODIC:
                 # For episodic memories, add 7-day time restriction
                 seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-                seven_days_ago_timestamp = int(seven_days_ago.timestamp())
+                seven_days_ago_iso = seven_days_ago.isoformat() + "Z"
 
                 pinecone_filter = {
                     "memory_type": "EPISODIC",
-                    "created_at": {"$gte": seven_days_ago_timestamp}
+                    "created_at": {"$gte": seven_days_ago_iso}
                 }
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
@@ -263,10 +263,16 @@ class MemorySystem:
                         logger.info(f"Skipping memory {memory_data['id']} due to low similarity score: {similarity_score}")
                         continue
 
-                    created_at = memory_data["metadata"].get("created_at")  # Already a datetime object!
-                    if not created_at:
+                    created_at_raw = memory_data["metadata"].get("created_at")
+                    if not created_at_raw:
                         logger.warning(f"Skipping memory {memory_data['id']} due to missing created_at")
                         continue
+
+                    # Convert string timestamp to datetime if needed
+                    if isinstance(created_at_raw, str):
+                        created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                    else:
+                        created_at = created_at_raw  
 
                     memory_type = memory_data["metadata"].get("memory_type", "UNKNOWN")
                     final_score = similarity_score  # Default score is just similarity
