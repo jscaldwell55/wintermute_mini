@@ -229,6 +229,9 @@ class MemorySystem:
         
     async def query_memories(self, request: QueryRequest) -> QueryResponse:
         """Query memories based on the given request, with hybrid vector and keyword search."""
+
+        max_attempts = 3
+        attempt_count = 0
         try:
             logger.info(f"Starting memory query with request: {request}")
             
@@ -395,10 +398,13 @@ class MemorySystem:
             logger.info(f"Received {len(vector_results)} raw results from vector search.")
             
             # Process keyword results if any
-            keyword_results = []
-            if "keyword" in task_results:
+            if "keyword" in task_results and attempt_count < max_attempts:
+                attempt_count += 1
                 keyword_results = task_results["keyword"]
                 logger.info(f"Received {len(keyword_results)} raw results from keyword search.")
+            else:
+                keyword_results = []
+
             
             # Combine both types of results
             combined_results = await self._combine_search_results(
@@ -556,24 +562,8 @@ class MemorySystem:
             Combined and re-ranked list of memory data and scores
         """
         try:
-
-            # Combine both types of results
-            combined_results = await self._combine_search_results(
-            vector_results=vector_results,
-            keyword_results=keyword_results
-        )
-        
-            # Safety check to prevent iterating over None - ADD THIS RIGHT HERE
-            if combined_results is None:
-                logger.warning("Combined results is None, using empty list")
-                combined_results = []
-                
-            matches = []
-            similarity_scores = []
-            current_time = datetime.utcnow()
-
-            for memory_data, similarity_score in combined_results:
-                logger.info(f"Combining vector ({len(vector_results)}) and keyword ({len(keyword_results)}) search results")
+            # Add detailed debug logging to identify the call stack and recursive calls
+            logger.info(f"Combining vector ({len(vector_results)}) and keyword ({len(keyword_results)}) search results")
             
             # Create a dictionary to combine results by memory_id
             combined_dict = {}
@@ -587,30 +577,31 @@ class MemorySystem:
                     "keyword_score": 0.0
                 }
             
-            # Process keyword results
-            for memory, keyword_score in keyword_results:
-                memory_id = memory.id
-                if memory_id in combined_dict:
-                    # Update with keyword score if entry already exists
-                    combined_dict[memory_id]["keyword_score"] = keyword_score
-                else:
-                    # Memory exists in keyword results but not in vector results
-                    # We need to create a compatible memory_data dict
-                    memory_data = {
-                        "id": memory.id,
-                        "metadata": {
-                            "content": memory.content,
-                            "memory_type": memory.memory_type.value,
-                            "created_at": memory.created_at,  # This should be a datetime object
-                            "window_id": memory.window_id
-                        },
-                        "vector": memory.semantic_vector
-                    }
-                    combined_dict[memory_id] = {
-                        "memory_data": memory_data,
-                        "vector_score": 0.0,
-                        "keyword_score": keyword_score
-                    }
+            # Process keyword results - ONLY if there are any
+            if keyword_results:
+                for memory, keyword_score in keyword_results:
+                    memory_id = memory.id
+                    if memory_id in combined_dict:
+                        # Update with keyword score if entry already exists
+                        combined_dict[memory_id]["keyword_score"] = keyword_score
+                    else:
+                        # Memory exists in keyword results but not in vector results
+                        # We need to create a compatible memory_data dict
+                        memory_data = {
+                            "id": memory.id,
+                            "metadata": {
+                                "content": memory.content,
+                                "memory_type": memory.memory_type.value,
+                                "created_at": memory.created_at,
+                                "window_id": memory.window_id
+                            },
+                            "vector": memory.semantic_vector
+                        }
+                        combined_dict[memory_id] = {
+                            "memory_data": memory_data,
+                            "vector_score": 0.0,
+                            "keyword_score": keyword_score
+                        }
             
             # Calculate combined scores (with configurable weights)
             vector_weight = self.settings.vector_search_weight if hasattr(self.settings, 'vector_search_weight') else 0.7
@@ -625,7 +616,7 @@ class MemorySystem:
             # Sort by combined score (descending)
             combined_results.sort(key=lambda x: x[1], reverse=True)
             
-            # Log result counts
+            # Log result counts (only once)
             logger.info(f"Combined results: {len(combined_results)} memories")
             
             return combined_results
