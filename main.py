@@ -587,6 +587,12 @@ async def query_memory(
         trace_id=trace_id
     )
     try:
+        enable_keyword_search = query.enable_keyword_search
+        if enable_keyword_search is None:
+            # Default to system setting if not specified in request
+            enable_keyword_search = memory_system.settings.enable_keyword_search if hasattr(memory_system.settings, 'enable_keyword_search') else True
+            
+        logger.info(f"[{trace_id}] Keyword search enabled: {enable_keyword_search}")
         logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
 
         # Check for duplicates
@@ -608,7 +614,8 @@ async def query_memory(
             top_k=memory_system.settings.semantic_top_k,
             memory_type=MemoryType.SEMANTIC,
             window_id=query.window_id,
-            request_metadata=query.request_metadata
+            request_metadata=query.request_metadata,
+            enable_keyword_search=enable_keyword_search 
         )
         semantic_results = await memory_system.query_memories(semantic_query)
         logger.info(f"[{trace_id}] Retrieved {len(semantic_results.matches)} semantic memories with weighted scores")
@@ -622,7 +629,8 @@ async def query_memory(
             top_k=memory_system.settings.episodic_top_k,
             memory_type=MemoryType.EPISODIC,
             window_id=query.window_id,
-            request_metadata=query.request_metadata
+            request_metadata=query.request_metadata,
+            enable_keyword_search=enable_keyword_search 
         )
         episodic_results = await memory_system.query_memories(episodic_query)
         logger.info(f"[{trace_id}] Retrieved {len(episodic_results.matches)} episodic memories with weighted scores")
@@ -656,7 +664,8 @@ async def query_memory(
             top_k=memory_system.settings.learned_top_k,
             memory_type=MemoryType.LEARNED,
             window_id=query.window_id,
-            request_metadata=query.request_metadata
+            request_metadata=query.request_metadata,
+            enable_keyword_search=enable_keyword_search 
         )
         learned_results = await memory_system.query_memories(learned_query)
         logger.info(f"[{trace_id}] Retrieved {len(learned_results.matches)} learned memories with weighted scores")
@@ -672,7 +681,7 @@ async def query_memory(
             learned_memories=learned_memories  # Add learned memories to prompt template
         )
         
-        # Rest of the existing function...
+        
         logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
 
         # --- Generate Response ---

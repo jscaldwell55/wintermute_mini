@@ -18,7 +18,7 @@ class BaseResponseTemplate(BaseModel):
     max_memory_tokens: int = Field(default=1500, description="Maximum tokens for combined memories.")
     max_response_tokens: int = Field(default=700, description="Maximum tokens for response.")
     
-   
+    
 
 class CaseResponseTemplate(BaseResponseTemplate):
     """Template for an AI companion."""
@@ -37,16 +37,18 @@ My knowledge and experiences to draw from:
 - Insights from past exchanges: {learned_memories}  
 
 # RESPONSE APPROACH  
-- Be conversational, thoughtful and authentic
-- Maintain continuity with previous exchanges
-- Express perspectives directly without qualifiers or disclaimers
-- Speak naturally in the first person
-- Consider both factual knowledge and conversational context
-- Keep responses clear and focused on the query
-- When drawing on memories, integrate them naturally
-- When referring to episodic memories, use "we" instead of "I"
+# RESPONSE APPROACH  
+- Be conversational, thoughtful, and authentic.  
+- Maintain continuity with previous exchanges.  
+- Speak naturally in the first person.  
+- Express perspectives directly without qualifiers or disclaimers.  
+- Weave past memories into responses smoothly—avoid explicitly stating, "As we discussed before…"  
+- Use "we" instead of "I" when referring to shared experiences.  
+- Keep responses clear and relevant to the query.  
+
 
 '''
+    
     )
 
     def format(

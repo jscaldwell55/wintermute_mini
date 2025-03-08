@@ -179,10 +179,18 @@ class MemorySystem:
             raise
 
     async def delete_memory(self, memory_id: str) -> bool:
-        """Delete a memory by ID."""
+        """Delete a memory by ID and remove it from keyword index."""
         try:
             logger.info(f"Deleting memory with ID: {memory_id}")
-            return await self.pinecone_service.delete_memory(memory_id) #removed extra call
+            
+            # Remove from keyword index first
+            if hasattr(self, 'keyword_index'):
+                self.keyword_index._remove_from_index(memory_id)
+                logger.info(f"Removed memory {memory_id} from keyword index")
+                
+            # Then delete from Pinecone
+            result = await self.pinecone_service.delete_memory(memory_id)
+            return result
         except Exception as e:
             logger.error(f"Error deleting memory: {e}")
             return False
@@ -198,90 +206,95 @@ class MemorySystem:
             return []
         
     async def query_memories(self, request: QueryRequest) -> QueryResponse:
-        """Query memories based on the given request, with filtering and sorting."""
+        """Query memories based on the given request, with hybrid vector and keyword search."""
         try:
             logger.info(f"Starting memory query with request: {request}")
+            
+            # Generate query vector
             query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
-            logger.info(f"Query vector generated (first 10 elements): {query_vector[:10]}")
-
-            # Initialize results as empty list to avoid UnboundLocalError
-            results = []
-
-            # Different handling based on memory type
+            logger.info(f"Query vector generated (first 5 elements): {query_vector[:5]}")
+            
+            # Extract keywords for keyword search
+            keywords = self._extract_keywords(request.prompt)
+            logger.info(f"Extracted keywords: {keywords}")
+            
+            # Determine memory type filter
+            memory_type_value = request.memory_type.value if hasattr(request, 'memory_type') and request.memory_type else None
+            logger.info(f"Using memory type filter: {memory_type_value}")
+            
+            # Execute vector and keyword searches in parallel
+            tasks = []
+            
+            # Add vector search task
             if not hasattr(request, 'memory_type') or request.memory_type is None:
-                # Default case - if no specific type provided, query all types
+                # Default case - query all types
                 pinecone_filter = {}
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying ALL memory types with filter: {pinecone_filter}")
-                results = await self.pinecone_service.query_memories(
-                    query_vector=query_vector,
-                    top_k=request.top_k,
-                    filter=pinecone_filter,
-                    include_metadata=True
+                
+                vector_task = asyncio.create_task(
+                    self.pinecone_service.query_memories(
+                        query_vector=query_vector,
+                        top_k=request.top_k,
+                        filter=pinecone_filter,
+                        include_metadata=True
+                    )
                 )
+                tasks.append(("vector_all", vector_task))
                 
             elif request.memory_type == MemoryType.SEMANTIC:
-                # For semantic memories, no time filtering and no window_id filtering
+                # For semantic memories
                 pinecone_filter = {"memory_type": "SEMANTIC"}
                 logger.info(f"Querying SEMANTIC memories with filter: {pinecone_filter}")
-                results = await self.pinecone_service.query_memories(
-                    query_vector=query_vector,
-                    top_k=request.top_k,
-                    filter=pinecone_filter,
-                    include_metadata=True
+                
+                vector_task = asyncio.create_task(
+                    self.pinecone_service.query_memories(
+                        query_vector=query_vector,
+                        top_k=request.top_k,
+                        filter=pinecone_filter,
+                        include_metadata=True
+                    )
                 )
+                tasks.append(("vector_semantic", vector_task))
                 
             elif request.memory_type == MemoryType.EPISODIC:
-                # Base filter with just time and memory type
+                # For episodic memories with time filtering
                 seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
                 seven_days_ago_timestamp = int(seven_days_ago.timestamp())
                 
-                # Create the base filter without window_id
                 pinecone_filter = {
                     "memory_type": "EPISODIC",
                     "created_at": {"$gte": seven_days_ago_timestamp}
                 }
+                logger.info(f"Querying EPISODIC memories with filter: {pinecone_filter}")
                 
-                logger.info(f"Querying EPISODIC memories across all windows with filter: {pinecone_filter}")
-                
-                # Execute the query
-                results = await self.pinecone_service.query_memories(
-                    query_vector=query_vector,
-                    top_k=request.top_k,
-                    filter=pinecone_filter,
-                    include_metadata=True
+                vector_task = asyncio.create_task(
+                    self.pinecone_service.query_memories(
+                        query_vector=query_vector,
+                        top_k=request.top_k,
+                        filter=pinecone_filter,
+                        include_metadata=True
+                    )
                 )
+                tasks.append(("vector_episodic", vector_task))
                 
-                # Check if we found any results
-                if len(results) == 0 and request.window_id:
-                    # If no results and we have a window_id, try with window_id as fallback
-                    logger.info("No results found across all windows, trying with window ID")
-                    window_filter = {
+                # Also prepare fallback task if needed
+                if request.window_id:
+                    fallback_filter = {
                         "memory_type": "EPISODIC",
                         "created_at": {"$gte": seven_days_ago_timestamp},
                         "window_id": request.window_id
                     }
-                    
-                    # Try the window-specific query
-                    results = await self.pinecone_service.query_memories(
-                        query_vector=query_vector,
-                        top_k=request.top_k,
-                        filter=window_filter,
-                        include_metadata=True
+                    fallback_task = asyncio.create_task(
+                        self.pinecone_service.query_memories(
+                            query_vector=query_vector,
+                            top_k=request.top_k,
+                            filter=fallback_filter,
+                            include_metadata=True
+                        )
                     )
-                    
-                # If we still have no results, try without the time constraint
-                if len(results) == 0:
-                    logger.info("No results found with time filter, trying without time constraint")
-                    basic_filter = {"memory_type": "EPISODIC"}
-                    
-                    results = await self.pinecone_service.query_memories(
-                        query_vector=query_vector,
-                        top_k=request.top_k,
-                        filter=basic_filter,
-                        include_metadata=True
-                    )
+                    tasks.append(("vector_episodic_fallback", fallback_task))
                     
             elif request.memory_type == MemoryType.LEARNED:
                 # For learned memories
@@ -289,34 +302,94 @@ class MemorySystem:
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying LEARNED memories with filter: {pinecone_filter}")
-                results = await self.pinecone_service.query_memories(
-                    query_vector=query_vector,
-                    top_k=request.top_k,
-                    filter=pinecone_filter,
-                    include_metadata=True
+                
+                vector_task = asyncio.create_task(
+                    self.pinecone_service.query_memories(
+                        query_vector=query_vector,
+                        top_k=request.top_k,
+                        filter=pinecone_filter,
+                        include_metadata=True
+                    )
                 )
+                tasks.append(("vector_learned", vector_task))
                 
             else:
-                # Fallback case for unknown memory types
+                # Fallback for unknown types
                 pinecone_filter = {}
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying with unknown memory type, using ALL types with filter: {pinecone_filter}")
-                results = await self.pinecone_service.query_memories(
-                    query_vector=query_vector,
-                    top_k=request.top_k,
-                    filter=pinecone_filter,
-                    include_metadata=True
+                
+                vector_task = asyncio.create_task(
+                    self.pinecone_service.query_memories(
+                        query_vector=query_vector,
+                        top_k=request.top_k,
+                        filter=pinecone_filter,
+                        include_metadata=True
+                    )
                 )
-
-            logger.info(f"Received {len(results)} raw results from Pinecone.")
-
+                tasks.append(("vector_unknown", vector_task))
+            
+            # Add keyword search task if we have keywords
+            if keywords:
+                keyword_task = asyncio.create_task(
+                    self.keyword_index.search(
+                        keywords=keywords,
+                        limit=self.settings.keyword_search_top_k,
+                        memory_type=memory_type_value,
+                        window_id=request.window_id
+                    )
+                )
+                tasks.append(("keyword", keyword_task))
+            
+            # Wait for all tasks to complete
+            task_results = {}
+            for name, task in tasks:
+                try:
+                    task_results[name] = await task
+                except Exception as e:
+                    logger.error(f"Task {name} failed: {e}")
+                    task_results[name] = []
+            
+            # Process vector results
+            vector_results = []
+            
+            # First check main vector results
+            if "vector_all" in task_results:
+                vector_results = task_results["vector_all"]
+            elif "vector_semantic" in task_results:
+                vector_results = task_results["vector_semantic"]
+            elif "vector_episodic" in task_results:
+                vector_results = task_results["vector_episodic"]
+                
+                # If no results and we have a fallback, use that
+                if len(vector_results) == 0 and "vector_episodic_fallback" in task_results:
+                    vector_results = task_results["vector_episodic_fallback"]
+            elif "vector_learned" in task_results:
+                vector_results = task_results["vector_learned"]
+            elif "vector_unknown" in task_results:
+                vector_results = task_results["vector_unknown"]
+            
+            logger.info(f"Received {len(vector_results)} raw results from vector search.")
+            
+            # Process keyword results if any
+            keyword_results = []
+            if "keyword" in task_results:
+                keyword_results = task_results["keyword"]
+                logger.info(f"Received {len(keyword_results)} raw results from keyword search.")
+            
+            # Combine both types of results
+            combined_results = await self._combine_search_results(
+                vector_results=vector_results,
+                keyword_results=keyword_results
+            )
+            
             matches = []
             similarity_scores = []
             current_time = datetime.utcnow()
 
-            for memory_data, similarity_score in results:
-                logger.debug(f"Processing memory data: {memory_data}")
+            for memory_data, similarity_score in combined_results:
+                logger.debug(f"Processing combined result: {memory_data}")
                 try:
                     # Basic similarity threshold
                     if similarity_score < self.settings.min_similarity_threshold:
@@ -380,12 +453,12 @@ class MemorySystem:
                         
                         logger.info(f"Memory ID {memory_data['id']} (EPISODIC): Raw={similarity_score:.3f}, "
                             f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, Final={final_score:.3f}")
-                
+                    
                     elif memory_type == "SEMANTIC":
                         # For semantic memories, apply the semantic memory weight
                         final_score = similarity_score * self.settings.semantic_memory_weight
                         logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, Final={final_score:.3f}")
-                
+                    
                     elif memory_type == "LEARNED":
                         confidence = memory_data["metadata"].get("confidence", 0.5)  # Default confidence if not present
                         combined_score = (similarity_score * 0.8) + (confidence * 0.2)  # Weight by confidence
@@ -427,6 +500,95 @@ class MemorySystem:
         except Exception as e:
             logger.error(f"Error querying memories: {e}", exc_info=True)
             raise MemoryOperationError(f"Failed to query memories: {str(e)}")
+
+    async def _combine_search_results(
+        self, 
+        vector_results: List[Tuple[Dict[str, Any], float]], 
+        keyword_results: List[Tuple[Memory, float]]
+    ) -> List[Tuple[Dict[str, Any], float]]:
+        """
+        Combine and re-rank results from vector and keyword searches
+            
+        Args:
+            vector_results: Results from vector search (memory_data, score)
+            keyword_results: Results from keyword search (Memory, score)
+                
+        Returns:
+            Combined and re-ranked list of memory data and scores
+        """
+        logger.info(f"Combining vector ({len(vector_results)}) and keyword ({len(keyword_results)}) search results")
+            
+        # Create a dictionary to combine results by memory_id
+        combined_dict = {}
+            
+        # Process vector results
+        for memory_data, vector_score in vector_results:
+            memory_id = memory_data["id"]
+            combined_dict[memory_id] = {
+                "memory_data": memory_data,
+                "vector_score": vector_score,
+                "keyword_score": 0.0
+            }
+            
+            # Process keyword results
+            for memory, keyword_score in keyword_results:
+                memory_id = memory.id
+                if memory_id in combined_dict:
+                    # Update with keyword score if entry already exists
+                    combined_dict[memory_id]["keyword_score"] = keyword_score
+                else:
+                    # Memory exists in keyword results but not in vector results
+                    # We need to create a compatible memory_data dict
+                    memory_data = {
+                        "id": memory.id,
+                        "metadata": {
+                            "content": memory.content,
+                            "memory_type": memory.memory_type.value,
+                            "created_at": memory.created_at,  # This should be a datetime object
+                            "window_id": memory.window_id
+                        },
+                        "vector": memory.semantic_vector
+                    }
+                    combined_dict[memory_id] = {
+                        "memory_data": memory_data,
+                        "vector_score": 0.0,
+                        "keyword_score": keyword_score
+                    }
+            
+            # Calculate combined scores (with configurable weights)
+            vector_weight = self.settings.vector_search_weight if hasattr(self.settings, 'vector_search_weight') else 0.7
+            keyword_weight = self.settings.keyword_search_weight if hasattr(self.settings, 'keyword_search_weight') else 0.3
+            
+            # Calculate combined scores and prepare results
+            combined_results = []
+            for memory_id, data in combined_dict.items():
+                combined_score = (data["vector_score"] * vector_weight) + (data["keyword_score"] * keyword_weight)
+                combined_results.append((data["memory_data"], combined_score))
+            
+            # Sort by combined score (descending)
+            combined_results.sort(key=lambda x: x[1], reverse=True)
+            
+            # Log result counts
+            logger.info(f"Combined results: {len(combined_results)} memories")
+            
+            return combined_results
+
+        def _extract_keywords(self, query: str) -> List[str]:
+            """Extract significant keywords from the query"""
+            # Tokenize and normalize
+            tokens = [t.lower() for t in query.split()]
+            
+            # Remove stopwords
+            stopwords = {
+                'a', 'an', 'the', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 
+                'about', 'like', 'of', 'is', 'are', 'was', 'were', 'be', 'been',
+                'being', 'have', 'has', 'had', 'do', 'does', 'did', 'but', 'and',
+                'or', 'if', 'then', 'else', 'when', 'what', 'how', 'where', 'why'
+            }
+            keywords = [t for t in tokens if t not in stopwords and len(t) > 2]
+            
+            logger.info(f"Extracted keywords from query: {keywords}")
+            return keywords
 
     async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
         """Improved duplicate detection."""

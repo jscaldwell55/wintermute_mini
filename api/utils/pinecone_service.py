@@ -5,14 +5,13 @@ from pinecone import Index, Pinecone, PodSpec
 from typing import List, Dict, Any, Tuple, Optional
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.exceptions import PineconeError, MemoryOperationError
-from api.core.memory.models import Memory
-# No tenacity needed here anymore
+from api.core.memory.models import Memory, MemoryType
 import logging
 logging.basicConfig(level=logging.INFO)
 import time
-from datetime import datetime, timezone  # Import timezone
+from datetime import datetime, timezone
 import asyncio
-from api.utils.utils import normalize_timestamp # Import the helper
+from api.utils.utils import normalize_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +56,6 @@ class PineconeService(MemoryService):
             self.pc = Pinecone(api_key=self.api_key)
             logger.info(f"Pinecone client initialized: {self.pc}")
 
-
             # Check existing indexes and create if needed
             existing_indexes = self.pc.list_indexes().names()
             logger.info(f"Existing indexes = {existing_indexes}")
@@ -67,7 +65,7 @@ class PineconeService(MemoryService):
                     name=self.index_name,
                     dimension=self.embedding_dimension,
                     metric="cosine",
-                    spec=pinecone.PodSpec(environment=self.environment)  # Corrected
+                    spec=pinecone.PodSpec(environment=self.environment)
                 )
                 logger.info(f"Index '{self.index_name}' created.")
             else:
@@ -133,7 +131,6 @@ class PineconeService(MemoryService):
             logger.error(f"❌ Failed to batch upsert memories: {e}")
             raise PineconeError(f"Failed to batch upsert memories: {e}") from e
 
-
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
         """Fetches a memory from Pinecone by its ID, parsing created_at."""
         try:
@@ -170,7 +167,6 @@ class PineconeService(MemoryService):
             logger.error(f"❌ Failed to retrieve memory from Pinecone: {e}")
             raise PineconeError(f"Failed to retrieve memory: {e}") from e
 
-
     async def update_memory(self, memory_id: str, vector: List[float], metadata: Dict[str, Any]) -> bool:
         """Updates an existing memory in Pinecone."""
         try:
@@ -191,7 +187,6 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"Failed to delete memory from Pinecone: {e}")
             raise PineconeError(f"Failed to delete memory: {e}") from e
-
 
     async def query_memories(
         self,
@@ -252,10 +247,77 @@ class PineconeService(MemoryService):
             logger.error(f"Failed to query memories from Pinecone: {e}")
             raise PineconeError(f"Failed to query memories: {e}") from e
 
+    async def get_all_memories(self, filter: Optional[Dict[str, Any]] = None, limit: int = 1000) -> List[Memory]:
+        """
+        Retrieves all memories matching the given filter (with a reasonable limit)
+        
+        Args:
+            filter: Optional filter criteria
+            limit: Maximum number of memories to return
+            
+        Returns:
+            List of Memory objects
+        """
+        try:
+            logger.info(f"Retrieving all memories with filter: {filter}, limit: {limit}")
+            
+            # We need a dummy vector for the query - use all zeros
+            dummy_vector = [0.0] * self.embedding_dimension
+            
+            # Query Pinecone with a high top_k
+            results = await self.query_memories(
+                query_vector=dummy_vector,
+                top_k=limit,
+                filter=filter,
+                include_metadata=True
+            )
+            
+            # Convert to Memory objects
+            memories = []
+            
+            for memory_data, _ in results:
+                try:
+                    memory_type_str = memory_data["metadata"].get("memory_type", "EPISODIC")
+                    
+                    memory = Memory(
+                        id=memory_data["id"],
+                        content=memory_data["metadata"]["content"],
+                        memory_type=MemoryType(memory_type_str),
+                        created_at=memory_data["metadata"]["created_at"],  # Already a datetime
+                        metadata=memory_data["metadata"],
+                        window_id=memory_data["metadata"].get("window_id"),
+                        semantic_vector=memory_data.get("vector")
+                    )
+                    memories.append(memory)
+                except Exception as e:
+                    logger.error(f"Error converting memory {memory_data['id']}: {e}")
+                    continue
+                    
+            logger.info(f"Retrieved {len(memories)} memories")
+            return memories
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve all memories: {e}")
+            raise PineconeError(f"Failed to retrieve all memories: {e}") from e
+
+    async def get_memories_by_window_id(self, window_id: str, limit: int = 100) -> List[Memory]:
+        """Retrieves memories by window ID."""
+        try:
+            logger.info(f"Retrieving memories by window ID: {window_id}")
+            
+            # Use get_all_memories with a filter for window_id
+            memories = await self.get_all_memories(
+                filter={"window_id": window_id},
+                limit=limit
+            )
+            
+            return memories
+        except Exception as e:
+            logger.error(f"Error retrieving memories by window ID: {e}")
+            return []
 
     async def delete_all_episodic_memories(self) -> None:
         """Deletes ALL episodic memories."""
-
         try:
             delete_filter = {"memory_type": "EPISODIC"}
             logger.info("Deleting ALL episodic memories.")
@@ -264,8 +326,7 @@ class PineconeService(MemoryService):
                 query_vector=[0.0] * self.embedding_dimension,
                 top_k=10000,
                 filter=delete_filter,
-                include_metadata=False,
-                include_values=False,
+                include_metadata=False
             )
             if to_delete:
                 ids_to_delete = [mem[0]['id'] for mem in to_delete]
@@ -281,8 +342,6 @@ class PineconeService(MemoryService):
             logger.error(f"Error deleting episodic memories: {e}")
             raise PineconeError(f"Failed to delete episodic memories: {e}") from e
 
-
-
     async def delete_memories(self, ids_to_delete: List[str]) -> bool:
         """Deletes memories by their IDs."""
         try:
@@ -292,47 +351,15 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"Failed to delete memories from Pinecone: {e}")
             raise PineconeError(f"Failed to delete memories: {e}") from e
-        
-    
-    async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
-        """Safe duplicate check with proper timestamp handling."""
-        try:
-            # Extract core message
-            normalized_content = ' '.join(content.lower().split())
-            if "User:" in normalized_content:
-                normalized_content = normalized_content.split("User:", 1)[1]
-            if "Assistant:" in normalized_content:
-                normalized_content = normalized_content.split("Assistant:", 1)[0]
-            
-            vector = await self.vector_operations.create_semantic_vector(normalized_content)
-        
-            # Use timestamp as number (epoch) for Pinecone
-            cutoff_time = int(time.time() - (window_minutes * 60))
-        
-            results = await self.pinecone_service.query_memories(
-                query_vector=vector,
-                top_k=5,
-                filter={
-                    "memory_type": "EPISODIC",
-                    "created_at": {"$gte": cutoff_time}  # Use epoch timestamp
-                },
-                include_metadata=True
-            )
-        
-            for memory_data, score in results:
-                if score > self.settings.duplicate_similarity_threshold:
-                    return True
-            return False
-        except Exception as e:
-            logger.warning(f"Duplicate check failed, proceeding with storage: {e}")
-            return False
+
+    # Removed the _check_recent_duplicate method as it referenced non-existent properties
 
     async def close_connections(self):
         """Closes the Pinecone index connection."""
         if self._index:
-                self._index = None
+            self._index = None
 
-    async def health_check(self) -> Dict[str, Any]: # Add async here
+    async def health_check(self) -> Dict[str, Any]:
         """Checks the health of the Pinecone service."""
         try:
             if not self.initialized or self._index is None:

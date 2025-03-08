@@ -199,7 +199,7 @@ class Settings(BaseSettings):
     # Memory Retrieval Settings
     max_memories_per_query: int = 20
     default_memories_per_query: int = 5
-    min_similarity_threshold: float = 0.25
+    min_similarity_threshold: float = 0.15
     
     # Memory Type Weights
     semantic_memory_weight: float = 0.2  # Weight for pre-populated knowledge
@@ -240,6 +240,14 @@ class Settings(BaseSettings):
     unique_ratio_weight: float = 0.15
     deduplication_window_minutes: int = 60
     duplicate_similarity_threshold: float = 0.98
+
+    # Keyword Search Settings
+    enable_keyword_search: bool = True
+    keyword_search_weight: float = 0.3
+    vector_search_weight: float = 0.7
+    keyword_search_top_k: int = 20
+    min_keyword_score_threshold: float = 0.15
+
 
     # Graph Memory Settings
     enable_graph_memory: bool = False  # Toggle for enabling/disabling graph memory (for A/B testing)
