@@ -102,18 +102,7 @@ class MemoryResponse(BaseModel):
             trace_id=memory.trace_id
         )
 
-class QueryRequest(BaseModel):
-    prompt: str = Field(..., description="The query prompt")
-    top_k: int = Field(
-        default=5,  # Default to 5
-        ge=1,
-        le=20,  # Hard limit of 20
-        description="Number of memories to retrieve (max 20)"
-    )
-    window_id: Optional[str] = Field(None, description="Optional window ID to filter context")
-    request_metadata: Optional[RequestMetadata] = None
-    # Add this new field:
-    memory_type: Optional[MemoryType] = Field(None, description="Type of memories to retrieve (EPISODIC, SEMANTIC, or LEARNED)")
+
 
 class QueryRequest(BaseModel):
     """Request model for querying memories"""
@@ -128,6 +117,15 @@ class QueryRequest(BaseModel):
     request_metadata: Optional[RequestMetadata] = None
     memory_type: Optional[MemoryType] = Field(None, description="Type of memories to retrieve (EPISODIC, SEMANTIC, or LEARNED)")
     enable_keyword_search: Optional[bool] = Field(None, description="Enable or disable keyword search")
+
+class QueryResponse(BaseModel):
+    """Response model for memory queries"""
+    matches: List[MemoryResponse] = Field(default_factory=list)  # Initialize as empty list
+    similarity_scores: List[float] = Field(default_factory=list)   # Initialize as empty list
+    response: Optional[str] = Field(None, description="Generated response from the LLM")
+    trace_id: Optional[str] = None
+    error: Optional[ErrorDetail] = None
+    metadata: Optional[Dict[str, Any]] = None # to contain success: bool
 
 
 
