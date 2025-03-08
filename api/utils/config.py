@@ -7,6 +7,8 @@ import os
 import sys
 from api.core.consolidation.config import ConsolidationConfig
 import random
+import time
+import re
 
 # Create a more sophisticated logging setup
 def configure_logging():
@@ -50,6 +52,58 @@ def configure_logging():
     )
     error_file_handler.setLevel(logging.ERROR)
     error_file_handler.setFormatter(file_format)
+    
+    class DuplicateFilter:
+        """Filter that eliminates duplicate log records within a time window."""
+        def __init__(self, window_seconds=5):
+            self.messages = {}
+            self.window_seconds = window_seconds
+            
+        def filter(self, record):
+            # Create a key from the message and logger name
+            msg = record.getMessage()
+            
+            # For patterns like "Formatting X memories" - extract just the pattern
+            if "Formatting" in msg and "memories" in msg:
+                # Extract just the pattern "Formatting X memories" without variable parts
+                pattern_match = re.search(r"Formatting \d+ \w+ memories", msg)
+                if pattern_match:
+                    key = f"{record.name}:{pattern_match.group(0)}"
+                    
+                    # Check if we've seen this message recently
+                    now = time.time()
+                    if key in self.messages:
+                        last_time = self.messages[key]
+                        if now - last_time < self.window_seconds:
+                            # Skip this message as it's a duplicate within the window
+                            return False
+                    
+                    # Update the last time we saw this message
+                    self.messages[key] = now
+            
+            # Also filter memory listing patterns
+            if "memory" in msg and "id=mem_" in msg:
+                # Create a key that ignores the specific memory ID and content
+                pattern_match = re.search(r"\w+ memory \d+:", msg)
+                if pattern_match:
+                    key = f"{record.name}:{pattern_match.group(0)}"
+                    
+                    # Check if we've seen this message recently
+                    now = time.time()
+                    if key in self.messages:
+                        last_time = self.messages[key]
+                        if now - last_time < self.window_seconds:
+                            # Skip this message as it's a duplicate within the window
+                            return False
+                    
+                    # Update the last time we saw this message
+                    self.messages[key] = now
+            
+            return True
+    
+    # Apply the filter to the main logger
+    main_logger = logging.getLogger('main')
+    main_logger.addFilter(DuplicateFilter())
     
     # Add handlers to root logger
     root_logger.addHandler(console_handler)
@@ -145,7 +199,7 @@ class Settings(BaseSettings):
     # Memory Retrieval Settings
     max_memories_per_query: int = 20
     default_memories_per_query: int = 5
-    min_similarity_threshold: float = 0.15
+    min_similarity_threshold: float = 0.25
     
     # Memory Type Weights
     semantic_memory_weight: float = 0.2  # Weight for pre-populated knowledge
