@@ -12,6 +12,8 @@ import time
 from datetime import datetime, timezone
 import asyncio
 from api.utils.utils import normalize_timestamp
+import math
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +248,83 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"Failed to query memories from Pinecone: {e}")
             raise PineconeError(f"Failed to query memories: {e}") from e
+        
+    async def sample_memories(self, limit: int = 1000, include_vector: bool = False) -> List[Memory]:
+        """
+        Get a sample of memories for building indexes
+        
+        Args:
+            limit: Maximum number of memories to retrieve
+            include_vector: Whether to include vectors in the results
+            
+        Returns:
+            List of Memory objects
+        """
+        try:
+            logger.info(f"Sampling up to {limit} memories for keyword index initialization")
+            memories = []
+            
+            # Distribute the limit across memory types
+            per_type_limit = limit // 3
+            
+            # Define memory types to sample
+            memory_types = ["SEMANTIC", "EPISODIC", "LEARNED"]
+            
+            for memory_type in memory_types:
+                try:
+                    # Query with a random vector to get a diverse sample
+                    # This is more efficient than listing all vectors and sampling
+                    import random
+                    random_vector = [random.uniform(-1, 1) for _ in range(1536)]
+                    
+                    # Normalize the vector
+                    magnitude = math.sqrt(sum(x*x for x in random_vector))
+                    normalized_vector = [x/magnitude for x in random_vector]
+                    
+                    results = await self.query_memories(
+                        query_vector=normalized_vector,
+                        top_k=per_type_limit,
+                        filter={"memory_type": memory_type},
+                        include_metadata=True,
+                        include_vector=include_vector
+                    )
+                    
+                    logger.info(f"Retrieved {len(results)} {memory_type} memories")
+                    
+                    # Convert results to Memory objects
+                    for memory_data, _ in results:
+                        try:
+                            # Parse the created_at timestamp
+                            created_at_raw = memory_data["metadata"].get("created_at")
+                            
+                            if isinstance(created_at_raw, str):
+                                created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                            else:
+                                # Handle the case where it might be an int (Unix timestamp)
+                                created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
+                            
+                            memory = Memory(
+                                id=memory_data["id"],
+                                content=memory_data["metadata"]["content"],
+                                memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                                created_at=created_at,
+                                metadata=memory_data["metadata"],
+                                window_id=memory_data["metadata"].get("window_id"),
+                                semantic_vector=memory_data.get("vector") if include_vector else None
+                            )
+                            memories.append(memory)
+                        except Exception as e:
+                            logger.warning(f"Error converting memory data to Memory: {e}", exc_info=True)
+                
+                except Exception as e:
+                    logger.warning(f"Error sampling {memory_type} memories: {e}", exc_info=True)
+            
+            logger.info(f"Successfully sampled {len(memories)} total memories")
+            return memories
+        
+        except Exception as e:
+            logger.error(f"Error sampling memories: {e}", exc_info=True)
+            return []
 
     async def get_all_memories(self, filter: Optional[Dict[str, Any]] = None, limit: int = 1000) -> List[Memory]:
         """

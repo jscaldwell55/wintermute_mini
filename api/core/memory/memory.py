@@ -32,6 +32,10 @@ class MemorySystem:
         self.settings = settings or get_settings()  # Use provided settings or get defaults
         self._initialized = False
 
+        from api.core.memory.keyword_index import KeywordIndex
+        self.keyword_index = KeywordIndex()
+        logger.info("Keyword index initialized")
+
     async def initialize(self) -> bool:
         """Initialize the memory system and its components."""
         try:
@@ -43,14 +47,28 @@ class MemorySystem:
             if hasattr(self.pinecone_service, 'initialize'):
                 await self.pinecone_service.initialize()
 
+            if not self._initialized and hasattr(self, 'keyword_index'):
+                try:
+                    # Get a sample of memories to build the initial index
+                    # Consider limiting this to avoid overloading during startup
+                    memory_samples = await self.pinecone_service.sample_memories(
+                        limit=1000,  # Adjust based on your system's capabilities
+                        include_vector=False  # We don't need vectors for keyword index
+                    )
+                    if memory_samples:
+                        logger.info(f"Building keyword index with {len(memory_samples)} initial memories")
+                        await self.keyword_index.build_index(memory_samples)
+                except Exception as e:
+                    logger.warning(f"Initial keyword index build failed, will build incrementally: {e}")
+
             self._initialized = True
             logger.info("Memory system initialized successfully")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to initialize memory system: {e}")
-            self._initialized = False
-            return False
+                logger.error(f"Failed to initialize memory system: {e}")
+                self._initialized = False
+                return False
 
     async def ensure_initialized(self) -> bool:
         """Ensure the memory system is initialized."""
@@ -146,6 +164,10 @@ class MemorySystem:
                 vector=semantic_vector,
                 metadata=memory.metadata
             )
+            if hasattr(self, 'keyword_index'):
+                # Add to keyword index
+                self.keyword_index.add_to_index(memory)
+                logger.info(f"Added memory {memory_id} to keyword index")
             if not success:
                 raise MemoryOperationError("Failed to store memory in vector database")
 
@@ -590,22 +612,7 @@ class MemorySystem:
             
             return combined_results
 
-        def _extract_keywords(self, query: str) -> List[str]:
-            """Extract significant keywords from the query"""
-            # Tokenize and normalize
-            tokens = [t.lower() for t in query.split()]
-            
-            # Remove stopwords
-            stopwords = {
-                'a', 'an', 'the', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 
-                'about', 'like', 'of', 'is', 'are', 'was', 'were', 'be', 'been',
-                'being', 'have', 'has', 'had', 'do', 'does', 'did', 'but', 'and',
-                'or', 'if', 'then', 'else', 'when', 'what', 'how', 'where', 'why'
-            }
-            keywords = [t for t in tokens if t not in stopwords and len(t) > 2]
-            
-            logger.info(f"Extracted keywords from query: {keywords}")
-            return keywords
+        
 
     async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
         """Improved duplicate detection."""
@@ -649,7 +656,7 @@ class MemorySystem:
         """Stores a user interaction (query + response) as a new episodic memory."""
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
-            # Combine query and response for embedding.  Correct format.
+            # Combine query and response for embedding. Correct format.
             interaction_text = f"User: {query}\nAssistant: {response}"
 
             # Check for duplicates *before* creating the memory object
@@ -668,23 +675,36 @@ class MemorySystem:
                 "source": "user_interaction"  # Indicate the source of this memory
             }
 
-            await self.pinecone_service.create_memory(
-                memory_id=memory_id,
+            # Create the Memory object first
+            memory = Memory(
+                id=memory_id,
+                content=interaction_text,
+                memory_type=MemoryType.EPISODIC,
+                created_at=datetime.fromtimestamp(created_at, tz=timezone.utc),  # Convert to datetime
+                metadata=metadata,
+                window_id=window_id,
+                semantic_vector=semantic_vector,
+            )
+
+            # Store in Pinecone
+            success = await self.pinecone_service.create_memory(
+                memory_id=memory.id,
                 vector=semantic_vector,
                 metadata=metadata
             )
+            
+            if not success:
+                raise MemoryOperationError("Failed to store memory in vector database")
+
             logger.info(f"Episodic memory stored successfully: {memory_id}")
 
-            # Construct and return the Memory object (important for consistency)
-            return Memory(
-            id=memory_id,
-            content=interaction_text,
-            memory_type=MemoryType.EPISODIC,
-            created_at=datetime.fromtimestamp(created_at, tz=timezone.utc),  # Convert to datetime
-            metadata=metadata,
-            window_id=window_id,
-            semantic_vector=semantic_vector,
-        )
+            # Add to keyword index if available
+            if hasattr(self, 'keyword_index') and memory:
+                # Add to keyword index
+                self.keyword_index.add_to_index(memory)
+                logger.info(f"Added interaction memory {memory_id} to keyword index")
+
+            return memory
 
         except Exception as e:
             logger.error(f"Failed to store interaction: {e}", exc_info=True)
