@@ -214,18 +214,26 @@ class PineconeService(MemoryService):
             logger.info(f"Raw Pinecone results: {str(results)[:200]}")  # Log first 200 chars
 
             memories_with_scores = []
-            for result in results['matches']:
-                logger.info(f"Processing result: {type(result)} - {str(result)[:100]}")
-                logger.info(f"Memory {result['id']}: relevance_score={result['score']:.4f}, content={result['metadata'].get('content', '')[:50]}...")
+            # Correct fix for pinecone_service.py (around line ~225) - Fully specified:
+            # In the query_memories method, where you're processing result metadata:
 
-                # Use normalize_timestamp here
+            for result in results['matches']:
                 metadata = result['metadata']
                 created_at_raw = metadata.get("created_at")
-                if isinstance(created_at_raw, str):
+                
+                # Handle different timestamp formats
+                if isinstance(created_at_raw, (int, float)):
+                    # If timestamp is numeric (Unix timestamp), convert to datetime
+                    created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
+                    metadata['created_at'] = created_at
+                elif isinstance(created_at_raw, str):
+                    # If timestamp is string, normalize and convert
                     created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
-                    metadata['created_at'] = created_at  # Store as datetime object
-
-
+                    metadata['created_at'] = created_at
+                else:
+                    logger.warning(f"Memory {result['id']}: Unexpected created_at format: {type(created_at_raw)}")
+                    metadata['created_at'] = datetime.now(timezone.utc)  # Fallback
+                
                 memory_data = {
                     'id': result['id'],
                     'metadata': metadata,  # Use the updated metadata

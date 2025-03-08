@@ -424,15 +424,14 @@ class MemorySystem:
 
             # Construct and return the Memory object (important for consistency)
             return Memory(
-                id=memory_id,
-                content=interaction_text,
-                memory_type=MemoryType.EPISODIC,
-                created_at= datetime.fromisoformat(normalize_timestamp(created_at)), # Pass datetime object
-
-                metadata=metadata,
-                window_id=window_id,
-                semantic_vector=semantic_vector,
-            )
+            id=memory_id,
+            content=interaction_text,
+            memory_type=MemoryType.EPISODIC,
+            created_at=datetime.fromtimestamp(created_at, tz=timezone.utc),  # Convert to datetime
+            metadata=metadata,
+            window_id=window_id,
+            semantic_vector=semantic_vector,
+        )
 
         except Exception as e:
             logger.error(f"Failed to store interaction: {e}", exc_info=True)
