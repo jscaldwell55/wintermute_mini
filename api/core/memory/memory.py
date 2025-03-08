@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 import uuid
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Union
 import logging
 import math
 import asyncio
@@ -566,21 +566,12 @@ class MemorySystem:
         self, 
         query: str, 
         window_id: Optional[str] = None, 
-        top_k_per_type: int = 5,
+        top_k_per_type: Union[int, Dict[MemoryType, int]] = 5,  # Accept either int or dict
         enable_keyword_search: bool = True,
         request_metadata: Optional[RequestMetadata] = None
     ) -> Dict[MemoryType, List[Tuple[MemoryResponse, float]]]:
         """
         Query all memory types in a single batched operation.
-        
-        Args:
-            query: The query text
-            window_id: Optional window ID for filtering
-            top_k_per_type: Number of memories to retrieve per type
-            enable_keyword_search: Whether to include keyword search
-            
-        Returns:
-            Dictionary mapping memory types to lists of (memory, score) tuples
         """
         logger.info(f"Starting batch memory query: '{query[:50]}...'")
         
@@ -597,16 +588,21 @@ class MemorySystem:
         query_vector = await get_cached_embedding(query)
         
         # Extract keywords once
-        keywords = []
-        if enable_keyword_search and getattr(self.settings, 'keyword_search_enabled', False):
-            keywords = self._extract_keywords(query)
+        keywords = self._extract_keywords(query) if enable_keyword_search else []
+        
         # Create tasks for each memory type
         tasks = []
         for memory_type in [MemoryType.SEMANTIC, MemoryType.EPISODIC, MemoryType.LEARNED]:
+            # Determine top_k for this memory type
+            if isinstance(top_k_per_type, dict):
+                top_k = top_k_per_type.get(memory_type, 5)  # Default to 5 if not specified
+            else:
+                top_k = top_k_per_type
+                
             # Create query request
             request = QueryRequest(
                 prompt=query,
-                top_k=top_k_per_type,
+                top_k=top_k,  # Use the type-specific top_k
                 window_id=window_id,
                 memory_type=memory_type,
                 enable_keyword_search=enable_keyword_search,
@@ -616,12 +612,11 @@ class MemorySystem:
                 )
             )
             
-            # Use the cached vector and pre-extracted keywords
+            # Use the cached vector
             task = asyncio.create_task(
                 self._query_memory_type(
                     request=request,
-                    pre_computed_vector=query_vector,
-                    pre_extracted_keywords=keywords
+                    pre_computed_vector=query_vector
                 )
             )
             tasks.append((memory_type, task))
