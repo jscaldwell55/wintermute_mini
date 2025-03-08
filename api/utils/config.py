@@ -60,8 +60,8 @@ class Settings(BaseSettings):
     min_similarity_threshold: float = 0.25
     
     # Memory Type Weights
-    semantic_memory_weight: float = 0.4  # Weight for pre-populated knowledge
-    episodic_memory_weight: float = 0.3  # Weight for recent interactions
+    semantic_memory_weight: float = 0.2  # Weight for pre-populated knowledge
+    episodic_memory_weight: float = 0.45  # Weight for recent interactions
     learned_memory_weight: float = 0.3   # Weight for consolidated insights
     
     # Memory Type Limits - NEW

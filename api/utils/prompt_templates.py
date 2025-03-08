@@ -54,7 +54,7 @@ The user has asked:
 {query}
 
 Here's relevant background to shape your response:  
-- Recent interactions & user context relevant to the query: {episodic_memories}  
+- Recent interactions and context between you and user relevant to the query: {episodic_memories}  
 - Useful knowledge on this topic: {semantic_memories}  
 - Insights gained from past exchanges: {learned_memories}  
 
