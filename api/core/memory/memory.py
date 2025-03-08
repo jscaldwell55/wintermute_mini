@@ -32,9 +32,14 @@ class MemorySystem:
         self.settings = settings or get_settings()  # Use provided settings or get defaults
         self._initialized = False
 
-        from api.core.memory.keyword_index import KeywordIndex
-        self.keyword_index = KeywordIndex()
-        logger.info("Keyword index initialized")
+        # Only initialize keyword index if enabled in settings
+        keyword_search_enabled = getattr(self.settings, 'keyword_search_enabled', False)
+        if keyword_search_enabled:
+            from api.core.memory.keyword_index import KeywordIndex
+            self.keyword_index = KeywordIndex()
+            logger.info("Keyword index initialized")
+        else:
+            logger.info("Keyword index disabled via settings")
 
     async def initialize(self) -> bool:
         """Initialize the memory system and its components."""
@@ -47,7 +52,7 @@ class MemorySystem:
             if hasattr(self.pinecone_service, 'initialize'):
                 await self.pinecone_service.initialize()
 
-            if not self._initialized and hasattr(self, 'keyword_index'):
+            if not self._initialized and hasattr(self, 'keyword_index') and getattr(self.settings, 'keyword_search_enabled', False):
                 try:
                     # Get a sample of memories to build the initial index
                     # Consider limiting this to avoid overloading during startup
