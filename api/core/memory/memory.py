@@ -221,14 +221,15 @@ class MemorySystem:
                 seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
                 seven_days_ago_timestamp = int(seven_days_ago.timestamp())
                 
+                # Create the base filter without window_id
                 pinecone_filter = {
                     "memory_type": "EPISODIC",
                     "created_at": {"$gte": seven_days_ago_timestamp}
                 }
                 
-                # First query without window ID constraint
                 logger.info(f"Querying EPISODIC memories across all windows with filter: {pinecone_filter}")
                 
+                # Execute the query
                 results = await self.pinecone_service.query_memories(
                     query_vector=query_vector,
                     top_k=request.top_k,
@@ -236,12 +237,17 @@ class MemorySystem:
                     include_metadata=True
                 )
                 
-                # If no results found and window_id is provided, try with window ID as fallback
+                # Check if we found any results
                 if len(results) == 0 and request.window_id:
+                    # If no results and we have a window_id, try with window_id as fallback
                     logger.info("No results found across all windows, trying with window ID")
-                    window_filter = pinecone_filter.copy()
-                    window_filter["window_id"] = request.window_id
+                    window_filter = {
+                        "memory_type": "EPISODIC",
+                        "created_at": {"$gte": seven_days_ago_timestamp},
+                        "window_id": request.window_id
+                    }
                     
+                    # Try the window-specific query
                     results = await self.pinecone_service.query_memories(
                         query_vector=query_vector,
                         top_k=request.top_k,
