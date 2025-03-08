@@ -500,6 +500,23 @@ class MemorySystem:
         except Exception as e:
             logger.error(f"Error querying memories: {e}", exc_info=True)
             raise MemoryOperationError(f"Failed to query memories: {str(e)}")
+        
+    def _extract_keywords(self, query: str) -> List[str]:
+        """Extract significant keywords from the query"""
+        # Tokenize and normalize
+        tokens = [t.lower() for t in query.split()]
+        
+        # Remove stopwords
+        stopwords = {
+            'a', 'an', 'the', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 
+            'about', 'like', 'of', 'is', 'are', 'was', 'were', 'be', 'been',
+            'being', 'have', 'has', 'had', 'do', 'does', 'did', 'but', 'and',
+            'or', 'if', 'then', 'else', 'when', 'what', 'how', 'where', 'why'
+        }
+        keywords = [t for t in tokens if t not in stopwords and len(t) > 2]
+        
+        logger.info(f"Extracted keywords from query: {keywords}")
+        return keywords
 
     async def _combine_search_results(
         self, 
