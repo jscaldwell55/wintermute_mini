@@ -219,12 +219,11 @@ class MemorySystem:
             elif request.memory_type == MemoryType.EPISODIC:
                 # For episodic memories, add 7-day time restriction
                 seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-                seven_days_ago_iso = seven_days_ago.isoformat() + "Z"
-
+                seven_days_ago_timestamp = int(seven_days_ago.timestamp())  # Convert to Unix timestamp (integer)
                 pinecone_filter = {
                     "memory_type": "EPISODIC",
-                    "created_at": {"$gte": seven_days_ago_iso}
-                }
+                    "created_at": {"$gte": seven_days_ago_timestamp}
+}
                 if request.window_id:
                     pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying EPISODIC memories with 7-day filter: {pinecone_filter}")
@@ -407,7 +406,7 @@ class MemorySystem:
 
             semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
             memory_id = f"mem_{uuid.uuid4().hex}"
-            created_at = datetime.now(timezone.utc).isoformat() + "Z"  # Use consistent format here
+            created_at = int(datetime.now(timezone.utc).timestamp())
             metadata = {
                 "content": interaction_text,  # Store the COMBINED text
                 "memory_type": "EPISODIC",
