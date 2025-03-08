@@ -17,6 +17,43 @@ class BaseResponseTemplate(BaseModel):
     
     max_memory_tokens: int = Field(default=1500, description="Maximum tokens for combined memories.")
     max_response_tokens: int = Field(default=700, description="Maximum tokens for response.")
+
+    class BaseResponseTemplate(BaseModel):
+        """Base template with common functionality."""
+        
+        max_memory_tokens: int = Field(default=1500, description="Maximum tokens for combined memories.")
+        max_response_tokens: int = Field(default=700, description="Maximum tokens for response.")
+        
+        def _process_memories(self, memories: Optional[List[str]]) -> str:
+            """
+            Process a list of memory contents into a formatted string.
+            
+            Args:
+                memories: List of memory contents to process
+                
+            Returns:
+                Formatted string of memories
+            """
+            if not memories or len(memories) == 0:
+                return "No relevant information found."
+                
+            # Filter out empty or None elements
+            filtered_memories = [m for m in memories if m]
+            
+            if not filtered_memories:
+                return "No relevant information found."
+                
+            # Format each memory with a bullet point
+            formatted_memories = [f"- {memory}" for memory in filtered_memories]
+            
+            # Join with newlines and limit to max_memory_tokens (approximate)
+            # This is a simple approximation - in a real system you'd use a tokenizer
+            result = "\n".join(formatted_memories)
+            
+            # Log the number of memories processed
+            logger.info(f"Processed {len(filtered_memories)} memories")
+            
+            return result
     
     
 
