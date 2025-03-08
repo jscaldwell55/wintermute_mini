@@ -214,8 +214,6 @@ class PineconeService(MemoryService):
             logger.info(f"Raw Pinecone results: {str(results)[:200]}")  # Log first 200 chars
 
             memories_with_scores = []
-            # Correct fix for pinecone_service.py (around line ~225) - Fully specified:
-            # In the query_memories method, where you're processing result metadata:
 
             for result in results['matches']:
                 metadata = result['metadata']

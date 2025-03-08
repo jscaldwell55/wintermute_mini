@@ -247,8 +247,32 @@ class MemorySystem:
                 include_metadata=True
             )
             logger.info(f"Received {len(results)} raw results from Pinecone.")
-            for i, (memory_data, score) in enumerate(results[:5]):  # Log top 5 for brevity
-                logger.info(f"Memory {i+1}: id={memory_data['id']}, score={score:.4f}, content={memory_data['metadata'].get('content', '')[:50]}...")
+
+            if request.memory_type == MemoryType.EPISODIC and len(results) == 0:
+                logger.info(f"No episodic memories found with filter: {pinecone_filter}")
+                
+                # Try a basic query without time filter
+                basic_filter = {"memory_type": "EPISODIC"}
+                if request.window_id:
+                    basic_filter["window_id"] = request.window_id
+                
+                logger.info(f"Trying basic filter: {basic_filter}")
+                
+                basic_results = await self.pinecone_service.query_memories(
+                    query_vector=query_vector,
+                    top_k=5,
+                    filter=basic_filter,
+                    include_metadata=True
+                )
+                
+                logger.info(f"Basic filter returned {len(basic_results)} results")
+                
+                # Log what we found
+                for i, (memory_data, score) in enumerate(basic_results[:3]):  # Log first 3
+                    logger.info(f"Memory {i+1}: ID={memory_data['id']}, Score={score:.4f}")
+                    logger.info(f"Content: {memory_data['metadata'].get('content', '')[:100]}...")
+                    created_at_raw = memory_data['metadata'].get('created_at')
+                    logger.info(f"Created at: {created_at_raw} (Type: {type(created_at_raw)})")
 
             matches: List[MemoryResponse] = []
             similarity_scores: List[float] = []
