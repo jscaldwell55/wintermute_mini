@@ -217,35 +217,52 @@ class MemorySystem:
                 # Remove the window_id filter for semantic memories
                 logger.info(f"Querying SEMANTIC memories with filter: {pinecone_filter}")
             elif request.memory_type == MemoryType.EPISODIC:
-                # For episodic memories, add 7-day time restriction
-                seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-                seven_days_ago_timestamp = int(seven_days_ago.timestamp())  # Convert to Unix timestamp (integer)
-                pinecone_filter = {
-                    "memory_type": "EPISODIC",
-                    "created_at": {"$gte": seven_days_ago_timestamp}
-}
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
-                logger.info(f"Querying EPISODIC memories with 7-day filter: {pinecone_filter}")
-            elif request.memory_type == MemoryType.LEARNED:
-                # For learned memories
-                pinecone_filter = {"memory_type": "LEARNED"}
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
-                logger.info(f"Querying LEARNED memories with filter: {pinecone_filter}")
-            else:
-                # Fallback case for unknown memory types
-                pinecone_filter = {}
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
-                logger.info(f"Querying with unknown memory type, using ALL types with filter: {pinecone_filter}")
 
-            results = await self.pinecone_service.query_memories(
-                query_vector=query_vector,
-                top_k=request.top_k,
-                filter=pinecone_filter,  # Fixed typo in 'filter'
-                include_metadata=True
-            )
+                # In query_memories method for episodic memories
+                if request.memory_type == MemoryType.EPISODIC:
+                    # Base filter with just time and memory type
+                    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+                    seven_days_ago_timestamp = int(seven_days_ago.timestamp())
+                    
+                    pinecone_filter = {
+                        "memory_type": "EPISODIC",
+                        "created_at": {"$gte": seven_days_ago_timestamp}
+                    }
+                    
+                    # Only add window_id in a debug/fallback capacity
+                    if request.window_id:
+                        # Log both versions of the query
+                        logger.info(f"Querying EPISODIC memories across all windows with filter: {pinecone_filter}")
+                    
+                        # Run the query without window constraints
+                        results = await self.pinecone_service.query_memories(
+                            query_vector=query_vector,
+                            top_k=request.top_k,
+                            filter=pinecone_filter,
+                            include_metadata=True
+                        )
+                        
+                        # If no results found, try with window ID as fallback
+                        if len(results) == 0:
+                            logger.info("No results found across all windows, trying with window ID")
+                            window_filter = pinecone_filter.copy()
+                            window_filter["window_id"] = request.window_id
+                            
+                            results = await self.pinecone_service.query_memories(
+                                query_vector=query_vector,
+                                top_k=request.top_k,
+                                filter=window_filter,
+                                include_metadata=True
+                            )
+                    else:
+                        # No window ID provided, just do the standard query
+                        logger.info(f"Querying EPISODIC memories with 7-day filter: {pinecone_filter}")
+                        results = await self.pinecone_service.query_memories(
+                            query_vector=query_vector,
+                            top_k=request.top_k,
+                            filter=pinecone_filter,
+                            include_metadata=True
+                        )
             logger.info(f"Received {len(results)} raw results from Pinecone.")
 
             if request.memory_type == MemoryType.EPISODIC and len(results) == 0:
