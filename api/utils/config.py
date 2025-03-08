@@ -2,16 +2,104 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, Optional
 from functools import lru_cache
 import logging
+import logging.handlers
+import os
+import sys
 from api.core.consolidation.config import ConsolidationConfig
 import random
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Create a more sophisticated logging setup
+def configure_logging():
+    """Configure logging with proper formatting and handling."""
+    # Create logs directory if it doesn't exist
+    log_dir = "logs"
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # Set up root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    
+    # Console handler with colored output for interactive use
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message).10000s',  # Allow longer messages in console
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    console_handler.setFormatter(console_format)
+    
+    # File handler for complete logs
+    file_handler = logging.handlers.RotatingFileHandler(
+        f"{log_dir}/wintermute.log",
+        maxBytes=10485760,  # 10MB
+        backupCount=10
+    )
+    file_handler.setLevel(logging.INFO)
+    file_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_format)
+    
+    # Error file handler for error logs
+    error_file_handler = logging.handlers.RotatingFileHandler(
+        f"{log_dir}/error.log",
+        maxBytes=10485760,  # 10MB
+        backupCount=10
+    )
+    error_file_handler.setLevel(logging.ERROR)
+    error_file_handler.setFormatter(file_format)
+    
+    # Add handlers to root logger
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(error_file_handler)
+    
+    # Configure specific loggers
+    pinecone_logger = logging.getLogger('api.utils.pinecone_service')
+    pinecone_logger.setLevel(logging.INFO)
+    
+    # Configure memory logger
+    memory_logger = logging.getLogger('api.core.memory')
+    memory_logger.setLevel(logging.INFO)
+    
+    # Set up special handler for Pinecone with truncation handling
+    pinecone_handler = logging.StreamHandler(sys.stdout)
+    pinecone_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message).2000s',  # Limit to 2000 chars per message
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    pinecone_handler.setFormatter(pinecone_format)
+    
+    # Don't inherit parent handlers to avoid duplicate logging
+    pinecone_logger.propagate = False
+    pinecone_logger.addHandler(pinecone_handler)
+    
+    # Add file handler for pinecone logging (full, non-truncated logs)
+    pinecone_file_handler = logging.handlers.RotatingFileHandler(
+        f"{log_dir}/pinecone.log",
+        maxBytes=10485760,  # 10MB
+        backupCount=5
+    )
+    pinecone_file_handler.setFormatter(file_format)
+    pinecone_logger.addHandler(pinecone_file_handler)
+    
+    return root_logger
 
+# Initialize logging
+logger = configure_logging()
 logger.info("config.py is being imported")
 
 class Settings(BaseSettings):
     """Application settings."""
+    
+    # Logging Settings
+    log_level: str = "INFO"
+    console_log_truncate_length: int = 2000  # Max characters to show in console logs
+    file_log_max_size: int = 10485760  # 10MB
+    file_log_backup_count: int = 10   # Keep 10 backup files
+    enable_detailed_pinecone_logging: bool = True
 
     # API Keys
     openai_api_key: str
@@ -54,7 +142,7 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100
     rate_limit_window: int = 3600  # 1 hour in seconds
 
- # Memory Retrieval Settings
+    # Memory Retrieval Settings
     max_memories_per_query: int = 20
     default_memories_per_query: int = 5
     min_similarity_threshold: float = 0.15
@@ -126,16 +214,57 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="allow"
     )
 
+    def configure_loggers(self):
+        """Apply logging settings after loading."""
+        # Update log levels based on settings
+        logging.getLogger().setLevel(getattr(logging, self.log_level))
+        
+        # Update formatters with configured truncation length
+        for handler in logging.getLogger().handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                formatter = logging.Formatter(
+                    f'%(asctime)s - %(name)s - %(levelname)s - %(message).{self.console_log_truncate_length}s',
+                    datefmt='%Y-%m-%d %H:%M:%S'
+                )
+                handler.setFormatter(formatter)
+        
+        # Configure the Pinecone service logger specifically
+        if not self.enable_detailed_pinecone_logging:
+            pinecone_logger = logging.getLogger('api.utils.pinecone_service')
+            # Remove any existing handlers
+            for handler in pinecone_logger.handlers[:]:
+                pinecone_logger.removeHandler(handler)
+            
+            # Add simplified handler
+            simple_handler = logging.StreamHandler(sys.stdout)
+            simple_format = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message).200s',  # Very short truncation
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            simple_handler.setFormatter(simple_format)
+            pinecone_logger.addHandler(simple_handler)
+
 
 @lru_cache()
 def get_settings() -> Settings:
     """Create and cache settings instance."""
     logger.info("Creating Settings instance")
     settings = Settings()
-    logger.info(f"Pinecone API Key: {settings.pinecone_api_key}")
+    
+    # Apply logging configuration from settings
+    settings.configure_loggers()
+    
+    logger.info(f"Pinecone API Key: {settings.pinecone_api_key[:5]}..." if settings.pinecone_api_key else "No Pinecone API Key")
     logger.info(f"Pinecone Environment: {settings.pinecone_environment}")
     logger.info(f"Pinecone Index Name: {settings.pinecone_index_name}")
-    # Removed VAPI logging
+    
+    # Configure log levels based on environment
+    if settings.environment == "production":
+        logger.info("Production environment detected, setting console log level to WARNING")
+        for handler in logging.getLogger().handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                handler.setLevel(logging.WARNING)
+    
     return settings
 
 @lru_cache()
