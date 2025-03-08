@@ -18,28 +18,7 @@ class BaseResponseTemplate(BaseModel):
     max_memory_tokens: int = Field(default=1500, description="Maximum tokens for combined memories.")
     max_response_tokens: int = Field(default=700, description="Maximum tokens for response.")
     
-    def _process_memories(self, memories: Optional[List[str]], limit: int = 3) -> str:
-        """Process and deduplicate memories."""
-        if not memories:
-            return "None available yet."
-            
-        # Add deduplication
-        unique_memories = []
-        memory_hashes = set()
-    
-        for memory in memories:
-            # Create a simple hash of the memory content
-            memory_hash = hash(memory[:50])  # First 50 chars should be enough for similarity
-        
-            if memory_hash not in memory_hashes:
-                memory_hashes.add(memory_hash)
-                unique_memories.append(memory)
-    
-        # Format as bullet points and limit
-        memories_str = "\n".join([f"- {memory}" for memory in unique_memories[:limit]])
-        logger.info(f"Processed {len(memories)} memories to {len(unique_memories)} unique items")
-        
-        return memories_str
+   
 
 class CaseResponseTemplate(BaseResponseTemplate):
     """Template for an AI companion."""
