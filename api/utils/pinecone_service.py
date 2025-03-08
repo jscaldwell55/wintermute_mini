@@ -220,26 +220,32 @@ class PineconeService(MemoryService):
             for result in results['matches']:
                 metadata = result['metadata']
                 created_at_raw = metadata.get("created_at")
-                
-                # Handle different timestamp formats
-                if isinstance(created_at_raw, (int, float)):
-                    # If timestamp is numeric (Unix timestamp), convert to datetime
-                    created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
-                    metadata['created_at'] = created_at
-                elif isinstance(created_at_raw, str):
-                    # If timestamp is string, normalize and convert
-                    created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
-                    metadata['created_at'] = created_at
-                else:
-                    logger.warning(f"Memory {result['id']}: Unexpected created_at format: {type(created_at_raw)}")
-                    metadata['created_at'] = datetime.now(timezone.utc)  # Fallback
-                
+            
+                # Handle different timestamp formats with better error handling
+                try:
+                    if isinstance(created_at_raw, (int, float)):
+                        # If timestamp is numeric (Unix timestamp), convert to datetime
+                        created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
+                    elif isinstance(created_at_raw, str):
+                        # If timestamp is string, normalize and convert
+                        normalized = created_at_raw.replace('Z', '').replace('+00:00', '')
+                        created_at = datetime.fromisoformat(normalized + '+00:00')
+                    else:
+                        logger.warning(f"Memory {result['id']}: Unexpected created_at format: {type(created_at_raw)}")
+                        created_at = datetime.now(timezone.utc)  # Fallback
+                except Exception as e:
+                    logger.warning(f"Error processing timestamp for memory {result['id']}: {e}")
+                    created_at = datetime.now(timezone.utc)  # Fallback on any error
+            
+                # Update metadata with processed datetime
+                metadata['created_at'] = created_at
+            
                 memory_data = {
                     'id': result['id'],
                     'metadata': metadata,  # Use the updated metadata
                     'vector': result.get('values', [0.0] * self.embedding_dimension),
-                    'content': result['metadata'].get('content', ''),
-                    'memory_type': result['metadata'].get('memory_type', 'EPISODIC')
+                    'content': metadata.get('content', ''),
+                    'memory_type': metadata.get('memory_type', 'EPISODIC')
                 }
                 memories_with_scores.append((memory_data, result['score']))
             return memories_with_scores
