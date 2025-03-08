@@ -567,7 +567,8 @@ class MemorySystem:
         query: str, 
         window_id: Optional[str] = None, 
         top_k_per_type: int = 5,
-        enable_keyword_search: bool = True
+        enable_keyword_search: bool = True,
+        request_metadata: Optional[RequestMetadata] = None
     ) -> Dict[MemoryType, List[Tuple[MemoryResponse, float]]]:
         """
         Query all memory types in a single batched operation.
@@ -609,7 +610,7 @@ class MemorySystem:
                 window_id=window_id,
                 memory_type=memory_type,
                 enable_keyword_search=enable_keyword_search,
-                request_metadata=RequestMetadata(
+                request_metadata=request_metadata or RequestMetadata(
                     operation_type=OperationType.QUERY,
                     window_id=window_id
                 )
