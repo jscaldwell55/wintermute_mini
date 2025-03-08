@@ -53,7 +53,7 @@ The user has asked:
 {query}
 
 My knowledge and experiences to draw from:  
-- Recent conversations: {episodic_memories}  
+- Recent exchanges between you as the assistant and the user: {episodic_memories}  
 - Background knowledge: {semantic_memories}  
 - Insights from past exchanges: {learned_memories}  
 
