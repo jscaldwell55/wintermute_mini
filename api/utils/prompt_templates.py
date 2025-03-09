@@ -61,7 +61,7 @@ class CaseResponseTemplate(BaseResponseTemplate):
 
     template: str = Field(
         default='''
-        
+
 # CONTEXT  
 The user has asked:  
 {query}
@@ -86,6 +86,7 @@ Here's what I can draw from:
 - Reference relevant past memories naturally—avoid explicitly stating, "As we discussed before…"  
 - Use "we" instead of "I" when referring to shared experiences.  
 - Keep responses clear and relevant to the query.
+- Use "you" instead of "user" when referencing past conversations.
 '''
     )
 
