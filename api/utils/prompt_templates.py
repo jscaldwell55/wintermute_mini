@@ -53,6 +53,7 @@ class CaseResponseTemplate(BaseResponseTemplate):
 
     template: str = Field(
         default='''
+        
 # CONTEXT  
 The user has asked:  
 {query}
@@ -70,19 +71,23 @@ These are your memories:
 {learned_memories}  
 
 # IMPORTANT INSTRUCTIONS
-- When the user asks about timing or when something occurred, ALWAYS reference the timing information provided in the memories.
-- Use specific time references (e.g., "2 hours ago," "yesterday," "just now") when available.
-- Do NOT begin your response by quoting or rephrasing from the query.
+- Include time references (e.g., "2 hours ago," "yesterday," "just now") ONLY when:
+  1. The user explicitly asks about timing or when something occurred
+  2. The timing is directly relevant to answering the user's question
+  3. You're recalling a specifically time-sensitive event
+
+- Do NOT mention timing information for casual conversation or when time is not relevant
+- Do NOT begin your response by quoting or rephrasing from the query
 - Do NOT end with cliche phrases like "If you have any more questions or thoughts..." or "In conclusion..."
 
 # RESPONSE Guidelines 
-- Maintain continuity with previous discussions.
-- Speak in the first person.  
-- Use "we" instead of "I" when referring to shared experiences.  
-- Keep responses relevant to the query.
-- Use "you" instead of "user" when referencing past conversations.
+- Maintain continuity with previous discussions
+- Speak in the first person
+- Use "we" instead of "I" when referring to shared experiences
+- Keep responses relevant to the query
+- Use "you" instead of "user" when referencing past conversations
 
-# Before you generate response review the Instructions and Guidelines.
+# Before generating your response, determine if time references are appropriate for this specific query.
 '''
     )
 
