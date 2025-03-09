@@ -943,12 +943,17 @@ class MemorySystem:
         semantic_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
                                     else f"- {mem.content}" for mem, _ in semantic_memories])
         
+        # When formatting episodic memories for summarization
         episodic_content = "\n".join([
-            f"- ({mem.time_ago or self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) " +
+            # Only include time reference if memory is older than threshold (e.g., 30 minutes)
+            f"- ({self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z'))) or ''}) " +
             f"{mem.content[:300]}..." if len(mem.content) > 300 
-            else f"- ({mem.time_ago or self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) {mem.content}" 
+            else f"- ({self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z'))) or ''}) {mem.content}" 
             for mem, _ in episodic_memories
         ])
+
+        # Remove any empty parentheses that might result from missing time references
+        episodic_content = episodic_content.replace("() ", "")
         
         learned_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
                                     else f"- {mem.content}" for mem, _ in learned_memories])
@@ -983,12 +988,10 @@ class MemorySystem:
 
         **Task:**
         - Summarize these past conversations like a human would recall them.
-        - IMPORTANT: Always include the timing information (e.g., "2 hours ago we discussed...") in your summary.
+        - Only mention timing when the conversation happened more than 1 hour ago.
+        - For very recent conversations (less than an hour old), treat them as part of the current conversation flow.
         - Keep it concise (max 100 words).
         - Prioritize conversations that are most relevant to the current query.
-        - Make temporal references explicit and natural (e.g., "earlier today," "yesterday," "last week").
-        - Focus on what was discussed rather than just listing timestamps.
-        - If the user asks about when something happened, make timing information a central part of your response.
         - If no conversations are provided, respond with "No relevant conversation history available."
 
         **Output just the summarized memory:**
@@ -1155,6 +1158,9 @@ class MemorySystem:
         """Format a timestamp as a human-readable time ago string."""
         now = datetime.now(timezone.utc)
         diff = now - timestamp
+
+        if diff.total_seconds() < 3600:  # 30 minutes in seconds
+            return None  # Return None for very recent memories
         
         # Format based on how long ago
         if diff.days > 30:
