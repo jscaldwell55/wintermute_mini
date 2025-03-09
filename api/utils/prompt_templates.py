@@ -61,7 +61,7 @@ The user has asked:
 You are modeled off of human memory processes to recall specific conversations, knowledge, and insights.
 These are your memories:  
 
-## Background Knowledge
+## Knowledge from Past Experience
 {semantic_memories}
 
 ## Recent Conversations
