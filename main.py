@@ -607,72 +607,37 @@ async def query_memory(
                 metadata={"success": True, "duplicate": True}
             )
 
-        # === USE BATCH MEMORY SYSTEM QUERY INSTEAD OF INDIVIDUAL CALLS ===
-        # Batch query all memory types in one operation with their respective settings
+        # Batch query all memory types in one operation
         memory_results = await memory_system.batch_query_memories(
             query=query.prompt,
             window_id=query.window_id,
-            top_k_per_type={
-                MemoryType.SEMANTIC: memory_system.settings.semantic_top_k,
-                MemoryType.EPISODIC: memory_system.settings.episodic_top_k,
-                MemoryType.LEARNED: memory_system.settings.learned_top_k
-            },
+            top_k_per_type=5,
             enable_keyword_search=enable_keyword_search,
             request_metadata=query.request_metadata
         )
 
-        # Process semantic memories
+        # Get results by memory type
         semantic_memories_raw = memory_results.get(MemoryType.SEMANTIC, [])
-        logger.info(f"[{trace_id}] Retrieved {len(semantic_memories_raw)} semantic memories with weighted scores")
-        # Extract semantic memory content
-        semantic_memories = [memory.content for memory, _ in semantic_memories_raw]
-
-        # Process episodic memories
         episodic_memories_raw = memory_results.get(MemoryType.EPISODIC, [])
-        logger.info(f"[{trace_id}] Retrieved {len(episodic_memories_raw)} episodic memories with weighted scores")
-
-        # Extract and format episodic memory content with time ago
-        episodic_memories = []
-        for memory, _ in episodic_memories_raw:
-            created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
-            time_ago_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
-            
-            # Format the time ago string
-            if time_ago_seconds < 60:
-                time_str = f"{int(time_ago_seconds)} seconds ago"
-            elif time_ago_seconds < 3600:
-                time_str = f"{int(time_ago_seconds / 60)} minutes ago"
-            elif time_ago_seconds < 86400:
-                time_str = f"{int(time_ago_seconds / 3600)} hours ago"
-            else:
-                time_str = f"{int(time_ago_seconds / 86400)} days ago"
-                
-            # Create a formatted memory entry with time prefix
-            memory_entry = f"{time_str}: {memory.content[:200]}"
-            episodic_memories.append(memory_entry)
-            
-        # Log detailed episodic memory information
-        if episodic_memories_raw:
-            logger.info(f"Formatting {len(episodic_memories_raw)} episodic memories")
-            for i, (memory, _) in enumerate(episodic_memories_raw):
-                logger.info(f"Episodic memory {i+1}: id={memory.id}, created_at={memory.created_at}, content={memory.content[:100]}...")
-
-        # Process learned memories
         learned_memories_raw = memory_results.get(MemoryType.LEARNED, [])
-        logger.info(f"[{trace_id}] Retrieved {len(learned_memories_raw)} learned memories with weighted scores")
-        # Extract learned memory content
-        learned_memories = [memory.content for memory, _ in learned_memories_raw]
 
-        # Construct the prompt
+        logger.info(f"[{trace_id}] Retrieved {len(semantic_memories_raw)} semantic, {len(episodic_memories_raw)} episodic, and {len(learned_memories_raw)} learned memories")
+
+        # Process memories through the summarization agent
+        summarized_memories = await memory_system.memory_summarization_agent(
+            query=query.prompt,
+            semantic_memories=semantic_memories_raw,
+            episodic_memories=episodic_memories_raw,
+            learned_memories=learned_memories_raw
+        )
+
+        # Construct the prompt with summarized memories
         prompt = case_response_template.format(
             query=query.prompt,
-            semantic_memories=semantic_memories,
-            episodic_memories=episodic_memories,
-            learned_memories=learned_memories  # Add learned memories to prompt template
+            semantic_memories=summarized_memories.get("semantic", "No relevant background knowledge available."),
+            episodic_memories=summarized_memories.get("episodic", "No relevant conversation history available."),
+            learned_memories=summarized_memories.get("learned", "No relevant insights available yet.")
         )
-        
-        
-        logger.info(f"[{trace_id}] Sending prompt to LLM: {prompt[:200]}...")
 
         # --- Generate Response ---
         # ADD RANDOM TEMPERATURE HERE

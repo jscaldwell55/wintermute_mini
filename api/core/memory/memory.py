@@ -15,7 +15,8 @@ from api.core.memory.models import (Memory, MemoryType, CreateMemoryRequest,
                                       MemoryResponse, QueryRequest, QueryResponse,
                                       RequestMetadata, OperationType, ErrorDetail)
 from api.core.memory.exceptions import MemoryOperationError
-from api.utils.utils import normalize_timestamp  # 
+from api.utils.utils import normalize_timestamp  
+from api.utils.llm_service import LLMService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,10 +26,12 @@ class MemorySystem:
         self,
         pinecone_service: MemoryService,
         vector_operations: VectorOperations,
+        llm_service: LLMService,
         settings: Optional[Settings] = None  # Allow optional settings
     ):
         self.pinecone_service = pinecone_service
         self.vector_operations = vector_operations
+        self.llm_service = llm_service
         self.settings = settings or get_settings()  # Use provided settings or get defaults
         self._initialized = False
 
@@ -871,6 +874,134 @@ class MemorySystem:
             logger.error(f"Error combining search results: {e}", exc_info=True)
             # Return an empty list if there's an error, not None
             return []
+
+    async def memory_summarization_agent(
+        self,
+        query: str,
+        semantic_memories: List[Tuple[MemoryResponse, float]],
+        episodic_memories: List[Tuple[MemoryResponse, float]],
+        learned_memories: List[Tuple[MemoryResponse, float]]
+    ) -> Dict[str, str]:
+        """
+        Use an LLM to process retrieved memories into more human-like summaries.
+        
+        Args:
+            query: The user query
+            semantic_memories: Semantic memories with scores
+            episodic_memories: Episodic memories with scores
+            learned_memories: Learned memories with scores
+            
+        Returns:
+            Dictionary with summarized memories by type
+        """
+        logger.info(f"Processing memories with summarization agent for query: {query[:50]}...")
+        
+        # Format memories for summarization
+        semantic_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
+                                    else f"- {mem.content}" for mem, _ in semantic_memories])
+        
+        episodic_content = "\n".join([f"- ({self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) "
+                                    f"{mem.content[:300]}..." if len(mem.content) > 300 
+                                    else f"- ({self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) {mem.content}" 
+                                    for mem, _ in episodic_memories])
+        
+        learned_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
+                                    else f"- {mem.content}" for mem, _ in learned_memories])
+        
+        # Create separate prompts for each memory type
+        semantic_prompt = f"""
+        You are an AI memory processor helping a conversational AI recall knowledge.
+        
+        **User Query:** "{query}"
+        
+        **Retrieved Knowledge Fragments:**
+        {semantic_content or "No relevant knowledge found."}
+        
+        **Task:**
+        - Synthesize this knowledge like a human would recall facts and information.
+        - Keep it concise but informative (max 150 words).
+        - Prioritize details that are most relevant to the current query.
+        - Connect related concepts naturally.
+        - Make it feel like knowledge a person would have, not like search results.
+        - If no knowledge is provided, respond with "No relevant background knowledge available."
+        
+        **Output just the synthesized knowledge:**
+        """
+        
+        episodic_prompt = f"""
+        You are an AI memory processor helping a conversational AI recall past conversations.
+        
+        **User Query:** "{query}"
+        
+        **Retrieved Conversation Fragments:**
+        {episodic_content or "No relevant conversations found."}
+        
+        **Task:**
+        - Summarize these past conversations like a human would recall them.
+        - Keep it concise (max 100 words).
+        - Prioritize conversations that are most relevant to the current query.
+        - Make it feel like natural memories of past interactions, including time references.
+        - Focus on what was discussed rather than listing timestamps.
+        - If no conversations are provided, respond with "No relevant conversation history available."
+        
+        **Output just the summarized memory:**
+        """
+        
+        learned_prompt = f"""
+        You are an AI memory processor helping a conversational AI recall learned insights.
+        
+        **User Query:** "{query}"
+        
+        **Retrieved Insights:**
+        {learned_content or "No relevant insights found."}
+        
+        **Task:**
+        - Synthesize these insights like a human would recall their own conclusions and lessons.
+        - Keep it concise and focused (max 80 words).
+        - Prioritize insights that are most relevant to the current query.
+        - Make it feel like a personal reflection rather than a data report.
+        - If no insights are provided, respond with "No relevant insights available yet."
+        
+        **Output just the synthesized insights:**
+        """
+        
+        # Process each memory type in parallel
+        summaries = {}
+        
+        # Only summarize if we have content
+        tasks = []
+        if semantic_content:
+            tasks.append(("semantic", asyncio.create_task(
+                self.llm_service.generate_gpt_response_async(semantic_prompt, model="gpt-3.5-turbo", temperature=0.7)
+            )))
+        else:
+            summaries["semantic"] = "No relevant background knowledge available."
+            
+        if episodic_content:
+            tasks.append(("episodic", asyncio.create_task(
+                self.llm_service.generate_gpt_response_async(episodic_prompt, model="gpt-3.5-turbo", temperature=0.7)
+            )))
+        else:
+            summaries["episodic"] = "No relevant conversation history available."
+            
+        if learned_content:
+            tasks.append(("learned", asyncio.create_task(
+                self.llm_service.generate_gpt_response_async(learned_prompt, model="gpt-3.5-turbo", temperature=0.7)
+            )))
+        else:
+            summaries["learned"] = "No relevant insights available yet."
+        
+        # Wait for all summarization tasks to complete
+        for memory_type, task in tasks:
+            try:
+                result = await task
+                summaries[memory_type] = result.strip()
+                logger.info(f"Memory summarization for {memory_type} completed: {result[:100]}...")
+            except Exception as e:
+                logger.error(f"Memory summarization for {memory_type} failed: {e}")
+                summaries[memory_type] = f"Error processing {memory_type} memories."
+        
+        return summaries
 
         
 

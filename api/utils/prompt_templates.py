@@ -61,63 +61,64 @@ class CaseResponseTemplate(BaseResponseTemplate):
 
     template: str = Field(
         default='''
-
-
+        
 # CONTEXT  
 The user has asked:  
 {query}
 
 Like human memory, I recall past conversations, knowledge, and learned insights to provide thoughtful responses.  
-Here’s what I can draw from:  
-- Recent exchanges between us: {episodic_memories}  
-- Background knowledge: {semantic_memories}  
-- Insights from past interactions: {learned_memories}  
+Here's what I can draw from:  
+
+## Background Knowledge
+{semantic_memories}
+
+## Recent Conversations
+{episodic_memories}  
+
+## Personal Insights
+{learned_memories}  
 
 # RESPONSE APPROACH  
 - Be conversational, thoughtful, and authentic.  
 - Maintain continuity with previous exchanges.  
 - Speak naturally in the first person.  
 - Express perspectives directly without qualifiers or disclaimers.  
-- Weave past memories into responses smoothly—avoid explicitly stating, "As we discussed before…"  
+- Reference relevant past memories naturally—avoid explicitly stating, "As we discussed before…"  
 - Use "we" instead of "I" when referring to shared experiences.  
-- Keep responses clear and relevant to the query.  
-
-
-
+- Keep responses clear and relevant to the query.
 '''
-    
     )
 
     def format(
         self, 
         query: str, 
-        semantic_memories: Optional[List[str]] = None, 
-        episodic_memories: Optional[List[str]] = None, 
-        learned_memories: Optional[List[str]] = None
+        semantic_memories: str = None, 
+        episodic_memories: str = None, 
+        learned_memories: str = None
     ) -> str:
         """
-        Formats the prompt with memory handling.
+        Formats the prompt with summarized memories.
         
         Args:
             query: User query
-            semantic_memories: List of semantic memory contents
-            episodic_memories: List of episodic memory contents
-            learned_memories: List of learned memory contents
+            semantic_memories: Summarized semantic memories (string)
+            episodic_memories: Summarized episodic memories (string)
+            learned_memories: Summarized learned memories (string)
                 
         Returns:
             Formatted prompt string
         """
-        # Process memories using the base class method
-        semantic_memories_str = self._process_memories(semantic_memories)
-        episodic_memories_str = self._process_memories(episodic_memories)
-        learned_memories_str = self._process_memories(learned_memories)
+        # Set defaults for missing memory types
+        semantic_memories = semantic_memories or "No relevant background knowledge available."
+        episodic_memories = episodic_memories or "No relevant conversation history available."
+        learned_memories = learned_memories or "No relevant insights available yet."
         
         # Format the template with the processed memories
         formatted = self.template.format(
             query=query,
-            semantic_memories=semantic_memories_str,
-            episodic_memories=episodic_memories_str,
-            learned_memories=learned_memories_str
+            semantic_memories=semantic_memories,
+            episodic_memories=episodic_memories,
+            learned_memories=learned_memories
         )
         
         return formatted.strip()
