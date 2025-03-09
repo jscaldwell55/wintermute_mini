@@ -87,6 +87,7 @@ Here's what I can draw from:
 - Use "we" instead of "I" when referring to shared experiences.  
 - Keep responses clear and relevant to the query.
 - Use "you" instead of "user" when referencing past conversations.
+- Be careful not to overuse cliche conversational phrases like comparative clauses. 
 '''
     )
 
