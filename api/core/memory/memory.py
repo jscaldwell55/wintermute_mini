@@ -1193,6 +1193,58 @@ class MemorySystem:
             window_id=window_id
         )
         return memory.id if memory else None
+    
+    async def cleanup_old_episodic_memories(self, days: Optional[int] = None) -> int:
+        """
+        Delete episodic memories older than the specified number of days.
+        
+        Args:
+            days: Number of days to keep memories (defaults to settings value)
+            
+        Returns:
+            Number of memories deleted
+        """
+        try:
+            # Use provided days or fall back to settings
+            retention_days = days or self.settings.episodic_memory_ttl_days
+            
+            # Calculate cutoff timestamp
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
+            cutoff_timestamp = int(cutoff_date.timestamp())
+            
+            logger.info(f"Cleaning up episodic memories older than {retention_days} days (before {cutoff_date.isoformat()})")
+            
+            # Query for old episodic memories
+            filter_dict = {
+                "memory_type": "EPISODIC",
+                "created_at": {"$lt": cutoff_timestamp}  # Less than cutoff
+            }
+            
+            # Generate a vector for the query (doesn't matter what vector since we're filtering by metadata)
+            dummy_vector = [0] * 1536  # Use dimensionality of your vectors
+            
+            # Get memories to delete (limit batch size for performance)
+            old_memories = await self.pinecone_service.query_memories(
+                query_vector=dummy_vector,
+                top_k=1000,  # Reasonable batch size
+                filter=filter_dict,
+                include_metadata=False  # Don't need full metadata for deletion
+            )
+            
+            # Delete each memory
+            deleted_count = 0
+            for memory_data, _ in old_memories:
+                memory_id = memory_data["id"]
+                success = await self.delete_memory(memory_id)
+                if success:
+                    deleted_count += 1
+            
+            logger.info(f"Successfully deleted {deleted_count} old episodic memories")
+            return deleted_count
+            
+        except Exception as e:
+            logger.error(f"Error cleaning up old episodic memories: {e}", exc_info=True)
+            return 0
 
     async def health_check(self):
         """Checks the health of the memory system."""

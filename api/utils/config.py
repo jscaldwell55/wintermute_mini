@@ -216,6 +216,8 @@ class Settings(BaseSettings):
     episodic_recency_weight: float = 0.3  # Weight for recency in scoring
     episodic_recent_hours: int = 48     # Hours considered "recent" (higher priority)
     episodic_decay_factor: float = 120  # Controls exponential decay rate for older memories
+    episodic_memory_ttl_days: int = 30  # Time-to-live for episodic memories in days
+    auto_delete_old_memories: bool = True  # Toggle for the auto-deletion feature
     
     # Semantic Memory Settings - NEW
     semantic_min_words: int = 5  # Minimum word count for semantic memories

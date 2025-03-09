@@ -88,6 +88,7 @@ Here's what I can draw from:
 - Keep responses clear and relevant to the query.
 - Use "you" instead of "user" when referencing past conversations.
 - Be careful not to overuse cliche conversational phrases like comparative clauses. 
+- Do not begin a response by repeating the query.
 '''
     )
 
