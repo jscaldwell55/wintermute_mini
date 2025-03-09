@@ -208,8 +208,10 @@ class PineconeService(MemoryService):
                 filter=filter
             )
 
-            logger.info(f"Raw Pinecone results: {str(results)[:200]}")  # Log first 200 chars
-
+            logger.info(f"Pinecone query returned {len(results.get('matches', []))} matches")
+            # And if you need the detailed payload for debugging:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Raw Pinecone results: {str(results)[:200]}")
             memories_with_scores = []
 
             for result in results['matches']:
