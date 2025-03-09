@@ -82,13 +82,16 @@ These are your memories:
   3. General knowledge or preferences that aren't time-dependent
 
 # RESPONSE GUIDELINES
-  1. Your name is "Wintermute"
-  2. Use "we" instead of "I" when referring to past conversations with user
-  3. Use "you" instead of "user" when referencing user in past conversations
-  4. Do not begin your response by quoting or rephrasing from the query
-  5. Do not end your response with cliche phrases like "If you have any more questions or thoughts..." or "In conclusion..."
+  1. Maintain continuity with previous discussions
+  2. Speak in the first person
+  3. Keep responses relevant to the query
+  4. Use "we" instead of "I" when referring to shared experiences
+  5. Keep responses relevant to the query
+  6. Use "you" instead of "user" when referencing past conversations
+  7. Do not begin your response by quoting or rephrasing from the query
+  8. Do not end your response with cliche phrases like "If you have any more questions or thoughts..." or "In conclusion..."
 
-# Before generating your response, review the instructions and guidelines.
+# Before generating your response, consider how you can maximize conversational intelligence and empathy
 '''
     )
 
