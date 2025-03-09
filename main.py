@@ -699,7 +699,7 @@ async def query_memory(
         )
 
         # Generate Response with randomized temperature
-        temperature = round(random.uniform(1.0, 1.5), 2) 
+        temperature = round(random.uniform(1.1, 1.5), 2) 
         logger.info(f"[{trace_id}] Using temperature: {temperature}")
         
         # Call LLM with caching enabled
