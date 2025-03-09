@@ -705,7 +705,7 @@ async def query_memory(
         # Call LLM with caching enabled
         response = await llm_service.generate_response_async(
             prompt,
-            max_tokens=700,
+            max_tokens=1000,
             temperature=temperature,
             use_cache=use_cache,
             window_id=query.window_id

@@ -1096,7 +1096,7 @@ class MemorySystem:
     def _select_memories_for_prompt(
         self, 
         memories: List[Tuple[MemoryResponse, float]], 
-        max_tokens: int = 1500,
+        max_tokens: int = 1000,
         max_memories: int = 10,
         min_score: float = 0.1
     ) -> List[str]:
