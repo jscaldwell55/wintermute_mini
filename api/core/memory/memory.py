@@ -972,21 +972,21 @@ class MemorySystem:
         tasks = []
         if semantic_content:
             tasks.append(("semantic", asyncio.create_task(
-                self.llm_service.generate_gpt_response_async(semantic_prompt, model="gpt-3.5-turbo", temperature=0.7)
+                self.llm_service.generate_gpt_response_async(semantic_prompt, temperature=0.7)
             )))
         else:
             summaries["semantic"] = "No relevant background knowledge available."
             
         if episodic_content:
             tasks.append(("episodic", asyncio.create_task(
-                self.llm_service.generate_gpt_response_async(episodic_prompt, model="gpt-3.5-turbo", temperature=0.7)
+                self.llm_service.generate_gpt_response_async(episodic_prompt, temperature=0.7)
             )))
         else:
             summaries["episodic"] = "No relevant conversation history available."
             
         if learned_content:
             tasks.append(("learned", asyncio.create_task(
-                self.llm_service.generate_gpt_response_async(learned_prompt, model="gpt-3.5-turbo", temperature=0.7)
+                self.llm_service.generate_gpt_response_async(learned_prompt, temperature=0.7)
             )))
         else:
             summaries["learned"] = "No relevant insights available yet."
