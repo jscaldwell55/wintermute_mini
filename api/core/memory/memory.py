@@ -943,10 +943,12 @@ class MemorySystem:
         semantic_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
                                     else f"- {mem.content}" for mem, _ in semantic_memories])
         
-        episodic_content = "\n".join([f"- ({mem.time_ago or self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) "
-                           f"{mem.content[:300]}..." if len(mem.content) > 300 
-                           else f"- ({mem.time_ago or self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) {mem.content}" 
-                           for mem, _ in episodic_memories])
+        episodic_content = "\n".join([
+            f"- ({mem.time_ago or self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) " +
+            f"{mem.content[:300]}..." if len(mem.content) > 300 
+            else f"- ({mem.time_ago or self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) {mem.content}" 
+            for mem, _ in episodic_memories
+        ])
         
         learned_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
                                     else f"- {mem.content}" for mem, _ in learned_memories])
@@ -973,20 +975,22 @@ class MemorySystem:
         
         episodic_prompt = f"""
         You are an AI memory processor helping a conversational AI recall past conversations.
-        
+
         **User Query:** "{query}"
-        
+
         **Retrieved Conversation Fragments:**
         {episodic_content or "No relevant conversations found."}
-        
+
         **Task:**
         - Summarize these past conversations like a human would recall them.
+        - IMPORTANT: Always include the timing information (e.g., "2 hours ago we discussed...") in your summary.
         - Keep it concise (max 100 words).
         - Prioritize conversations that are most relevant to the current query.
-        - Make it feel like natural memories of past interactions, including time references.
-        - Focus on what was discussed rather than listing timestamps.
+        - Make temporal references explicit and natural (e.g., "earlier today," "yesterday," "last week").
+        - Focus on what was discussed rather than just listing timestamps.
+        - If the user asks about when something happened, make timing information a central part of your response.
         - If no conversations are provided, respond with "No relevant conversation history available."
-        
+
         **Output just the summarized memory:**
         """
         
@@ -1131,9 +1135,12 @@ class MemorySystem:
             
             # Add type-specific formatting if needed
             if memory.memory_type == MemoryType.EPISODIC:
-                # For episodic memories, extract creation time
-                created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
-                time_ago = self._format_time_ago(created_at)
+                # Use the pre-computed time_ago field if available, otherwise calculate it
+                if hasattr(memory, 'time_ago') and memory.time_ago:
+                    time_ago = memory.time_ago
+                else:
+                    created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                    time_ago = self._format_time_ago(created_at)
                 formatted = f"{time_ago}: {formatted}"
                 
             selected.append(formatted)
