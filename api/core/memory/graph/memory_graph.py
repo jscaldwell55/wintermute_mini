@@ -133,6 +133,17 @@ class MemoryGraph:
         
         return True
     
+    # In memory_graph.py or similar
+    def add_temporal_relationships(memory_graph, new_memory):
+        """Add temporal relationships between memories."""
+        # Find memories from similar timeframe (e.g., same day)
+        same_day_memories = memory_graph.get_memories_by_date(new_memory.timestamp.date())
+        
+        for memory in same_day_memories:
+            # Add bidirectional "same_day" relationship
+            memory_graph.add_edge(new_memory.id, memory.id, "temporal_sequence")
+            memory_graph.add_edge(memory.id, new_memory.id, "temporal_sequence")
+    
     def get_connected_memories(self, memory_id: str, max_depth: int = 2) -> List[Tuple[str, float, int]]:
         """
         Get memories connected to the given memory through relationships.

@@ -234,6 +234,7 @@ class PineconeService(MemoryService):
             
                 # Update metadata with processed datetime
                 metadata['created_at'] = created_at
+                metadata['created_at'] = created_at
             
                 memory_data = {
                     'id': result['id'],

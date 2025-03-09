@@ -527,6 +527,7 @@ class MemorySystem:
                         window_id=memory_data["metadata"].get("window_id"),
                         semantic_vector=memory_data.get("vector"),
                     )
+                    memory_response.time_ago = self._format_time_ago(created_at)
                     matches.append(memory_response)
                     similarity_scores.append(final_score)
 
@@ -539,8 +540,17 @@ class MemorySystem:
 
             # Sort results by final score
             if matches and similarity_scores:
-                sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
-                matches, similarity_scores = zip(*sorted_results)
+                # Create pairs of memories and scores
+                memory_scores = list(zip(matches, similarity_scores))
+                
+                # Apply time-based weighting
+                memory_scores = self.apply_time_weighting(memory_scores)
+                
+                # Extract the top_k results
+                memory_scores = memory_scores[:request.top_k]
+                
+                # Unzip the results
+                matches, similarity_scores = zip(*memory_scores)
             else:
                 matches, similarity_scores = [], []
 
@@ -640,6 +650,29 @@ class MemorySystem:
                 results[memory_type] = []
         
         return results
+    
+    # In the MemorySystem class, add the function first
+    def apply_time_weighting(self, memory_scores, decay_factor=0.1):
+        """Apply time-based decay to memory relevance scores."""
+        now = datetime.now(timezone.utc)
+        
+        for i, (memory, score) in enumerate(memory_scores):
+            # Calculate age in days - ensure timestamp is compatible
+            age_in_days = (now - datetime.fromisoformat(memory.created_at.rstrip('Z'))).days
+            
+            # Apply exponential decay based on age
+            time_weight = math.exp(-decay_factor * age_in_days)
+            
+            # Adjust the score (weighted combination of relevance and recency)
+            adjusted_score = score * 0.7 + time_weight * 0.3
+            
+            # Update the score
+            memory_scores[i] = (memory, adjusted_score)
+        
+        # Re-sort based on adjusted scores
+        memory_scores.sort(key=lambda x: x[1], reverse=True)
+        
+        return memory_scores
     
     async def _query_memory_type(
         self, 
@@ -772,6 +805,7 @@ class MemorySystem:
                         window_id=memory_data["metadata"].get("window_id"),
                         semantic_vector=memory_data.get("vector"),
                     )
+                    memory_response.time_ago = self._format_time_ago(created_at)
                     matches.append(memory_response)
                     similarity_scores.append(final_score)
 
@@ -781,8 +815,17 @@ class MemorySystem:
 
             # Sort results by final score
             if matches and similarity_scores:
-                sorted_results = sorted(zip(matches, similarity_scores), key=lambda x: x[1], reverse=True)[:request.top_k]
-                matches, similarity_scores = zip(*sorted_results)
+                # Create pairs of memories and scores
+                memory_scores = list(zip(matches, similarity_scores))
+                
+                # Apply time-based weighting
+                memory_scores = self.apply_time_weighting(memory_scores)
+                
+                # Extract the top_k results
+                memory_scores = memory_scores[:request.top_k]
+                
+                # Unzip the results
+                matches, similarity_scores = zip(*memory_scores)
             else:
                 matches, similarity_scores = [], []
 
@@ -900,10 +943,10 @@ class MemorySystem:
         semantic_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
                                     else f"- {mem.content}" for mem, _ in semantic_memories])
         
-        episodic_content = "\n".join([f"- ({self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) "
-                                    f"{mem.content[:300]}..." if len(mem.content) > 300 
-                                    else f"- ({self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) {mem.content}" 
-                                    for mem, _ in episodic_memories])
+        episodic_content = "\n".join([f"- ({mem.time_ago or self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) "
+                           f"{mem.content[:300]}..." if len(mem.content) > 300 
+                           else f"- ({mem.time_ago or self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z')))}) {mem.content}" 
+                           for mem, _ in episodic_memories])
         
         learned_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
                                     else f"- {mem.content}" for mem, _ in learned_memories])

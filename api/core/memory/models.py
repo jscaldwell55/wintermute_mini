@@ -86,7 +86,8 @@ class MemoryResponse(BaseModel):
     semantic_vector: Optional[List[float]] = None
     trace_id: Optional[str] = None
     error: Optional[ErrorDetail] = None #allow for errors
-    score: Optional[float] = None 
+    score: Optional[float] = None
+    time_ago: Optional[str] = None  # Human-readable time representation 
 
     @classmethod
     def from_memory(cls, memory: Memory) -> 'MemoryResponse':
