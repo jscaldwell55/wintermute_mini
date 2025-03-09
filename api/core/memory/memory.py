@@ -1159,7 +1159,7 @@ class MemorySystem:
         now = datetime.now(timezone.utc)
         diff = now - timestamp
 
-        if diff.total_seconds() < 3600:  # 30 minutes in seconds
+        if diff.total_seconds() < 1800:  # 30 minutes in seconds
             return None  # Return None for very recent memories
         
         # Format based on how long ago
