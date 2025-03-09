@@ -168,6 +168,7 @@ class Settings(BaseSettings):
     llm_temperature: float = random.uniform(0.8, 1.0)
     llm_max_tokens: int = 700
     max_memory_tokens: int = 1500
+    summarization_model: str = "gpt-3.5-turbo-instruct"
 
     # Vector and Embedding Settings
     embedding_model: str = "text-embedding-3-small"

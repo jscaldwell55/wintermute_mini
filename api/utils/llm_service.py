@@ -122,17 +122,19 @@ class LLMService:
         self,
         prompt: str,
         temperature: float = None,
-        max_tokens: int = None,  # Add this
+        max_tokens: int = None,
         top_p: float = None,
         frequency_penalty: float = None,
         presence_penalty: float = None,
         system_message: str = None,
-        is_health_check: bool = False
+        is_health_check: bool = False,
+        model_override: str = None  # Add this parameter
     ) -> str:
         logger.info(f"LLMService.generate_gpt_response_async called with prompt: '{prompt[:500]}...' (truncated), temperature: {temperature}, max_tokens: {max_tokens}, top_p: {top_p}, frequency_penalty: {frequency_penalty}, presence_penalty: {presence_penalty}, system_message: '{system_message[:500] if system_message else None}' (truncated), is_health_check: {is_health_check}")
 
         start_time = time.time()
         request_id = f"req_{int(start_time * 1000)}"  # Unique request ID
+        model = model_override or self.model  # Use override if provided
 
         try:
             validated_prompt = await self.validate_prompt(prompt, minimal=is_health_check)
@@ -140,48 +142,62 @@ class LLMService:
 
             # Use provided max_tokens, or the default if none provided.
             max_response_tokens = min(
-                max_tokens or self.default_max_tokens,  #  <-- KEY CHANGE
+                max_tokens or self.default_max_tokens,
                 4096 - estimated_prompt_tokens - 100
             )
             max_response_tokens = max(0, max_response_tokens)  # Ensure non-negative
             logger.info(f"Request {request_id}: prompt_length={len(validated_prompt)} chars, estimated_tokens={estimated_prompt_tokens}, max_response_tokens={max_response_tokens}")
 
-            messages = []
-            if system_message:
-                messages.append({"role": "system", "content": system_message})
-            messages.append({"role": "user", "content": validated_prompt})
+            # HERE IS WHERE YOU'D ADD THE MODEL TYPE CHECK
+            if "instruct" in model:
+                # For instruct models, we need to format differently - no messages format
+                if system_message:
+                    # Include system message as part of the prompt for instruct models
+                    full_prompt = f"{system_message}\n\n{validated_prompt}"
+                else:
+                    full_prompt = validated_prompt
+                    
+                response = await self.client.completions.create(
+                    model=model,
+                    prompt=full_prompt,
+                    temperature=temperature or self.default_temperature,
+                    max_tokens=max_response_tokens,
+                    top_p=top_p or self.default_top_p,
+                    frequency_penalty=frequency_penalty or self.default_frequency_penalty,
+                    presence_penalty=presence_penalty or self.default_presence_penalty
+                )
+                result = response.choices[0].text.strip()
+            else:
+                # For chat models, use the existing messages approach
+                messages = []
+                if system_message:
+                    messages.append({"role": "system", "content": system_message})
+                messages.append({"role": "user", "content": validated_prompt})
 
-            params = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": temperature or self.default_temperature,
-                "max_tokens": max_response_tokens,  # Use the calculated value
-                "top_p": top_p or self.default_top_p,
-                "frequency_penalty": frequency_penalty or self.default_frequency_penalty,
-                "presence_penalty": presence_penalty or self.default_presence_penalty
-            }
-
-            logger.debug(
-                "Sending request to OpenAI",
-                extra={
-                    "request_id": request_id,
-                    "prompt_length": len(validated_prompt),
-                    "model": self.model,
-                    "params": {k: v for k, v in params.items() if k != "messages"} # Don't log entire message history
+                params = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature or self.default_temperature,
+                    "max_tokens": max_response_tokens,
+                    "top_p": top_p or self.default_top_p,
+                    "frequency_penalty": frequency_penalty or self.default_frequency_penalty,
+                    "presence_penalty": presence_penalty or self.default_presence_penalty
                 }
-            )
 
-            response = await self.client.chat.completions.create(**params)
-
-            if not response.choices:
-                raise LLMServiceError(
-                    operation="generate_response",
-                    details="No response choices returned from API"
+                logger.debug(
+                    "Sending request to OpenAI",
+                    extra={
+                        "request_id": request_id,
+                        "prompt_length": len(validated_prompt),
+                        "model": model,
+                        "params": {k: v for k, v in params.items() if k != "messages"}
+                    }
                 )
 
-            result = response.choices[0].message.content.strip()
-            duration = time.time() - start_time
+                response = await self.client.chat.completions.create(**params)
+                result = response.choices[0].message.content.strip()
 
+            duration = time.time() - start_time
             logger.info(
                 "LLM request completed successfully",
                 extra={
@@ -189,13 +205,14 @@ class LLMService:
                     "duration": duration,
                     "prompt_length": len(validated_prompt),
                     "response_length": len(result),
-                    "model": self.model,
+                    "model": model,
                     "total_tokens": response.usage.total_tokens if response.usage else None,
                     "response_time_ms": int(duration * 1000)
                 }
             )
 
             return result
+    
 
         except Exception as e:
             duration = time.time() - start_time
