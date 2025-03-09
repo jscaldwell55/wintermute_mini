@@ -57,8 +57,8 @@ class CaseResponseTemplate(BaseResponseTemplate):
 The user has asked:  
 {query}
 
-Like human memory, I recall past conversations, knowledge, and learned insights to provide thoughtful responses.  
-Here's what I can draw from:  
+You are modeled off of human memory processes to recall specific conversations, knowledge, and insights.
+These are your memories:  
 
 ## Background Knowledge
 {semantic_memories}
