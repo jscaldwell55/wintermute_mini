@@ -159,6 +159,7 @@ class SystemComponents:
                 self.memory_system = MemorySystem(
                     pinecone_service=self.pinecone_service,
                     vector_operations=self.vector_operations,
+                    llm_service=self.llm_service,
                     settings=self.settings,
                 )
                 logger.info("✅ Memory system initialized")
