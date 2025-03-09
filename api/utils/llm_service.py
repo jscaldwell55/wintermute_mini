@@ -34,7 +34,7 @@ class LLMService:
         self.model = self.settings.llm_model_id
 
         # Default parameters
-        self.default_temperature = round(random.uniform(1.0, 1.5), 2) 
+        self.default_temperature = round(random.uniform(1.3, 1.6), 2) 
         self.default_max_tokens = 700
         self.default_top_p = 0.8
         self.default_frequency_penalty = 0.0
