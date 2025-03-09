@@ -165,7 +165,7 @@ class Settings(BaseSettings):
 
     # LLM Settings
     llm_model_id: str = "gpt-3.5-turbo"
-    llm_temperature: float = random.uniform(0.8, 1.0)
+    llm_temperature: float = random.uniform(1.3, 1.5)
     llm_max_tokens: int = 700
     max_memory_tokens: int = 1500
 
