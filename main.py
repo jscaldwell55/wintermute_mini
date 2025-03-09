@@ -18,11 +18,13 @@ from pydantic import ValidationError
 import uuid
 import time
 from datetime import datetime, timezone, timedelta
+import hashlib
 
 
 from starlette.routing import Mount
 from functools import lru_cache
 import random
+from api.utils.response_cache import ResponseCache
 from api.dependencies import get_memory_system, get_llm_service, get_case_response_template
 from api.utils.prompt_templates import case_response_template  
 from api.core.memory.models import (
@@ -162,6 +164,13 @@ class SystemComponents:
                     llm_service=self.llm_service,
                     settings=self.settings,
                 )
+                self.response_cache = ResponseCache(
+                    max_size=1000,  # Cache up to 1000 responses
+                    ttl_seconds=3600 * 24,  # Cache responses for 24 hours
+                    similarity_threshold=0.92  # 92% similarity threshold
+            )
+
+
                 logger.info("✅ Memory system initialized")
 
                 self._initialized = True
@@ -573,6 +582,8 @@ async def debug_query(request: Request):
     }
 # Removed duplicate import of batty_response_template
 
+# Modifications for the query_memory endpoint in main.py
+
 @api_router.post("/query")
 async def query_memory(
     request: Request,
@@ -580,13 +591,24 @@ async def query_memory(
     memory_system: MemorySystem = Depends(get_memory_system),
     llm_service: LLMService = Depends(lambda: components.llm_service)
 ) -> QueryResponse:
-
+    """
+    Process a query and generate a response with caching support.
+    """
+    # Generate a trace ID for this request
     trace_id = f"query_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     query.request_metadata = RequestMetadata(
         operation_type=OperationType.QUERY,
         window_id=query.window_id,
         trace_id=trace_id
     )
+    
+    # Track request timing
+    start_time = time.time()
+    
+    # Check if caching should be disabled for this query
+    disable_cache = query.metadata and query.metadata.get("disable_cache", False) if hasattr(query, "metadata") else False
+    use_cache = not disable_cache
+    
     try:
         enable_keyword_search = query.enable_keyword_search
         if enable_keyword_search is None:
@@ -596,7 +618,7 @@ async def query_memory(
         logger.info(f"[{trace_id}] Keyword search enabled: {enable_keyword_search}")
         logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
 
-        # Check for duplicates
+        # Check for duplicates (existing code)
         if await memory_system._check_recent_duplicate(query.prompt):
             logger.warning(f"[{trace_id}] Duplicate query detected. Skipping LLM call.")
             return QueryResponse(
@@ -605,8 +627,38 @@ async def query_memory(
                 trace_id=trace_id,
                 similarity_scores=[],
                 error=None,
-                metadata={"success": True, "duplicate": True}
+                metadata={"success": True, "duplicate": True, "from_cache": False}
             )
+
+        # Check response cache directly (bypass memory retrieval for exact duplicates)
+        if use_cache:
+            # Note: We're using the original query prompt here, not the hash used in LLMService
+            cached_response = await llm_service.response_cache.get(query.prompt, query.window_id)
+            if cached_response:
+                response_text, similarity = cached_response
+                cache_time = time.time() - start_time
+                logger.info(f"[{trace_id}] Cache hit! Retrieved in {cache_time:.3f}s with similarity {similarity:.3f}")
+                
+                # Store a record of this interaction (but don't wait for completion)
+                asyncio.create_task(memory_system.store_interaction_enhanced(
+                    query=query.prompt,
+                    response=response_text,
+                    window_id=query.window_id,
+                ))
+                
+                return QueryResponse(
+                    response=response_text,
+                    matches=[],
+                    trace_id=trace_id,
+                    similarity_scores=[],
+                    error=None,
+                    metadata={
+                        "success": True, 
+                        "from_cache": True, 
+                        "similarity": similarity,
+                        "response_time": time.time() - start_time
+                    }
+                )
 
         # Batch query all memory types in one operation
         memory_results = await memory_system.batch_query_memories(
@@ -624,6 +676,9 @@ async def query_memory(
 
         logger.info(f"[{trace_id}] Retrieved {len(semantic_memories_raw)} semantic, {len(episodic_memories_raw)} episodic, and {len(learned_memories_raw)} learned memories")
 
+        # Memory retrieval time
+        memory_time = time.time() - start_time
+        
         # Process memories through the summarization agent
         summarized_memories = await memory_system.memory_summarization_agent(
             query=query.prompt,
@@ -631,6 +686,9 @@ async def query_memory(
             episodic_memories=episodic_memories_raw,
             learned_memories=learned_memories_raw
         )
+
+        # Summarization time 
+        summarization_time = time.time() - start_time - memory_time
 
         # Construct the prompt with summarized memories
         prompt = case_response_template.format(
@@ -640,68 +698,182 @@ async def query_memory(
             learned_memories=summarized_memories.get("learned", "No relevant insights available yet.")
         )
 
-        # --- Generate Response ---
-        # ADD RANDOM TEMPERATURE HERE
-        temperature = round(random.uniform(1.0, 1.5), 2)  # Random temp between 0.6 and 0.9
-        logger.info(f"[{trace_id}] Using temperature: {temperature}") #Log the temperature
-        # await asyncio.sleep(1) # Remove the delay.
+        # Generate Response with randomized temperature
+        temperature = round(random.uniform(1.0, 1.5), 2) 
+        logger.info(f"[{trace_id}] Using temperature: {temperature}")
+        
+        # Call LLM with caching enabled
         response = await llm_service.generate_response_async(
             prompt,
             max_tokens=700,
-            temperature=temperature  # Pass the random temperature
+            temperature=temperature,
+            use_cache=use_cache,
+            window_id=query.window_id
         )
+        
+        # LLM time
+        llm_time = time.time() - start_time - memory_time - summarization_time
         logger.info(f"[{trace_id}] Generated response successfully")
 
-        # --- Store Interaction (Episodic Memory) ---
+        # Store Interaction (asynchronously)
         try:
-            await memory_system.store_interaction_enhanced(  # Await the interaction storage
+            # Use create_task to run this in the background without waiting
+            asyncio.create_task(memory_system.store_interaction_enhanced(
                 query=query.prompt,
                 response=response,
                 window_id=query.window_id,
-            )
-            logger.info(f"[{trace_id}] Interaction stored successfully")
+            ))
+            logger.info(f"[{trace_id}] Interaction storage task created")
         except Exception as e:
-            logger.error(
-                f"[{trace_id}] Failed to store interaction: {str(e)}", exc_info=True
-            )
-        # Always return a QueryResponse, even in error cases
+            logger.error(f"[{trace_id}] Failed to create interaction storage task: {str(e)}")
+        
+        # Total time
+        total_time = time.time() - start_time
+        
+        # Always return a QueryResponse
         return QueryResponse(
-            response=response, matches=[], trace_id=trace_id, similarity_scores=[], error=None,
-            metadata={"success": True}
+            response=response, 
+            matches=[], 
+            trace_id=trace_id, 
+            similarity_scores=[], 
+            error=None,
+            metadata={
+                "success": True,
+                "from_cache": False,
+                "memory_time": memory_time,
+                "summarization_time": summarization_time,
+                "llm_time": llm_time,
+                "total_time": total_time
+            }
         )
 
     except ValidationError as e:
+        # Existing error handling
         logger.error(f"[{trace_id}] Validation error: {str(e)}", exc_info=True)
-        return QueryResponse(  # Return QueryResponse for errors
+        return QueryResponse(
             response=None,
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="422", message="Validation Error", details={"error" : str(e)}, trace_id=trace_id),
+            error=ErrorDetail(code="422", message="Validation Error", details={"error": str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
     except MemoryOperationError as e:
+        # Existing error handling
         logger.error(f"[{trace_id}] Memory operation error: {str(e)}", exc_info=True)
-        return QueryResponse(  # Return QueryResponse for errors
+        return QueryResponse(
             response=None,
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="400", message="Memory Operation Error", details={"error" : str(e)}, trace_id=trace_id),
+            error=ErrorDetail(code="400", message="Memory Operation Error", details={"error": str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
-    except Exception as e:  # Correctly handle other exceptions here
+    except Exception as e:
+        # Existing error handling
         logger.error(f"[{trace_id}] Unexpected error: {str(e)}", exc_info=True)
         return QueryResponse(
             response=None,
             matches=[],
             trace_id=trace_id,
             similarity_scores=[],
-            error=ErrorDetail(code="500", message="Internal Server Error", details={"error": str(e)}, trace_id=trace_id), # Pass a dict
+            error=ErrorDetail(code="500", message="Internal Server Error", details={"error": str(e)}, trace_id=trace_id),
             metadata={"success": False}
         )
-# --- Include Router and Setup Static Files ---
-# Correct: Only include `voice_router` if it's not inside `api_router`
+    # Add these endpoints to the api_router in main.py
+
+@api_router.get("/cache/stats")
+async def get_cache_stats(
+    llm_service: LLMService = Depends(lambda: components.llm_service)
+):
+    """Get statistics about the response cache."""
+    try:
+        stats = await llm_service.get_cache_stats()
+        return {
+            "success": True,
+            "stats": stats
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving cache stats: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@api_router.post("/cache/clear")
+async def clear_cache(
+    llm_service: LLMService = Depends(lambda: components.llm_service)
+):
+    """Clear all entries from the response cache."""
+    try:
+        cleared_count = await llm_service.clear_cache()
+        return {
+            "success": True,
+            "message": f"Cache cleared successfully. Removed {cleared_count} entries."
+        }
+    except Exception as e:
+        logger.error(f"Error clearing cache: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@api_router.get("/performance")
+async def get_performance_metrics():
+    """Get system performance metrics."""
+    try:
+        # Basic metrics - expand this as needed
+        metrics = {
+            "memory_usage_mb": _get_memory_usage(),
+            "uptime_seconds": _get_uptime(),
+            "system_load": _get_system_load()
+        }
+        
+        return {
+            "success": True,
+            "metrics": metrics
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving performance metrics: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+# Helper functions for performance metrics
+def _get_memory_usage():
+    """Get current memory usage in MB."""
+    import os
+    import psutil
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / (1024 * 1024)  # Convert to MB
+
+def _get_uptime():
+    """Get system uptime in seconds."""
+    import time
+    return time.time() - _get_startup_time()
+
+def _get_startup_time():
+    """Get the application startup time."""
+    if not hasattr(_get_startup_time, "time"):
+        _get_startup_time.time = time.time()
+    return _get_startup_time.time
+
+def _get_system_load():
+    """Get system load averages."""
+    import os
+    try:
+        import psutil
+        return psutil.getloadavg()
+    except (ImportError, AttributeError):
+        try:
+            # Fallback for Unix systems
+            with open('/proc/loadavg', 'r') as f:
+                load = f.read().split()[:3]
+                return [float(x) for x in load]
+        except:
+            return [0, 0, 0]  # Fallback if all else fails
+
 app.include_router(api_router, prefix="/api/v1")
 
 

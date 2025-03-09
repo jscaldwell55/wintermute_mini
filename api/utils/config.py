@@ -275,6 +275,12 @@ class Settings(BaseSettings):
     enable_memory_evaluation: bool = False  # Toggle for evaluation framework
     evaluation_sample_rate: float = 0.1     # Percentage of queries to evaluate
 
+    # Cache Settings
+    response_cache_enabled: bool = True
+    response_cache_size: int = 1000
+    response_cache_ttl_hours: int = 24
+    response_cache_similarity_threshold: float = 0.92
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="allow"
     )

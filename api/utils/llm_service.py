@@ -9,6 +9,8 @@ from typing import List, Dict, Optional, Tuple, Any
 import time
 import random
 from api.utils.responses import create_response
+from api.utils.response_cache import ResponseCache
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,12 @@ class LLMService:
         self.default_top_p = 0.8
         self.default_frequency_penalty = 0.0
         self.default_presence_penalty = 0.0
+        self.response_cache = ResponseCache(
+            max_size=1000,  # Cache up to 1000 responses
+            ttl_seconds=3600 * 24,  # Cache responses for 24 hours
+            similarity_threshold=0.92  # 92% similarity threshold
+        )
+
 
     async def validate_prompt(self, prompt: str, minimal: bool = False) -> str:
         """
@@ -128,13 +136,35 @@ class LLMService:
         presence_penalty: float = None,
         system_message: str = None,
         is_health_check: bool = False,
-        model_override: str = None  # Add this parameter
+        model_override: str = None,
+        use_cache: bool = True,
+        window_id: str = None
     ) -> str:
         logger.info(f"LLMService.generate_gpt_response_async called with prompt: '{prompt[:500]}...' (truncated), temperature: {temperature}, max_tokens: {max_tokens}, top_p: {top_p}, frequency_penalty: {frequency_penalty}, presence_penalty: {presence_penalty}, system_message: '{system_message[:500] if system_message else None}' (truncated), is_health_check: {is_health_check}")
 
         start_time = time.time()
         request_id = f"req_{int(start_time * 1000)}"  # Unique request ID
         model = model_override or self.model  # Use override if provided
+
+        # Skip cache for health checks
+        if is_health_check:
+            use_cache = False
+
+        # Create a cache key that incorporates the parameters
+        if use_cache:
+            prompt_hash = hashlib.md5(prompt.encode()).hexdigest()
+            temp_str = f"{temperature or self.default_temperature:.2f}"
+            max_tok_str = f"{max_tokens or self.default_max_tokens}"
+            model_str = model.replace("-", "_")
+            cache_query = f"{prompt_hash}:temp={temp_str}:max={max_tok_str}:model={model_str}"
+            
+            # Check cache first if enabled
+            cached_result = await self.response_cache.get(cache_query, window_id)
+            if cached_result:
+                response_text, similarity = cached_result
+                cache_duration = time.time() - start_time
+                logger.info(f"Using cached response with similarity {similarity:.3f} (retrieved in {cache_duration:.3f}s)")
+                return response_text
 
         try:
             validated_prompt = await self.validate_prompt(prompt, minimal=is_health_check)
@@ -211,8 +241,22 @@ class LLMService:
                 }
             )
 
+            # Cache the result if caching is enabled
+            if use_cache:
+                await self.response_cache.set(
+                    query=cache_query,
+                    response=result,
+                    window_id=window_id,
+                    metadata={
+                        "temperature": temperature or self.default_temperature,
+                        "max_tokens": max_tokens or self.default_max_tokens,
+                        "model": model,
+                        "token_count": response.usage.total_tokens if response.usage else None,
+                        "generation_time": duration
+                    }
+                )
+
             return result
-    
 
         except Exception as e:
             duration = time.time() - start_time
@@ -234,6 +278,7 @@ class LLMService:
                 operation="generate_response",
                 details=str(e)
             ) from e
+        
 
     # Keep generate_response_async for backward compatibility
     async def generate_response_async(self, prompt: str, max_tokens: int = None, **kwargs) -> str:
