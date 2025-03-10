@@ -785,9 +785,32 @@ class MemorySystem:
                             f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, Final={final_score:.3f}")
                     
                     elif memory_type == "SEMANTIC":
-                        final_score = similarity_score * self.settings.semantic_memory_weight
-                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, Final={final_score:.3f}")
-                    
+                        # Extract creation timestamp
+                        created_at_raw = memory_data["metadata"].get("created_at")
+                        if isinstance(created_at_raw, str):
+                            created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                        else:
+                            created_at = created_at_raw
+                        
+                        # Calculate age in days
+                        age_days = (current_time - created_at).total_seconds() / (86400)  # Seconds in a day
+                        
+                        # Calculate recency score (using a slower decay than episodic)
+                        recency_score = max(0.4, 1.0 - (math.log(1 + age_days) / 10))
+                        
+                        # Combine scores (80% relevance, 20% recency)
+                        semantic_recency_weight = 0.2  # Could add this to settings if you want it configurable
+                        relevance_weight = 1 - semantic_recency_weight
+                        combined_score = (
+                            relevance_weight * similarity_score + 
+                            semantic_recency_weight * recency_score
+                        )
+                        
+                        # Apply memory type weight
+                        final_score = combined_score * self.settings.semantic_memory_weight
+                        
+                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, "
+                            f"Age={age_days:.1f}d, Recency={recency_score:.3f}, Final={final_score:.3f}")                    
                     elif memory_type == "LEARNED":
                         confidence = memory_data["metadata"].get("confidence", 0.5)
                         combined_score = (similarity_score * 0.8) + (confidence * 0.2)
