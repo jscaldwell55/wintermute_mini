@@ -205,7 +205,7 @@ class Settings(BaseSettings):
     semantic_memory_weight: float = 0.45  # Weight for pre-populated knowledge
     episodic_memory_weight: float = 0.40  # Weight for recent interactions
     learned_memory_weight: float = 0.90   # Weight for consolidated insights
-    semantic_recency_weight = 0.15
+    semantic_recency_weight: float = 0.15
     
     # Memory Type Limits - NEW
     semantic_top_k: int = 5   # Retrieve up to 5 semantic memories

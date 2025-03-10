@@ -802,7 +802,7 @@ class MemorySystem:
                         elif current_time.tzinfo is not None and created_at.tzinfo is None:
                             created_at = created_at.replace(tzinfo=timezone.utc)
                         
-                        # Calculate age and recency score with gentler decay
+                        # Calculate age and recency score
                         age_hours = (current_time - created_at).total_seconds() / (60*60)
                         
                         if age_hours <= self.settings.episodic_recent_hours:
@@ -816,7 +816,7 @@ class MemorySystem:
                         
                         recency_score = max(0.0, min(1.0, recency_score))
                         
-                        # Use updated settings weights
+                        # Combine relevance and recency using settings
                         relevance_weight = 1 - self.settings.episodic_recency_weight
                         combined_score = (
                             relevance_weight * similarity_score + 
@@ -827,7 +827,6 @@ class MemorySystem:
                         
                         logger.info(f"Memory ID {memory_data['id']} (EPISODIC): Raw={similarity_score:.3f}, " +
                             f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, Final={final_score:.3f}")
-
                     
                     elif memory_type == "SEMANTIC":
                         # Extract creation timestamp
@@ -846,21 +845,24 @@ class MemorySystem:
                         # Calculate age in days
                         age_days = (current_time - created_at).total_seconds() / (86400)  # Seconds in a day
                         
+                        # Calculate recency score with much slower decay for semantic memories
+                        # Increase minimum score and slow down the decay rate significantly
                         recency_score = max(0.6, 1.0 - (math.log(1 + age_days) / 20))
-    
-                        # Use updated settings weights
-                        relevance_weight = 1 - self.settings.semantic_recency_weight  # This now uses the setting value
+                        
+                        # Combine scores using semantic_recency_weight from settings
+                        semantic_recency_weight = getattr(self.settings, 'semantic_recency_weight', 0.15)  # Default if not set
+                        relevance_weight = 1 - semantic_recency_weight
                         combined_score = (
                             relevance_weight * similarity_score + 
-                            self.settings.semantic_recency_weight * recency_score
+                            semantic_recency_weight * recency_score
                         )
                         
                         # Apply memory type weight
                         final_score = combined_score * self.settings.semantic_memory_weight
                         
-                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, " +
+                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, "
                             f"Age={age_days:.1f}d, Recency={recency_score:.3f}, Final={final_score:.3f}")
-                                            
+                    
                     elif memory_type == "LEARNED":
                         confidence = memory_data["metadata"].get("confidence", 0.5)
                         combined_score = (similarity_score * 0.8) + (confidence * 0.2)
@@ -891,8 +893,8 @@ class MemorySystem:
                 # Create pairs of memories and scores
                 memory_scores = list(zip(matches, similarity_scores))
                 
-                # Apply time-based weighting
-                memory_scores = self.apply_time_weighting(memory_scores)
+                # Apply time-based weighting with memory-type awareness
+                memory_scores = self.apply_time_weighting(memory_scores, decay_factor=0.03)
                 
                 # Extract the top_k results
                 memory_scores = memory_scores[:request.top_k]
