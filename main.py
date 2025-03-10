@@ -782,17 +782,38 @@ async def query_memory(
         # Summarization time 
         summarization_time = time.time() - start_time - memory_time
 
-        # Construct the prompt with summarized memories
+        # Determine creativity level
+        creativity_enabled = getattr(memory_system.settings, 'creativity_enabled', True)
+        creativity_instruction = ""
+
+        if creativity_enabled:
+            creativity_level = getattr(memory_system.settings, 'creativity_level', 0.65)
+            
+            if creativity_level < 0.4:
+                creativity_instruction = "Stick closely to the provided memories, responding primarily based on this information."
+            elif creativity_level < 0.7:
+                creativity_instruction = "Use the provided memories as a foundation, but feel free to expand on them with relevant context and connections."
+            else:
+                creativity_instruction = "Let the provided memories inspire your response, but feel free to explore related ideas and make creative connections."
+        else:
+            # When disabled, use a strict instruction and lower creativity level
+            creativity_level = 0.3
+            creativity_instruction = "Adhere strictly to the provided memories, responding directly based on this information."
+
+        # Construct the prompt with summarized memories and creativity instruction
         prompt = case_response_template.format(
             query=query.prompt,
             semantic_memories=summarized_memories.get("semantic", "No relevant background knowledge available."),
             episodic_memories=summarized_memories.get("episodic", "No relevant conversation history available."),
-            learned_memories=summarized_memories.get("learned", "No relevant insights available yet.")
+            learned_memories=summarized_memories.get("learned", "No relevant insights available yet."),
+            creativity_instruction=creativity_instruction
         )
 
-        # Generate Response with randomized temperature
-        temperature = round(random.uniform(1.3, 1.6), 2) 
-        logger.info(f"[{trace_id}] Using temperature: {temperature}")
+        # Adjust temperature based on creativity level
+        base_temp = random.uniform(1.2, 1.4)  # Slightly lower base range
+        creativity_boost = creativity_level * 0.3  # Boost based on creativity
+        temperature = round(base_temp + creativity_boost, 2)  # Combined temperature
+        logger.info(f"[{trace_id}] Using temperature: {temperature} (creativity: {creativity_enabled}, level: {creativity_level})")
         
         # Call LLM with caching enabled
         response = await llm_service.generate_response_async(

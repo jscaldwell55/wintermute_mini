@@ -270,6 +270,11 @@ class Settings(BaseSettings):
     
     # Prompt Template Settings
     template_type: str = "standard"    # "standard" or "graph_enhanced"
+    # Response Generation Settings
+    
+    # Creativity Setting
+    creativity_enabled: bool = True  # Toggle to enable/disable creativity enhancement
+    creativity_level: float = 0.65   # Default creativity level when enabled (0.0-1.0)
     
     # Evaluation Settings
     enable_memory_evaluation: bool = False  # Toggle for evaluation framework
