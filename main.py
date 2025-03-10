@@ -45,6 +45,7 @@ from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.config import ConsolidationConfig
 from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
+from api.core.consolidation.consolidation_scheduler import ConsolidationScheduler
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
 
@@ -169,6 +170,18 @@ class SystemComponents:
                     ttl_seconds=3600 * 24,  # Cache responses for 24 hours
                     similarity_threshold=0.92  # 92% similarity threshold
             )
+            # Initialize consolidation scheduler
+                config = get_consolidation_config()
+                self.consolidation_scheduler = ConsolidationScheduler(
+                    config=config,
+                    pinecone_service=self.pinecone_service,
+                    llm_service=self.llm_service,
+                    run_interval_hours=self.settings.consolidation_interval_hours,
+                    timezone=self.settings.timezone
+                )
+                # Start the scheduler
+                await self.consolidation_scheduler.start()
+                logger.info("✅ Consolidation scheduler initialized and started")
 
 
                 logger.info("✅ Memory system initialized")
@@ -282,22 +295,101 @@ app.add_middleware(LoggingMiddleware)
 
 # 8. Define ALL API Routes using api_router
 @api_router.post("/consolidate")
-async def consolidate_now(config: ConsolidationConfig = Depends(get_consolidation_config)):
+async def consolidate_now():
+    """Manually trigger consolidation process"""
     try:
-        consolidator = MemoryConsolidator(
-            config=config,
-            pinecone_service=components.pinecone_service,
-            llm_service=components.llm_service
-        )
-        await consolidator.consolidate_memories()
-        logger.info("Manual consolidation completed successfully")
-        return {"message": "Consolidation triggered"}
+        if not hasattr(components, 'consolidation_scheduler'):
+            raise HTTPException(
+                status_code=503,
+                detail="Consolidation scheduler not initialized"
+            )
+        
+        success = await components.consolidation_scheduler.trigger_consolidation_manually()
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Consolidation failed. See logs for details."
+            )
+        
+        return {"message": "Consolidation triggered successfully"}
 
     except Exception as e:
         logger.error(f"Manual consolidation failed: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Consolidation failed: {str(e)}"
+        )
+
+@api_router.post("/consolidate/pause")
+async def pause_consolidation():
+    """Pause the consolidation scheduler"""
+    try:
+        if not hasattr(components, 'consolidation_scheduler'):
+            raise HTTPException(
+                status_code=503,
+                detail="Consolidation scheduler not initialized"
+            )
+        
+        success = await components.consolidation_scheduler.pause()
+        
+        return {
+            "status": "success" if success else "unchanged",
+            "message": "Consolidation scheduler paused" if success else "Scheduler was already paused",
+            "paused": True
+        }
+    except Exception as e:
+        logger.error(f"Failed to pause scheduler: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to pause scheduler: {str(e)}"
+        )
+
+@api_router.post("/consolidate/resume")
+async def resume_consolidation():
+    """Resume the consolidation scheduler"""
+    try:
+        if not hasattr(components, 'consolidation_scheduler'):
+            raise HTTPException(
+                status_code=503,
+                detail="Consolidation scheduler not initialized"
+            )
+        
+        success = await components.consolidation_scheduler.resume()
+        
+        return {
+            "status": "success" if success else "unchanged",
+            "message": "Consolidation scheduler resumed" if success else "Scheduler was already running",
+            "paused": False
+        }
+    except Exception as e:
+        logger.error(f"Failed to resume scheduler: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to resume scheduler: {str(e)}"
+        )
+
+@api_router.get("/consolidate/status")
+async def get_consolidation_status():
+    """Get the current status of the consolidation scheduler"""
+    try:
+        if not hasattr(components, 'consolidation_scheduler'):
+            raise HTTPException(
+                status_code=503,
+                detail="Consolidation scheduler not initialized"
+            )
+        
+        status = await components.consolidation_scheduler.get_status()
+        
+        return {
+            "paused": status["paused"],
+            "next_run_time": status["next_run_time"].isoformat() if not status["paused"] else None
+        }
+    except Exception as e:
+        logger.error(f"Failed to get scheduler status: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get scheduler status: {str(e)}"
         )
 
 @api_router.get("/ping")
