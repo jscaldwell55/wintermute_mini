@@ -215,37 +215,7 @@ class ConsolidationScheduler:
                 # Wait an hour before retrying on error
                 await asyncio.sleep(3600)
 
-    async def _schedule_consolidation(self):
-        """Schedule consolidation to run at specified interval."""
-        while True:
-            try:
-                # If this is the first run, execute immediately
-                if self.last_run is None:
-                    logger.info("Running initial consolidation")
-                    await self.consolidator.consolidate_memories()
-                    self.last_run = datetime.now(self.timezone)
-                    logger.info(f"Initial consolidation complete. Next run in {self.run_interval_hours} hours")
-                
-                # Calculate time until next run
-                now = datetime.now(self.timezone)
-                next_run = self.last_run + timedelta(hours=self.run_interval_hours)
-                wait_seconds = max(0, (next_run - now).total_seconds())
-                
-                logger.info(f"Next consolidation scheduled in {wait_seconds/3600:.2f} hours")
-                
-                # Wait until scheduled time
-                await asyncio.sleep(wait_seconds)
-                
-                # Run consolidation
-                logger.info("Starting scheduled consolidation")
-                await self.consolidator.consolidate_memories()
-                self.last_run = datetime.now(self.timezone)
-                logger.info(f"Scheduled consolidation complete. Next run in {self.run_interval_hours} hours")
-
-            except Exception as e:
-                logger.error(f"Error in consolidation schedule: {e}", exc_info=True)
-                # Wait an hour before retrying on error
-                await asyncio.sleep(3600)
+    
 
 async def main():
     """Main function to run the scheduler."""
