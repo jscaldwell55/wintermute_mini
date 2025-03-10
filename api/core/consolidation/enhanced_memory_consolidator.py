@@ -68,9 +68,9 @@ class EnhancedMemoryConsolidator:
             
             # Calculate the cutoff date for 7 days ago
             cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.config.max_episodic_age_days)
-            cutoff_date_str = cutoff_date.isoformat() + "Z"  # Add Z for UTC timezone
-            
-            self.logger.info(f"Using cutoff date for episodic memories: {cutoff_date_str}")
+            cutoff_timestamp = int(cutoff_date.timestamp())  # Convert to Unix timestamp
+                        
+            self.logger.info(f"Using cutoff date for episodic memories: {cutoff_date.isoformat()}Z (timestamp: {cutoff_timestamp})")
 
             # 1. Fetch Episodic Memories with 7-day time filter
             query_results = await self.pinecone_service.query_memories(
@@ -78,7 +78,7 @@ class EnhancedMemoryConsolidator:
                 top_k=self.config.max_memories_per_consolidation,
                 filter={
                     "memory_type": "EPISODIC",
-                    "created_at": {"$gte": cutoff_date_str}  # Only consider memories created in last 7 days
+                    "created_at": {"$gte": cutoff_timestamp}  # Use integer timestamp instead of string
                 },
                 include_metadata=True
             )
