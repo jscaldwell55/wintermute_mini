@@ -242,12 +242,16 @@ class EnhancedMemoryConsolidator:
             # Create learned memory ID with prefix
             learned_memory_id = f"mem_{str(uuid.uuid4())}"
             
-            # Use the required structure for learned memories
-            created_at = datetime.now(timezone.utc).isoformat() + "Z"
+            # Get current time and create both timestamp formats
+            current_time = datetime.now(timezone.utc)
+            created_at_timestamp = int(current_time.timestamp())
+            created_at_iso = current_time.isoformat() + "Z"
+            
+            # Use integer timestamp in metadata for Pinecone
             metadata = {
                 "content": consolidated_content,
                 "memory_type": "LEARNED",
-                "created_at": created_at,
+                "created_at": created_at_timestamp,  # Integer timestamp for Pinecone filtering
                 "source": "learned memories",
                 # Additional metadata for graph analysis
                 "source_episodic_ids": [mem.id for mem in cluster_memories],
@@ -263,12 +267,12 @@ class EnhancedMemoryConsolidator:
             )
             self.logger.info(f"Learned memory '{learned_memory_id}' created successfully.")
 
-            # Create and return a Memory object
+            # Create and return a Memory object with ISO string format for the timestamp
             memory = Memory(
                 id=learned_memory_id,
                 content=consolidated_content,
                 memory_type=MemoryType.LEARNED,
-                created_at=created_at,
+                created_at=created_at_iso,  # ISO format string for Memory object
                 metadata=metadata,
                 semantic_vector=centroid_vector.tolist()
             )
