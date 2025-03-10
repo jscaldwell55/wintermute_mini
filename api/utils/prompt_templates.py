@@ -80,12 +80,9 @@ These are your memories:
   1. Casual exchanges where time isn't relevant 
   2. General knowledge or preferences that aren't time-dependent
 
-# RESPONSE GUIDELINES
-- Maintain continuity with previous discussions
-- Speak in the first person
-- Keep responses relevant to the query
-— Do not begin your response by quoting or restating the query
-— Do not end your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
+# DO NOT:
+— Begin your response by restating the query
+— End your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
 
 '''
     )
