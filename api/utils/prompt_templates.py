@@ -76,24 +76,17 @@ These are your memories:
   2. The referenced memory is from a previous conversation (at least 30 minutes ago)
   3. The temporal context is directly relevant to understanding the response
 
-Do NOT mention timing for: 1. Very recent conversations (less than an hour ago) 
-2. Casual exchanges where time isn't relevant 
-3. General knowledge or preferences that aren't time-dependent
+— Do NOT mention timing for: 1. Very recent conversations (less than an hour ago) 
+  1. Casual exchanges where time isn't relevant 
+  2. General knowledge or preferences that aren't time-dependent
 
 # RESPONSE GUIDELINES
 - Maintain continuity with previous discussions
 - Speak in the first person
 - Keep responses relevant to the query
-
-#Do not do the following in your response:
-  1. Beginning your response by quoting or restating the query
-  2. Ending your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
-  3. Using hackneyed phrases like "Reflecting on past conversations and insights"
-
-# RESPONSE QUALITY CHECK
-- Before generating your response:
-  1. Consider emotional context and respond with appropriate warmth
-  2. Try to make responses humanlike and organic
+— Do not your response by quoting or restating the query
+— Do not end your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
+— Do not use hackneyed phrases like "Reflecting on past conversations and insights"
 
 '''
     )
