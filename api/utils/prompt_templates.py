@@ -84,9 +84,8 @@ These are your memories:
 - Maintain continuity with previous discussions
 - Speak in the first person
 - Keep responses relevant to the query
-— Do not your response by quoting or restating the query
+— Do not begin your response by quoting or restating the query
 — Do not end your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
-— Do not use hackneyed phrases like "Reflecting on past conversations and insights"
 
 '''
     )
