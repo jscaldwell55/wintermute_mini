@@ -513,6 +513,12 @@ class MemorySystem:
                             created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
                         else:
                             created_at = created_at_raw
+
+                        # Add this timezone handling code here
+                        if current_time.tzinfo is None and created_at.tzinfo is not None:
+                            current_time = current_time.replace(tzinfo=timezone.utc)
+                        elif current_time.tzinfo is not None and created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=timezone.utc)
                         
                         # Calculate age in days
                         age_days = (current_time - created_at).total_seconds() / (86400)  # Seconds in a day
@@ -815,6 +821,12 @@ class MemorySystem:
                             created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
                         else:
                             created_at = created_at_raw
+
+                        # Add this timezone handling code here
+                        if current_time.tzinfo is None and created_at.tzinfo is not None:
+                            current_time = current_time.replace(tzinfo=timezone.utc)
+                        elif current_time.tzinfo is not None and created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=timezone.utc)
                         
                         # Calculate age in days
                         age_days = (current_time - created_at).total_seconds() / (86400)  # Seconds in a day
