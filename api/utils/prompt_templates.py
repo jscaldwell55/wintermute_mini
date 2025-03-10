@@ -81,7 +81,7 @@ These are your memories:
   2. Casual exchanges where time isn't relevant 
   3. General knowledge or preferences that aren't time-dependent
 
-# IN RESPONSES DO NOT:
+# DO NOT:
 — Begin your response by restating the query
 — End your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
 
