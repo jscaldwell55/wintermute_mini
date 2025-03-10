@@ -682,19 +682,31 @@ class MemorySystem:
         return results
     
     # In the MemorySystem class, add the function first
-    def apply_time_weighting(self, memory_scores, decay_factor=0.1):
-        """Apply time-based decay to memory relevance scores."""
+    def apply_time_weighting(self, memory_scores, decay_factor=0.03):  # Further reduced decay factor
+        """Apply even less aggressive time-based decay to memory relevance scores."""
         now = datetime.now(timezone.utc)
         
         for i, (memory, score) in enumerate(memory_scores):
             # Calculate age in days - ensure timestamp is compatible
             age_in_days = (now - datetime.fromisoformat(memory.created_at.rstrip('Z'))).days
             
-            # Apply exponential decay based on age
+            # Apply gentler exponential decay based on age
             time_weight = math.exp(-decay_factor * age_in_days)
             
-            # Adjust the score (weighted combination of relevance and recency)
-            adjusted_score = score * 0.7 + time_weight * 0.3
+            # Memory type-aware weighting
+            if hasattr(memory, 'memory_type') and memory.memory_type:
+                if memory.memory_type.value == "SEMANTIC":
+                    # For semantic memories, focus almost entirely on relevance
+                    adjusted_score = score * 0.95 + time_weight * 0.05
+                elif memory.memory_type.value == "EPISODIC":
+                    # For episodic, use moderate time weighting
+                    adjusted_score = score * 0.8 + time_weight * 0.2
+                else:
+                    # For learned or other types, use balanced approach
+                    adjusted_score = score * 0.9 + time_weight * 0.1
+            else:
+                # Default case if memory_type not available
+                adjusted_score = score * 0.9 + time_weight * 0.1
             
             # Update the score
             memory_scores[i] = (memory, adjusted_score)
@@ -790,19 +802,21 @@ class MemorySystem:
                         elif current_time.tzinfo is not None and created_at.tzinfo is None:
                             created_at = created_at.replace(tzinfo=timezone.utc)
                         
-                        # Calculate age and recency score
+                        # Calculate age and recency score with gentler decay
                         age_hours = (current_time - created_at).total_seconds() / (60*60)
                         
                         if age_hours <= self.settings.episodic_recent_hours:
-                            recency_score = 1.0 - (age_hours / self.settings.episodic_recent_hours) * 0.3
+                            # Gentler linear decrease from 1.0 to 0.85 during the boost period
+                            recency_score = 1.0 - (age_hours / self.settings.episodic_recent_hours) * 0.15
                         else:
                             max_age_hours = self.settings.episodic_max_age_days * 24
                             relative_age = (age_hours - self.settings.episodic_recent_hours) / (max_age_hours - self.settings.episodic_recent_hours)
-                            recency_score = 0.7 * (0.1/0.7) ** relative_age
+                            # Gentler exponential decay from 0.85 to 0.3
+                            recency_score = 0.85 * (0.3/0.85) ** relative_age
                         
                         recency_score = max(0.0, min(1.0, recency_score))
                         
-                        # Combine relevance and recency
+                        # Use updated settings weights
                         relevance_weight = 1 - self.settings.episodic_recency_weight
                         combined_score = (
                             relevance_weight * similarity_score + 
@@ -813,6 +827,7 @@ class MemorySystem:
                         
                         logger.info(f"Memory ID {memory_data['id']} (EPISODIC): Raw={similarity_score:.3f}, " +
                             f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, Final={final_score:.3f}")
+
                     
                     elif memory_type == "SEMANTIC":
                         # Extract creation timestamp
@@ -831,22 +846,21 @@ class MemorySystem:
                         # Calculate age in days
                         age_days = (current_time - created_at).total_seconds() / (86400)  # Seconds in a day
                         
-                        # Calculate recency score (using a slower decay than episodic)
-                        recency_score = max(0.4, 1.0 - (math.log(1 + age_days) / 10))
-                        
-                        # Combine scores (80% relevance, 20% recency)
-                        semantic_recency_weight = 0.2  # Could add this to settings if you want it configurable
-                        relevance_weight = 1 - semantic_recency_weight
+                        recency_score = max(0.6, 1.0 - (math.log(1 + age_days) / 20))
+    
+                        # Use updated settings weights
+                        relevance_weight = 1 - self.settings.semantic_recency_weight  # This now uses the setting value
                         combined_score = (
                             relevance_weight * similarity_score + 
-                            semantic_recency_weight * recency_score
+                            self.settings.semantic_recency_weight * recency_score
                         )
                         
                         # Apply memory type weight
                         final_score = combined_score * self.settings.semantic_memory_weight
                         
-                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, "
-                            f"Age={age_days:.1f}d, Recency={recency_score:.3f}, Final={final_score:.3f}")                    
+                        logger.info(f"Memory ID {memory_data['id']} (SEMANTIC): Raw={similarity_score:.3f}, " +
+                            f"Age={age_days:.1f}d, Recency={recency_score:.3f}, Final={final_score:.3f}")
+                                            
                     elif memory_type == "LEARNED":
                         confidence = memory_data["metadata"].get("confidence", 0.5)
                         combined_score = (similarity_score * 0.8) + (confidence * 0.2)

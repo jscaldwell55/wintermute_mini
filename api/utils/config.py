@@ -202,9 +202,10 @@ class Settings(BaseSettings):
     min_similarity_threshold: float = 0.15
     
     # Memory Type Weights
-    semantic_memory_weight: float = 0.2  # Weight for pre-populated knowledge
-    episodic_memory_weight: float = 0.45  # Weight for recent interactions
-    learned_memory_weight: float = 0.3   # Weight for consolidated insights
+    semantic_memory_weight: float = 0.45  # Weight for pre-populated knowledge
+    episodic_memory_weight: float = 0.40  # Weight for recent interactions
+    learned_memory_weight: float = 0.90   # Weight for consolidated insights
+    semantic_recency_weight = 0.15
     
     # Memory Type Limits - NEW
     semantic_top_k: int = 5   # Retrieve up to 5 semantic memories
@@ -213,7 +214,7 @@ class Settings(BaseSettings):
     
     # Episodic Memory Settings - NEW
     episodic_max_age_days: int = 7      # Only consider past 7 days
-    episodic_recency_weight: float = 0.3  # Weight for recency in scoring
+    episodic_recency_weight: float = 0.25  # Weight for recency in scoring
     episodic_recent_hours: int = 48     # Hours considered "recent" (higher priority)
     episodic_decay_factor: float = 120  # Controls exponential decay rate for older memories
     episodic_memory_ttl_days: int = 30  # Time-to-live for episodic memories in days
@@ -246,7 +247,7 @@ class Settings(BaseSettings):
     # Keyword Search Settings
     enable_keyword_search: bool = True
     keyword_search_weight: float = 0.3
-    vector_search_weight: float = 0.7
+    vector_search_weight: float = 0.75
     keyword_search_top_k: int = 20
     min_keyword_score_threshold: float = 0.15
     keyword_search_enabled: bool = False

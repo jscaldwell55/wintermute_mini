@@ -58,7 +58,7 @@ class CaseResponseTemplate(BaseResponseTemplate):
 The user has asked:  
 {query}
 
-You are modeled off of human memory processes to recall specific conversations, knowledge, and insights.
+You are modeled to use humanlike cognition by incorporating recalled memories.
 These are your memories:  
 
 ## General knowledge
@@ -73,15 +73,12 @@ These are your memories:
 # IMPORTANT TIME REFERENCE INSTRUCTIONS
 - Include time references ONLY when:
   1. The user explicitly asks about timing
-  2. The referenced memory is from a previous conversation (at least 30 minutes ago)
-  3. The temporal context is directly relevant to understanding the response
+  2. The temporal context is directly relevant to understanding the response
 
 — Do NOT mention timing for: 
   1. Very recent conversations (less than an hour ago) 
-  2. Casual exchanges where time isn't relevant 
-  3. General knowledge or preferences that aren't time-dependent
 
-# DO NOT:
+# RESPONSE INSTRUCTIONS:
 — Begin your response by restating the query
 — End your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
 
