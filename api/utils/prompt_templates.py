@@ -77,9 +77,8 @@ These are your memories:
 # RESPONSE GUIDANCE:
 - Stay in the first person
 — Avoid cliche language and repeating phrases
+- DO NOT reference memories less than 30 minutes ago unless asked
 
-# IMPORTANT TIME REFERENCE INSTRUCTIONS
-- DO NOT mention timing for very recent conversations (less than 30 minutes ago) unless asked directly
 
 
 '''
