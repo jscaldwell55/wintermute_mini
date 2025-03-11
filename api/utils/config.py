@@ -165,7 +165,7 @@ class Settings(BaseSettings):
 
     # LLM Settings
     llm_model_id: str = "gpt-3.5-turbo"
-    llm_temperature: float = random.uniform(2.0, 2.5)
+    llm_temperature: float = 2.0
     llm_max_tokens: int = 1000
     max_memory_tokens: int = 2000
 
@@ -275,7 +275,7 @@ class Settings(BaseSettings):
     
     # Creativity Setting
     creativity_enabled: bool = True  # Toggle to enable/disable creativity enhancement
-    creativity_level: float = 1.0   # Default creativity level when enabled (0.0-1.0)
+    creativity_level: float = 0.8   # Default creativity level when enabled (0.0-1.0)
     
     # Evaluation Settings
     enable_memory_evaluation: bool = False  # Toggle for evaluation framework

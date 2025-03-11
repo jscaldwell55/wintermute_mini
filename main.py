@@ -782,13 +782,13 @@ async def query_memory(
         # Summarization time 
         summarization_time = time.time() - start_time - memory_time
 
-        # Determine creativity level
+        # Determine creativity instruction based on settings
         creativity_enabled = getattr(memory_system.settings, 'creativity_enabled', True)
         creativity_instruction = ""
 
         if creativity_enabled:
             creativity_level = getattr(memory_system.settings, 'creativity_level', 0.65)
-            
+                    
             if creativity_level < 0.4:
                 creativity_instruction = "Stick closely to the provided memories, responding primarily based on this information."
             elif creativity_level < 0.7:
@@ -796,9 +796,11 @@ async def query_memory(
             else:
                 creativity_instruction = "Let the provided memories inspire your response, but feel free to explore related ideas and make creative connections."
         else:
-            # When disabled, use a strict instruction and lower creativity level
-            creativity_level = 0.3
+            # When disabled, use a strict instruction without affecting temperature
             creativity_instruction = "Adhere strictly to the provided memories, responding directly based on this information."
+
+        # Note: Temperature will be handled separately and not modified by creativity settings
+
 
         # Construct the prompt with summarized memories and creativity instruction
         prompt = case_response_template.format(
@@ -809,11 +811,10 @@ async def query_memory(
             creativity_instruction=creativity_instruction
         )
 
-        # Adjust temperature based on creativity level
-        base_temp = random.uniform(2.0, 2.5)  # Slightly lower base range
-        creativity_boost = creativity_level * 0.3  # Boost based on creativity
-        temperature = round(base_temp + creativity_boost, 2)  # Combined temperature
-        logger.info(f"[{trace_id}] Using temperature: {temperature} (creativity: {creativity_enabled}, level: {creativity_level})")
+        # Use a fixed temperature without random variation
+        base_temp = 2.0  # Fixed base temperature at maximum safe value
+        temperature = min(2.0, base_temp)  # Ensure we never exceed OpenAI's limit
+        logger.info(f"[{trace_id}] Using temperature: {temperature} (fixed value)")
         
         # Call LLM with caching enabled
         response = await llm_service.generate_response_async(
