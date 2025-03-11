@@ -792,7 +792,7 @@ async def query_memory(
             if creativity_level < 0.4:
                 creativity_instruction = "Stick closely to the provided memories, responding primarily based on this information."
             elif creativity_level < 0.7:
-                creativity_instruction = "Use the provided memories as a foundation, but feel free to expand on them with relevant context and connections."
+                creativity_instruction = "Use the provided memories as a canvas where you paint your reponses."
             else:
                 creativity_instruction = "Let the provided memories inspire your response, but feel free to explore related ideas and make creative connections."
         else:

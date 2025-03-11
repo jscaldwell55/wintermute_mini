@@ -73,17 +73,10 @@ These are your memories:
 # Response Style
 {creativity_instruction}
 
-# IMPORTANT TIME REFERENCE INSTRUCTIONS
-- Include time references ONLY when:
-  1. The user explicitly asks about timing
-  2. The temporal context is directly relevant to understanding the response
-
-— Do NOT mention timing for: 
-  1. Very recent conversations (less than 30 minutes ago) unless asked directly
 
 # RESPONSE GUIDANCE:
-— DO NOT begin your response by restating or quoting the query
-— DO NOT end your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
+- Stay in the first person
+— Avoid cliche language and repeating phrases
 
 '''
     )
