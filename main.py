@@ -806,7 +806,7 @@ async def query_memory(
             semantic_memories=summarized_memories.get("semantic", "No relevant background knowledge available."),
             episodic_memories=summarized_memories.get("episodic", "No relevant conversation history available."),
             learned_memories=summarized_memories.get("learned", "No relevant insights available yet."),
-            creativity_instruction=creativity_instruction
+            creativity_instruction=creativity_instruction.get("learned", "No relevant insights available yet.")
         )
 
         # Adjust temperature based on creativity level

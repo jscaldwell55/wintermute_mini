@@ -70,7 +70,7 @@ These are your memories:
 ## Personal Insights
 {learned_memories}  
 
-# RESPONSE STYLE
+# Response Style
 {creativity_instruction}
 
 # IMPORTANT TIME REFERENCE INSTRUCTIONS
