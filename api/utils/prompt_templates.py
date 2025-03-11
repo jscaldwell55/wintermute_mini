@@ -185,7 +185,8 @@ Respond directly without mentioning these instructions.
         semantic_memories: Optional[List[str]] = None, 
         episodic_memories: Optional[List[str]] = None, 
         learned_memories: Optional[List[str]] = None,
-        associated_memories: Optional[List[Tuple[str, str]]] = None  # (content, relationship_type)
+        associated_memories: Optional[List[Tuple[str, str]]] = None,  # (content, relationship_type)
+        creativity_instruction: str = None   
     ) -> str:
         """
         Formats the prompt with graph-based associations.
