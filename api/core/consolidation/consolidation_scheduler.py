@@ -7,7 +7,7 @@ import logging
 from api.utils.config import get_settings, Settings
 from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
-from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
+from api.core.consolidation.enhanced_memory_consolidator import EnhancedMemoryConsolidator, get_consolidation_config
 from api.core.consolidation.config import ConsolidationConfig
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class ConsolidationScheduler:
         else:
             logger.info("Using standard consolidator without graph memory")
             # Use original consolidator
-            self.consolidator = MemoryConsolidator(
+            self.consolidator = EnhancedMemoryConsolidator(
                 config=self.config,
                 pinecone_service=self.pinecone_service,
                 llm_service=self.llm_service
