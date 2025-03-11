@@ -42,7 +42,7 @@ class LLMService:
         self.response_cache = ResponseCache(
             max_size=1000,  # Cache up to 1000 responses
             ttl_seconds=3600 * 24,  # Cache responses for 24 hours
-            similarity_threshold=0.92  # 92% similarity threshold
+            similarity_threshold=0.50  # 92% similarity threshold
         )
 
 
@@ -115,7 +115,7 @@ class LLMService:
                 prompt=text,
                 system_message="Summarize the following text concisely:", # Simplified system message
                 max_tokens=max_length,
-                temperature=random.uniform(0.3, 0.9)  # Lower temperature for more focused summary
+                temperature=1.5  # Lower temperature for more focused summary
             )
 
             return summary

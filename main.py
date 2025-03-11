@@ -168,7 +168,7 @@ class SystemComponents:
                 self.response_cache = ResponseCache(
                     max_size=1000,  # Cache up to 1000 responses
                     ttl_seconds=3600 * 24,  # Cache responses for 24 hours
-                    similarity_threshold=0.92  # 92% similarity threshold
+                    similarity_threshold=0.50  # 92% similarity threshold
             )
             # Initialize consolidation scheduler
                 config = get_consolidation_config()
@@ -810,7 +810,7 @@ async def query_memory(
         )
 
         # Adjust temperature based on creativity level
-        base_temp = random.uniform(1.3, 1.6)  # Slightly lower base range
+        base_temp = random.uniform(2.0, 2.5)  # Slightly lower base range
         creativity_boost = creativity_level * 0.3  # Boost based on creativity
         temperature = round(base_temp + creativity_boost, 2)  # Combined temperature
         logger.info(f"[{trace_id}] Using temperature: {temperature} (creativity: {creativity_enabled}, level: {creativity_level})")
