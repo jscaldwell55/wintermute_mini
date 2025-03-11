@@ -44,7 +44,7 @@ from api.utils.pinecone_service import PineconeService
 from api.utils.llm_service import LLMService
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.config import ConsolidationConfig
-from api.core.consolidation.consolidator import MemoryConsolidator, get_consolidation_config
+from api.core.consolidation.enhanced_memory_consolidator import EnhancedMemoryConsolidator, get_consolidation_config
 from api.core.consolidation.consolidation_scheduler import ConsolidationScheduler
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
@@ -127,7 +127,7 @@ class SystemComponents:
         self.vector_operations = None
         self.pinecone_service = None
         self.llm_service = None
-        self.consolidator = None
+        self.enhanced_memory_consolidator = None
         self._initialized = False
         self.settings = get_settings()  # Get settings *once* here.
 
