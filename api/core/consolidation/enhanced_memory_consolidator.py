@@ -245,7 +245,7 @@ class EnhancedMemoryConsolidator:
             # Get current time and create both timestamp formats
             current_time = datetime.now(timezone.utc)
             created_at_timestamp = int(current_time.timestamp())
-            created_at_iso = current_time.isoformat() + "Z"
+            created_at_iso = current_time.isoformat().replace("+00:00", "Z")
             
             # Use integer timestamp in metadata for Pinecone
             metadata = {
