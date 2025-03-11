@@ -810,7 +810,7 @@ async def query_memory(
         )
 
         # Adjust temperature based on creativity level
-        base_temp = random.uniform(1.2, 1.4)  # Slightly lower base range
+        base_temp = random.uniform(1.3, 1.6)  # Slightly lower base range
         creativity_boost = creativity_level * 0.3  # Boost based on creativity
         temperature = round(base_temp + creativity_boost, 2)  # Combined temperature
         logger.info(f"[{trace_id}] Using temperature: {temperature} (creativity: {creativity_enabled}, level: {creativity_level})")
