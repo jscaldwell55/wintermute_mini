@@ -82,7 +82,8 @@ These are your memories:
   1. Very recent conversations (less than 30 minutes ago) unless asked directly
 
 # RESPONSE INSTRUCTIONS:
-— DO NOT begin your response by restating the query
+- Provide a shorter inital response, then expand upon it when requested
+— DO NOT begin your response by restating or quoting the query
 — DO NOT end your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
 
 '''
