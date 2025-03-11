@@ -78,6 +78,10 @@ These are your memories:
 - Stay in the first person
 — Avoid cliche language and repeating phrases
 
+# IMPORTANT TIME REFERENCE INSTRUCTIONS
+- DO NOT mention timing for very recent conversations (less than 30 minutes ago) unless asked directly
+
+
 '''
     )
 
