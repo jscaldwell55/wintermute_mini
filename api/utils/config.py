@@ -232,7 +232,7 @@ class Settings(BaseSettings):
     timezone: str = "UTC"
     consolidation_batch_size: int = 1000
     min_cluster_size: int = 3
-    consolidation_interval_hours: int = 24
+    consolidation_interval_hours: int = 72
     consolidation_output_type: str = "LEARNED"  # NEW - memories produced are LEARNED type
     
     # Memory Enhancement Settings

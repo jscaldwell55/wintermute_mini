@@ -70,6 +70,9 @@ These are your memories:
 ## Personal Insights
 {learned_memories}  
 
+# RESPONSE STYLE
+{creativity_instruction}
+
 # IMPORTANT TIME REFERENCE INSTRUCTIONS
 - Include time references ONLY when:
   1. The user explicitly asks about timing
