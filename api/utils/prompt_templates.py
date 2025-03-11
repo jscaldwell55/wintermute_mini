@@ -81,7 +81,7 @@ These are your memories:
 — Do NOT mention timing for: 
   1. Very recent conversations (less than 30 minutes ago) unless asked directly
 
-# RESPONSE INSTRUCTIONS:
+# RESPONSE GUIDANCE:
 — DO NOT begin your response by restating or quoting the query
 — DO NOT end your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
 
