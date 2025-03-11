@@ -93,7 +93,8 @@ These are your memories:
         query: str, 
         semantic_memories: str = None, 
         episodic_memories: str = None, 
-        learned_memories: str = None
+        learned_memories: str = None,
+        creativity_instruction: str = None   
     ) -> str:
         """
         Formats the prompt with summarized memories.
@@ -111,13 +112,14 @@ These are your memories:
         semantic_memories = semantic_memories or "No relevant background knowledge available."
         episodic_memories = episodic_memories or "No relevant conversation history available."
         learned_memories = learned_memories or "No relevant insights available yet."
-        
+        creativity_instruction = creativity_instruction or "No relevant instructions available yet."
         # Format the template with the processed memories
         formatted = self.template.format(
             query=query,
             semantic_memories=semantic_memories,
             episodic_memories=episodic_memories,
-            learned_memories=learned_memories
+            learned_memories=learned_memories,
+            creativity_instruction = creativity_instruction
         )
         
         return formatted.strip()
