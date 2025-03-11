@@ -79,11 +79,11 @@ These are your memories:
   2. The temporal context is directly relevant to understanding the response
 
 — Do NOT mention timing for: 
-  1. Very recent conversations (less than an hour ago) 
+  1. Very recent conversations (less than 30 minutes ago) unless asked directly
 
 # RESPONSE INSTRUCTIONS:
-— Begin your response by restating the query
-— End your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
+— DO NOT begin your response by restating the query
+— DO NOT end your response with cliche or repetitive phrases, like "If you'd like to explore further" or "If you have any more questions"
 
 '''
     )
