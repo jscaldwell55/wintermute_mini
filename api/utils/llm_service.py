@@ -26,6 +26,7 @@ class LLMService:
     """Service for interacting with OpenAI's LLM APIs."""
 
     MAX_PROMPT_LENGTH = 4000  # Reduced from 4096 to allow for system messages
+    MAX_TEMPERATURE = 3.0
 
     def __init__(self, settings: Optional[Settings] = None):
         """Initialize the LLM service with configuration and defaults."""
