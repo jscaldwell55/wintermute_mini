@@ -1,4 +1,5 @@
-import aioredis
+# api/utils/redis_graph_store.py
+import redis.asyncio as redis
 import logging
 import os
 import asyncio
@@ -23,7 +24,7 @@ class RedisGraphStore:
                 return False
                 
             logger.info(f"Connecting to Redis...")
-            self.redis = await aioredis.from_url(
+            self.redis = redis.from_url(
                 redis_url, 
                 decode_responses=True,  # Return strings instead of bytes
                 encoding="utf-8"
@@ -82,14 +83,16 @@ class RedisGraphStore:
             
         try:
             relationships = []
-            cursor = "0"
+            cursor = 0
             pattern = "edge:*"
             
             # Use scan for better performance with large datasets
-            while cursor != 0:
+            while True:
                 cursor, keys = await self.redis.scan(cursor, match=pattern, count=100)
                 
                 if not keys:
+                    if cursor == 0:
+                        break
                     continue
                     
                 # Get all relationship data in a pipeline for efficiency
@@ -109,6 +112,9 @@ class RedisGraphStore:
                                 edge_data["weight"] = 0.5  # Default if conversion fails
                         
                         relationships.append(edge_data)
+                
+                if cursor == 0:
+                    break
             
             logger.info(f"Retrieved {len(relationships)} relationships from Redis")
             return relationships
@@ -128,10 +134,12 @@ class RedisGraphStore:
             all_keys = []
             
             for pattern in patterns:
-                cursor = "0"
-                while cursor != 0:
+                cursor = 0
+                while True:
                     cursor, keys = await self.redis.scan(cursor, match=pattern, count=100)
                     all_keys.extend(keys)
+                    if cursor == 0:
+                        break
             
             if all_keys:
                 await self.redis.delete(*all_keys)
@@ -160,12 +168,14 @@ class RedisGraphStore:
             return 0
             
         try:
-            cursor = "0"
+            cursor = 0
             count = 0
             
-            while cursor != 0:
+            while True:
                 cursor, keys = await self.redis.scan(cursor, match="edge:*", count=100)
                 count += len(keys)
+                if cursor == 0:
+                    break
                 
             return count
             
