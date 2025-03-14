@@ -229,7 +229,6 @@ class SystemComponents:
 
             finally:
                 self._initialized = True
-                await components.consolidation_scheduler.populate_graph_if_needed()
 
     async def _populate_graph_async(self, memory_graph, relationship_detector):
         try:
