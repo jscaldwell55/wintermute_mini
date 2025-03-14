@@ -330,14 +330,28 @@ class GraphMemoryRetriever:
                         # Ensure created_at is a properly formatted string
                         created_at_str = self._ensure_string_timestamp(memory_data.get("created_at"))
                         
-                        # Create MemoryResponse
+                        # Debug the memory data structure
+                        self.logger.debug(f"Memory data structure: {memory_data.keys()}")
+                        
+                        # Check if content is in metadata
+                        if "metadata" in memory_data and "content" in memory_data["metadata"]:
+                            content = memory_data["metadata"]["content"]
+                            memory_type_str = memory_data["metadata"].get("memory_type", "EPISODIC")
+                            window_id = memory_data["metadata"].get("window_id")
+                        else:
+                            # Try to access directly in the root object
+                            content = memory_data.get("content", "")
+                            memory_type_str = memory_data.get("memory_type", "EPISODIC")
+                            window_id = memory_data.get("window_id")
+                        
+                        # Create MemoryResponse with more robust field access
                         memory_response = MemoryResponse(
                             id=memory_data["id"],
-                            content=memory_data["content"],
-                            memory_type=memory_data["memory_type"],
+                            content=content,
+                            memory_type=MemoryType(memory_type_str),
                             created_at=created_at_str,
                             metadata=memory_data.get("metadata", {}),
-                            window_id=memory_data.get("window_id")
+                            window_id=window_id
                         )
                         
                         # Apply bell curve scoring if this is an episodic memory
