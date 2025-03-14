@@ -327,24 +327,51 @@ class GraphMemoryRetriever:
                         continue
                     
                     try:
-                        # Ensure created_at is a properly formatted string
-                        created_at_str = self._ensure_string_timestamp(memory_data.get("created_at"))
-                        
                         # Debug the memory data structure
                         self.logger.debug(f"Memory data structure: {memory_data.keys()}")
                         
-                        # Check if content is in metadata
-                        if "metadata" in memory_data and "content" in memory_data["metadata"]:
-                            content = memory_data["metadata"]["content"]
-                            memory_type_str = memory_data["metadata"].get("memory_type", "EPISODIC")
-                            window_id = memory_data["metadata"].get("window_id")
-                        else:
-                            # Try to access directly in the root object
-                            content = memory_data.get("content", "")
-                            memory_type_str = memory_data.get("memory_type", "EPISODIC")
-                            window_id = memory_data.get("window_id")
+                        # Initialize variables with defaults
+                        content = ""
+                        memory_type_str = "EPISODIC"  # Default memory type
+                        window_id = None
                         
-                        # Create MemoryResponse with more robust field access
+                        # Try to extract from metadata first
+                        if "metadata" in memory_data and isinstance(memory_data["metadata"], dict):
+                            metadata = memory_data["metadata"]
+                            
+                            # Get content
+                            if "content" in metadata:
+                                content = metadata["content"]
+                            
+                            # Get memory_type
+                            if "memory_type" in metadata:
+                                memory_type_str = metadata["memory_type"]
+                                
+                            # Get window_id
+                            if "window_id" in metadata:
+                                window_id = metadata["window_id"]
+                        
+                        # Fall back to direct access if not found in metadata
+                        if not content and "content" in memory_data:
+                            content = memory_data["content"]
+                            
+                        if memory_type_str == "EPISODIC" and "memory_type" in memory_data:
+                            memory_type_str = memory_data["memory_type"]
+                            
+                        if not window_id and "window_id" in memory_data:
+                            window_id = memory_data["window_id"]
+                        
+                        # Ensure created_at is a properly formatted string
+                        created_at_str = self._ensure_string_timestamp(
+                            memory_data.get("created_at") or memory_data.get("metadata", {}).get("created_at")
+                        )
+                        
+                        # Make sure memory_type_str is a valid enum value
+                        if memory_type_str not in [t.value for t in MemoryType]:
+                            self.logger.warning(f"Invalid memory_type: {memory_type_str}, defaulting to EPISODIC")
+                            memory_type_str = "EPISODIC"
+                        
+                        # Create MemoryResponse with extracted fields
                         memory_response = MemoryResponse(
                             id=memory_data["id"],
                             content=content,
