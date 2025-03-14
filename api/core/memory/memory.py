@@ -675,6 +675,7 @@ class MemorySystem:
             r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday)",
             r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week)",
             r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
+            r"(?:what|about|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
             # Add more patterns as needed
         ]
         

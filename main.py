@@ -159,12 +159,25 @@ class SystemComponents:
                 self.llm_service = LLMService()
                 logger.info("✅ LLM service initialized")
 
+                 # Initialize the memory graph
+                from api.core.memory.graph.memory_graph import MemoryGraph
+                self.memory_graph = MemoryGraph()
+                logger.info("✅ Memory graph initialized")
+
                 self.memory_system = MemorySystem(
                     pinecone_service=self.pinecone_service,
                     vector_operations=self.vector_operations,
                     llm_service=self.llm_service,
                     settings=self.settings,
                 )
+
+                from api.core.memory.graph.graph_memory_retriever import GraphMemoryRetriever
+                self.graph_memory_retriever = GraphMemoryRetriever(
+                    memory_graph=self.memory_graph,
+                    inecone_service=self.pinecone_service,
+                    vector_operations=self.vector_operations
+                )
+                logger.info("✅ Graph memory retriever initialized")
                 self.response_cache = ResponseCache(
                     max_size=1000,  # Cache up to 1000 responses
                     ttl_seconds=3600 * 24,  # Cache responses for 24 hours
@@ -747,20 +760,52 @@ async def query_memory(
                     }
                 )
 
-        # Batch query all memory types in one operation
-        memory_results = await memory_system.batch_query_memories(
-            query=query.prompt,
-            window_id=query.window_id,
-            top_k_per_type=5,
-            request_metadata=query.request_metadata
-        )
+            if components.settings.enable_graph_memory and hasattr(components, 'graph_memory_retriever'):
+                logger.info(f"[{trace_id}] Using graph-based associative memory retrieval")
+                memory_retrieval_start = time.time()
+                
+                # Use the graph memory retriever instead of standard batch query
+                memory_response = await components.graph_memory_retriever.retrieve_memories(query)
+                
+                # Extract results by memory type from the combined results
+                semantic_memories_raw = []
+                episodic_memories_raw = []
+                learned_memories_raw = []
+                
+                for i, memory in enumerate(memory_response.matches):
+                    score = memory_response.similarity_scores[i]
+                    memory_tuple = (memory, score)
+                    
+                    if memory.memory_type == MemoryType.SEMANTIC:
+                        semantic_memories_raw.append(memory_tuple)
+                    elif memory.memory_type == MemoryType.EPISODIC:
+                        episodic_memories_raw.append(memory_tuple)
+                    elif memory.memory_type == MemoryType.LEARNED:
+                        learned_memories_raw.append(memory_tuple)
+                
+                memory_time = time.time() - memory_retrieval_start
+                logger.info(f"[{trace_id}] Graph retrieval returned {len(semantic_memories_raw)} semantic, {len(episodic_memories_raw)} episodic, and {len(learned_memories_raw)} learned memories in {memory_time:.3f}s")
+            else:
+                # Use standard memory retrieval (existing code)
+                logger.info(f"[{trace_id}] Using standard vector-based memory retrieval")
+                memory_retrieval_start = time.time()
+                
+                # Batch query all memory types in one operation
+                memory_results = await memory_system.batch_query_memories(
+                    query=query.prompt,
+                    window_id=query.window_id,
+                    top_k_per_type=5,
+                    request_metadata=query.request_metadata
+                )
 
-        # Get results by memory type
-        semantic_memories_raw = memory_results.get(MemoryType.SEMANTIC, [])
-        episodic_memories_raw = memory_results.get(MemoryType.EPISODIC, [])
-        learned_memories_raw = memory_results.get(MemoryType.LEARNED, [])
+                # Get results by memory type
+                semantic_memories_raw = memory_results.get(MemoryType.SEMANTIC, [])
+                episodic_memories_raw = memory_results.get(MemoryType.EPISODIC, [])
+                learned_memories_raw = memory_results.get(MemoryType.LEARNED, [])
+                
+                memory_time = time.time() - memory_retrieval_start
+                logger.info(f"[{trace_id}] Retrieved {len(semantic_memories_raw)} semantic, {len(episodic_memories_raw)} episodic, and {len(learned_memories_raw)} learned memories in {memory_time:.3f}s")
 
-        logger.info(f"[{trace_id}] Retrieved {len(semantic_memories_raw)} semantic, {len(episodic_memories_raw)} episodic, and {len(learned_memories_raw)} learned memories")
 
         # Memory retrieval time
         memory_time = time.time() - start_time
