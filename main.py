@@ -194,6 +194,15 @@ class SystemComponents:
                     ttl_seconds=3600 * 24,  # Cache responses for 24 hours
                     similarity_threshold=0.50  # 50% similarity threshold
                 )
+
+                if self.settings.auto_populate_graph:
+                    logger.info("Auto-populating graph as configured in settings")
+                    self._graph_population_task = asyncio.create_task(self._populate_graph_async(
+                        memory_graph=self.memory_graph,
+                        relationship_detector=graph_components["relationship_detector"]
+                    ))
+                else:
+                    logger.info("Skipping automatic graph population (use API endpoint or scheduler to populate)")
                 
                 # Initialize consolidation scheduler
                 config = get_consolidation_config()
@@ -209,11 +218,7 @@ class SystemComponents:
                 await self.consolidation_scheduler.start()
                 logger.info("✅ Consolidation scheduler initialized and started")
                 
-                # Start graph population as a background task
-                self._graph_population_task = asyncio.create_task(self._populate_graph_async(
-                    memory_graph=self.memory_graph,
-                    relationship_detector=graph_components["relationship_detector"]
-                ))
+               
                 
                 logger.info("🎉 All system components initialized, graph population started in background")
 
@@ -221,6 +226,10 @@ class SystemComponents:
                 logger.error(f"🚨 Error initializing system components: {e}")
                 await self.cleanup()
                 raise
+
+            finally:
+                self._initialized = True
+                await components.consolidation_scheduler.populate_graph_if_needed()
 
     async def _populate_graph_async(self, memory_graph, relationship_detector):
         try:

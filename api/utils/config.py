@@ -264,6 +264,7 @@ class Settings(BaseSettings):
     enable_graph_memory: bool = True  # Toggle for enabling/disabling graph memory (for A/B testing)
     graph_memory_weight: float = 0.3   # Weight for graph-based retrievals in combined results
     vector_memory_weight: float = 0.7  # Weight for vector-based retrievals in combined results
+    auto_populate_graph = False  # Default to not populating on startup
     
     # Graph Traversal Settings
     max_graph_depth: int = 2           # Maximum hops in graph traversal

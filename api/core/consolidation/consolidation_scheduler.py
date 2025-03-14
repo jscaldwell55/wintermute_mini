@@ -205,6 +205,15 @@ class ConsolidationScheduler:
                 # Wait an hour before retrying on error
                 await asyncio.sleep(3600)
 
+    async def populate_graph_if_needed(self):
+        """Check if graph needs population and run if necessary"""
+        if not self.memory_graph or self.memory_graph.graph.number_of_nodes() > 0:
+            logger.info("Graph already populated or not available, skipping population")
+            return False
+            
+        logger.info("Graph is empty, running initial population")
+        return await self._initialize_graph_from_existing_memories()
+
     
 
 async def main():
