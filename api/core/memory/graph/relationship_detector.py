@@ -181,8 +181,7 @@ class MemoryRelationshipDetector:
                 Respond with only a number (0-10)."""
                 
                 # Get LLM response
-                response = await self.llm_service.generate_response(prompt)
-                
+                response = await self.llm_service.generate_gpt_response_async(prompt)
                 # Extract numerical rating
                 try:
                     rating = float(response.strip())

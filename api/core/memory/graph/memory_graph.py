@@ -190,7 +190,40 @@ class MemoryGraph:
         except Exception as e:
             self.logger.error(f"Error adding temporal relationships: {e}")
             return 0
-    
+        
+    # Add to memory_graph.py
+    def add_hub_connections(self, hub_node_id: str, max_connections: int = 50):
+        """
+        Connect a hub node to many others to improve graph connectivity.
+        Hub nodes are typically high-level, general memories that can reasonably
+        connect to many other nodes.
+        """
+        if not self.graph.has_node(hub_node_id):
+            self.logger.warning(f"Hub node {hub_node_id} not found in graph")
+            return 0
+            
+        # Get candidate nodes (exclude the hub itself)
+        candidates = [node for node in self.graph.nodes() if node != hub_node_id]
+        
+        # Limit to max_connections
+        import random
+        if len(candidates) > max_connections:
+            candidates = random.sample(candidates, max_connections)
+        
+        # Add connections
+        connections_added = 0
+        for node_id in candidates:
+            if self.add_relationship(
+                source_id=hub_node_id,
+                target_id=node_id,
+                rel_type="hub_connection",
+                weight=0.5  # Medium strength
+            ):
+                connections_added += 1
+        
+        self.logger.info(f"Added {connections_added} hub connections from node {hub_node_id}")
+        return connections_added
+        
     def _parse_timestamp(self, timestamp):
         """Parse timestamp string or value to datetime object."""
         try:
