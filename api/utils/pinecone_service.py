@@ -147,7 +147,25 @@ class PineconeService(MemoryService):
                 logger.error(f"❌ Pinecone returned None for memory_id '{memory_id}'")
                 return None
 
-            if 'vectors' in response and memory_id in response['vectors']:
+            # Handle response as a FetchResponse object (new SDK)
+            if hasattr(response, 'vectors') and memory_id in response.vectors:
+                vector_data = response.vectors[memory_id]
+                metadata = vector_data.metadata if hasattr(vector_data, 'metadata') else {}
+                vector_values = vector_data.values if hasattr(vector_data, 'values') else []
+                
+                # Use normalize_timestamp here
+                created_at_raw = metadata.get("created_at")
+                if isinstance(created_at_raw, str):
+                    created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                    metadata['created_at'] = created_at
+
+                return {
+                    'id': memory_id,
+                    'vector': vector_values,
+                    'metadata': metadata  # Return metadata with parsed datetime
+                }
+            # Fall back to dictionary-style access (old SDK)
+            elif isinstance(response, dict) and 'vectors' in response and memory_id in response['vectors']:
                 vector_data = response['vectors'][memory_id]
                 metadata = vector_data['metadata']
 

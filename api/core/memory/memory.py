@@ -1254,6 +1254,9 @@ class MemorySystem:
         - Prioritize conversations that are most relevant to the current query.
         {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
         - Be specific about the timing of these conversations when responding.
+        - If the user asks about a specific time reference like "tonight," "this morning," or "yesterday," use natural time expressions in your response (e.g., "Earlier tonight we talked about..." or "This morning we discussed...").
+        - Group related topics from the same time period together for a more natural recall pattern.
+        - Mention the sequence of topics if they occurred in a meaningful order.
 
         **Output just the summarized memory:**
         """
