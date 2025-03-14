@@ -675,6 +675,22 @@ class MemorySystem:
         time_expr: str, 
         base_time: Optional[datetime] = None
     ) -> Tuple[Optional[datetime], Optional[datetime]]:
+        
+        base_time = base_time or datetime.now(timezone.utc)
+        time_expr = time_expr.lower().strip()
+        
+        # Handle "this morning"
+        if "this morning" in time_expr:
+            today = base_time.replace(hour=0, minute=0, second=0, microsecond=0)
+            morning_start = today.replace(hour=5)  # 5 AM
+            morning_end = today.replace(hour=12)   # 12 PM
+            return morning_start, morning_end
+            
+        # Handle "today"
+        elif "today" in time_expr:
+            today = base_time.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_time = base_time  # Current time
+            return today, end_time
         """
         Parse natural language time expressions into start/end datetime objects.
         
@@ -730,14 +746,17 @@ class MemorySystem:
         
         # Define regex patterns for temporal expressions
         temporal_patterns = [
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (\d+ days? ago)",
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday)",
-            r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week)",
-            r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
-            r"(?:what|about|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
-            r"(?:what|about|remember|have) (?:we|you|I|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:in |during |the |this |over )?(?:past|last|recent) (hour|few hours|couple hours|several hours)"
-            # Add more patterns as needed
-        ]
+    r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (\d+ days? ago)",
+    r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday)",
+    r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week)",
+    r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
+    r"(?:what|about|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
+    # Add new patterns for morning/today references:
+    r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (this morning)",
+    r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (today)",
+    r"(?:what) (?:have we discussed|did we discuss) (today|this morning)",
+    r"(?:what) (?:happened|occurred|took place) (this morning|today)"
+]
         
         # Check for temporal patterns
         matched_expr = None
@@ -915,6 +934,19 @@ class MemorySystem:
         return memory_scores
     
     def _calculate_bell_curve_recency(self, age_hours):
+
+         # For very recent memories (<1h): use higher starting score for time-explicit queries
+        if "this morning" in self.current_query.lower() or "today" in self.current_query.lower():
+            # Override normal curve for explicit time queries
+            if age_hours < 24:  # Within last 24 hours
+                return 0.9  # High priority for recent memories
+            else:
+                return 0.5  # Medium priority for older memories
+            
+        # Original bell curve logic below (keep as fallback)
+        if age_hours < very_recent_threshold:
+            # Increase base score from 0.2 to 0.7 for recent memories
+            return 0.7 + (0.2 * age_hours / very_recent_threshold)
         """
         Calculate recency score using a bell curve pattern:
         - Very recent memories (<1h) are heavily de-prioritized (0.2-0.4)
@@ -1564,11 +1596,16 @@ class MemorySystem:
             # Get current time for enhanced time metadata
             current_time = datetime.now(timezone.utc)
             
-            # Add time metadata
+             
+            # Add more granular time_of_day periods
             hour = current_time.hour
-            if 5 <= hour < 12:
+            if 5 <= hour < 9:
+                time_of_day = "early morning"
+            elif 9 <= hour < 12:
                 time_of_day = "morning"
-            elif 12 <= hour < 17:
+            elif 12 <= hour < 14:
+                time_of_day = "noon"
+            elif 14 <= hour < 17:
                 time_of_day = "afternoon"
             elif 17 <= hour < 21:
                 time_of_day = "evening"
@@ -1588,8 +1625,19 @@ class MemorySystem:
                     # Add ISO format timestamp for exact time queries
                     "created_at_iso": current_time.isoformat() + 'Z',
                     # Add reference date for date-based queries
-                    "reference_date": current_time.strftime("%Y-%m-%d")
+                    "reference_date": current_time.strftime("%Y-%m-%d"),
+                    "time_of_day": time_of_day,
+                    "day_of_week": current_time.strftime("%A"),
+                    "date_str": current_time.strftime("%Y-%m-%d"),
+                    "created_at_iso": current_time.isoformat() + 'Z',
+                    # Add hour for more specific filtering
+                    "hour_of_day": current_time.hour,
+                    # Add normalized time periods for common queries
+                    "is_morning": 5 <= hour < 12,
+                    "is_afternoon": 12 <= hour < 17,
+                    "is_evening": 17 <= hour < 24
                 }
+                
 
             # Create the Memory object first
             memory = Memory(

@@ -167,6 +167,14 @@ class GraphMemoryRetriever:
         return normalize_timestamp(timestamp_value)
     
     async def _retrieve_vector_memories(self, request: QueryRequest) -> QueryResponse:
+        is_time_query = any(x in request.prompt.lower() for x in ["this morning", "today", "yesterday", "last week"])
+    
+        if is_time_query:
+            # Add additional fields to retrieve and log
+            logger.info(f"Time-specific query detected: '{request.prompt}'")
+            # Use more generous top_k for time queries
+            original_top_k = request.top_k
+            request.top_k = request.top_k * 2 
         """
         Retrieve memories using vector similarity (using existing system).
         This is a placeholder that would call your existing memory retrieval system.
@@ -253,6 +261,7 @@ class GraphMemoryRetriever:
                 except Exception as e:
                     self.logger.error(f"Error applying bell curve to memory {memory.id}: {e}")
                     continue
+             
             
             return QueryResponse(
                 matches=matches,

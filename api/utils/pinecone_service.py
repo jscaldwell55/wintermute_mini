@@ -225,6 +225,13 @@ class PineconeService(MemoryService):
         """Queries the Pinecone index, parsing created_at in metadata."""
         try:
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
+             # Convert any datetime objects in filter to timestamps
+            if filter and "created_at" in filter:
+                if isinstance(filter["created_at"], dict):
+                    for op, val in filter["created_at"].items():
+                        if isinstance(val, datetime):
+                            filter["created_at"][op] = int(val.timestamp())
+                            logger.info(f"Converted datetime to timestamp: {val} -> {filter['created_at'][op]}")
             results = self.index.query(
                 vector=query_vector,
                 top_k=top_k,

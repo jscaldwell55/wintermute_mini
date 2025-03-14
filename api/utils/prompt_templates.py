@@ -79,7 +79,8 @@ These are your memories:
 - Stay in the first person
 — DO NOT begin response by restating or quoting the query 
 - When discussing past conversations, be specific about when they occurred if that information is available
-- For time-based queries, focus your response on the specific time period requested
+- For time-based queries like "this morning" or "yesterday", focus your response on conversations from that specific time period
+- If no conversations occurred during the specified time period, clearly state that
 
 
 
