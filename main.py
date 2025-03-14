@@ -185,22 +185,17 @@ class SystemComponents:
                 self.graph_memory_retriever = graph_components["graph_retriever"]
                 logger.info("✅ Graph memory retriever initialized")
 
-                # Important: Initialize the graph with existing memories
-                logger.info("🔍 Populating memory graph with existing memories...")
-                await GraphMemoryFactory.initialize_graph_from_existing_memories(
-                    memory_graph=self.memory_graph,
-                    relationship_detector=graph_components["relationship_detector"],
-                    pinecone_service=self.pinecone_service,
-                    max_memories=500  # Adjust based on your needs
-                )
-                logger.info("✅ Memory graph populated with existing memories")
-
+                # Mark system as initialized early, before graph population
+                self._initialized = True
+                
+                # Initialize the response cache and scheduler
                 self.response_cache = ResponseCache(
                     max_size=1000,  # Cache up to 1000 responses
                     ttl_seconds=3600 * 24,  # Cache responses for 24 hours
                     similarity_threshold=0.50  # 50% similarity threshold
                 )
-            # Initialize consolidation scheduler
+                
+                # Initialize consolidation scheduler
                 config = get_consolidation_config()
                 self.consolidation_scheduler = ConsolidationScheduler(
                     config=config,
@@ -209,20 +204,43 @@ class SystemComponents:
                     run_interval_hours=self.settings.consolidation_interval_hours,
                     timezone=self.settings.timezone
                 )
+                
                 # Start the scheduler
                 await self.consolidation_scheduler.start()
                 logger.info("✅ Consolidation scheduler initialized and started")
-
-
-                logger.info("✅ Memory system initialized")
-
-                self._initialized = True
-                logger.info("🎉 All system components initialized successfully")
+                
+                # Start graph population as a background task
+                self._graph_population_task = asyncio.create_task(self._populate_graph_async(
+                    memory_graph=self.memory_graph,
+                    relationship_detector=graph_components["relationship_detector"]
+                ))
+                
+                logger.info("🎉 All system components initialized, graph population started in background")
 
             except Exception as e:
                 logger.error(f"🚨 Error initializing system components: {e}")
                 await self.cleanup()
                 raise
+
+    async def _populate_graph_async(self, memory_graph, relationship_detector):
+        try:
+            logger.info("🔍 Populating memory graph with existing memories in background...")
+            
+            # Import here to avoid circular imports
+            from api.core.memory.graph.memory_factory import GraphMemoryFactory
+            
+            # Populate the graph
+            await GraphMemoryFactory.initialize_graph_from_existing_memories(
+                memory_graph=memory_graph,
+                relationship_detector=relationship_detector,
+                pinecone_service=self.pinecone_service,
+                max_memories=500  # Adjust based on your needs
+            )
+            
+            logger.info("✅ Memory graph population completed in background")
+            
+        except Exception as e:
+            logger.error(f"🚨 Error in background graph population: {e}")
 
     async def cleanup(self):
         try:
@@ -622,6 +640,23 @@ async def populate_memory_graph():
             "success": False,
             "error": str(e)
         }
+    
+@api_router.get("/memory/graph/status")
+async def get_graph_initialization_status():
+    """Get the current status of graph initialization."""
+    if not hasattr(components, 'memory_graph'):
+        return {"status": "not_started", "node_count": 0, "edge_count": 0}
+        
+    try:
+        stats = components.memory_graph.get_graph_stats()
+        return {
+            "status": "complete" if stats['node_count'] > 0 else "in_progress",
+            "node_count": stats['node_count'],
+            "edge_count": stats['edge_count'],
+            "is_connected": stats['is_connected']
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @api_router.post("/cache/disable")
 async def disable_cache(
