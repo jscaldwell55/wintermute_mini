@@ -753,6 +753,12 @@ class MemorySystem:
         
          # Parse the temporal expression
         start_time, end_time = self.parse_time_expression(matched_expr)
+        # Add buffer to the time window (e.g., ±3 hours)
+        buffer = timedelta(hours=3)  
+        start_time = start_time - buffer
+        end_time = end_time + buffer
+
+        logger.info(f"Temporal query detected: '{matched_expr}' - Timeframe with buffer: {start_time} to {end_time}")
         
         # Generate temporal context for the prompt template
         temporal_context = f"Note: This query is specifically about conversations from {matched_expr}, between {start_time.strftime('%Y-%m-%d %H:%M')} and {end_time.strftime('%Y-%m-%d %H:%M')}."
@@ -1570,16 +1576,20 @@ class MemorySystem:
                 time_of_day = "night"
             
             metadata = {
-                "content": interaction_text,  # Store the COMBINED text
-                "memory_type": "EPISODIC",
-                "created_at": int(current_time.timestamp()), # Use consistent format here
-                "window_id": window_id,
-                "source": "user_interaction",  # Indicate the source of this memory
-                # Enhanced time metadata
-                "time_of_day": time_of_day,
-                "day_of_week": current_time.strftime("%A"),
-                "date_str": current_time.strftime("%Y-%m-%d")
-            }
+                    "content": interaction_text,
+                    "memory_type": "EPISODIC",
+                    "created_at": int(current_time.timestamp()),
+                    "window_id": window_id,
+                    "source": "user_interaction",
+                    # Enhanced time metadata
+                    "time_of_day": time_of_day,
+                    "day_of_week": current_time.strftime("%A"),
+                    "date_str": current_time.strftime("%Y-%m-%d"),
+                    # Add ISO format timestamp for exact time queries
+                    "created_at_iso": current_time.isoformat() + 'Z',
+                    # Add reference date for date-based queries
+                    "reference_date": current_time.strftime("%Y-%m-%d")
+                }
 
             # Create the Memory object first
             memory = Memory(

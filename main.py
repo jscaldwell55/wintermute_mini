@@ -580,28 +580,34 @@ async def reset_memory_graph():
     """Reset the memory graph by clearing all nodes and edges."""
     try:
         memory_graph = components.memory_graph
-        
-        # Get initial stats for logging
+
+        # Capture initial stats before clearing
         initial_nodes = memory_graph.graph.number_of_nodes()
         initial_edges = memory_graph.graph.number_of_edges()
-        
+
         # Clear the graph completely
         memory_graph.graph.clear()
-        
-        # Log the reset
-        logger.info(f"Memory graph reset: removed {initial_nodes} nodes and {initial_edges} edges")
-        
+        memory_graph.relationship_counter.clear()
+
+        # Manually set current stats after clearing (since graph is now empty)
+        current_stats = {
+            "node_count": 0,
+            "edge_count": 0,
+            "memory_types": {}
+        }
+
+        logger.info(f"Memory graph reset successfully. Removed {initial_nodes} nodes and {initial_edges} edges.")
+
         return {
             "success": True,
             "message": f"Memory graph was reset. Removed {initial_nodes} nodes and {initial_edges} edges.",
-            "current_stats": memory_graph.get_graph_stats()
+            "current_stats": current_stats
         }
+
     except Exception as e:
         logger.error(f"Error resetting memory graph: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to reset memory graph: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to reset memory graph: {e}")
+
     
 @api_router.post("/memory/graph/populate")
 async def populate_memory_graph():
