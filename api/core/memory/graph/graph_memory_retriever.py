@@ -3,12 +3,14 @@
 import logging
 from typing import List, Dict, Any, Optional, Tuple, Set
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
 
 from api.core.memory.models import Memory, MemoryType, QueryRequest, QueryResponse, MemoryResponse
 from api.core.memory.graph.memory_graph import MemoryGraph
 from api.utils.pinecone_service import PineconeService
 from api.core.vector.vector_operations import VectorOperationsImpl
+from api.utils.utils import normalize_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +79,15 @@ class GraphMemoryRetriever:
         )
         
         # 4. Sort by combined score and limit to requested top_k
-        sorted_indices = np.argsort(combined_scores)[::-1]  # Descending order
-        top_k_indices = sorted_indices[:request.top_k]
-        
-        top_matches = [combined_matches[i] for i in top_k_indices]
-        top_scores = [combined_scores[i] for i in top_k_indices]
+        if combined_matches and combined_scores:
+            sorted_indices = np.argsort(combined_scores)[::-1]  # Descending order
+            top_k_indices = sorted_indices[:request.top_k]
+            
+            top_matches = [combined_matches[i] for i in top_k_indices]
+            top_scores = [combined_scores[i] for i in top_k_indices]
+        else:
+            top_matches = []
+            top_scores = []
         
         self.logger.info(f"Final combined retrieval returned {len(top_matches)} matches")
         
@@ -90,14 +96,28 @@ class GraphMemoryRetriever:
             similarity_scores=top_scores
         )
     
+    def _ensure_string_timestamp(self, timestamp_value) -> str:
+        """Helper method to ensure timestamp is in proper string format"""
+        if timestamp_value is None:
+            # Default to current time if missing
+            return datetime.now(timezone.utc).isoformat() + "Z"
+        
+        if isinstance(timestamp_value, datetime):
+            return timestamp_value.isoformat() + "Z"
+        
+        if isinstance(timestamp_value, (int, float)):
+            # If it's a Unix timestamp
+            dt = datetime.fromtimestamp(timestamp_value, timezone.utc)
+            return dt.isoformat() + "Z"
+        
+        # Already a string, normalize it
+        return normalize_timestamp(timestamp_value)
+    
     async def _retrieve_vector_memories(self, request: QueryRequest) -> QueryResponse:
         """
         Retrieve memories using vector similarity (using existing system).
         This is a placeholder that would call your existing memory retrieval system.
         """
-        # In production, this would call your existing memory system's query_memories method
-        # For now, we're implementing a simplified version
-        
         try:
             # Create query vector
             query_vector = await self.vector_operations.create_semantic_vector(request.prompt)
@@ -123,11 +143,14 @@ class GraphMemoryRetriever:
             
             for memory_data, score in results:
                 try:
+                    # Handle the created_at field properly
+                    created_at_str = self._ensure_string_timestamp(memory_data["metadata"].get("created_at"))
+                    
                     memory_response = MemoryResponse(
                         id=memory_data["id"],
                         content=memory_data["metadata"]["content"],
                         memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                        created_at=memory_data["metadata"]["created_at"].isoformat() + "Z" if isinstance(memory_data["metadata"]["created_at"], datetime) else memory_data["metadata"]["created_at"],
+                        created_at=created_at_str,
                         metadata=memory_data["metadata"],
                         window_id=memory_data["metadata"].get("window_id")
                     )
@@ -177,13 +200,14 @@ class GraphMemoryRetriever:
             try:
                 # Get entry point vector score (for weighting later)
                 entry_point_score = 1.0
-                if i < len(entry_point_memories):
+                if i > 0:  # Only discount if not the top result
                     entry_point_score = 0.9  # Slightly discount if not top result
                 
                 # Get connected memories from graph
                 connected_memories = self.memory_graph.get_connected_memories(
                     memory.id, 
-                    max_depth=self.max_graph_depth
+                    max_depth=self.max_graph_depth,
+                    max_results=self.max_memories_per_hop
                 )
                 
                 for connected_id, relevance, depth in connected_memories:
@@ -209,12 +233,15 @@ class GraphMemoryRetriever:
                         continue
                     
                     try:
+                        # Ensure created_at is a properly formatted string
+                        created_at_str = self._ensure_string_timestamp(memory_data.get("created_at"))
+                        
                         # Create MemoryResponse
                         memory_response = MemoryResponse(
                             id=memory_data["id"],
                             content=memory_data["content"],
                             memory_type=memory_data["memory_type"],
-                            created_at=memory_data["created_at"],
+                            created_at=created_at_str,
                             metadata=memory_data.get("metadata", {}),
                             window_id=memory_data.get("window_id")
                         )
