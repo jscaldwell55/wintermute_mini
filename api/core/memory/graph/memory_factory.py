@@ -86,7 +86,7 @@ class GraphMemoryFactory:
         relationship_detector: MemoryRelationshipDetector,
         pinecone_service: PineconeService,
         batch_size: int = 100,
-        max_memories: int = 1000
+        max_memories: int = 500
     ) -> bool:
         """
         Initialize the memory graph from existing memories in Pinecone.
