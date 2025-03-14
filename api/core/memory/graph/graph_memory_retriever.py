@@ -382,7 +382,7 @@ class GraphMemoryRetriever:
                         )
                         
                         # Apply bell curve scoring if this is an episodic memory
-                        if memory_data["memory_type"] == MemoryType.EPISODIC.value:
+                        if memory_data["metadata"]["memory_type"] == MemoryType.EPISODIC.value:
                             current_time = datetime.now(timezone.utc)
                             created_at = datetime.fromisoformat(created_at_str.rstrip('Z'))
                             

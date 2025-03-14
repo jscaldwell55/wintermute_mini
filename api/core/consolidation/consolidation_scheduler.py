@@ -72,8 +72,12 @@ class ConsolidationScheduler:
                 llm_service=self.llm_service
             )
         
+        # Set the last run time to now minus some time to ensure we don't run immediately
+        # This will make the scheduler wait for the full interval before running
+        self.last_run = datetime.now(self.timezone) - timedelta(hours=self.run_interval_hours/2)
+        
         self.task = asyncio.create_task(self._schedule_consolidation())
-        logger.info(f"Consolidation scheduler started, will run every {self.run_interval_hours} hours")
+        logger.info(f"Consolidation scheduler started, will run after {self.run_interval_hours/2} hours")
 
     async def _initialize_graph_from_existing_memories(self):
         """Initialize the graph with existing memories from Pinecone."""
@@ -171,20 +175,6 @@ class ConsolidationScheduler:
         """Schedule consolidation to run at specified interval."""
         while True:
             try:
-                # If this is the first run, execute immediately
-                if self.last_run is None:
-                    logger.info("Running initial consolidation")
-                    
-                    # Check if we're paused before running
-                    if not self.paused:
-                        await self.consolidator.consolidate_memories()
-                        self.last_run = datetime.now(self.timezone)
-                        logger.info(f"Initial consolidation complete. Next run in {self.run_interval_hours} hours")
-                    else:
-                        logger.info("Scheduler is paused, skipping initial consolidation")
-                        # Set last_run so we can still calculate next run time
-                        self.last_run = datetime.now(self.timezone)
-                
                 # Calculate time until next run
                 now = datetime.now(self.timezone)
                 next_run = self.last_run + timedelta(hours=self.run_interval_hours)
