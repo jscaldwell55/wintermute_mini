@@ -1379,7 +1379,6 @@ class MemorySystem:
         **Task:**
         - Summarize these past conversations like a human would recall them.
         {f"- Frame your summary specifically about conversations that happened {time_expression}." if time_expression else "- Only mention timing when the conversation happened more than 1 hour ago."}
-        - For very recent conversations (less than an hour old), treat them as part of the current conversation flow.
         - Keep it concise (max 150 words).
         - Prioritize conversations that are most relevant to the current query.
         {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
