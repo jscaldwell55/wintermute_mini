@@ -10,6 +10,7 @@ interface Interaction {
   error: ErrorDetail | null;
   timestamp: string;
   isProcessing?: boolean;
+  sender: 'user' | 'wintermute'; // Add a sender field
 }
 
 const WintermuteInterface: React.FC = () => {
@@ -54,17 +55,43 @@ const WintermuteInterface: React.FC = () => {
     setLoading(true);
     const submittedQuery = query;
     setQuery('');
+
+    // Add the user's query to the interactions *immediately*
+    const userInteraction: Interaction = {
+        query: submittedQuery,
+        response: null, // No response yet
+        error: null,
+        timestamp: new Date().toISOString(),
+        sender: 'user', // Mark as sent by the user
+        isProcessing: true, // Indicate that we're waiting for a response
+    };
+    setInteractions(prevInteractions => [...prevInteractions, userInteraction]);
     
     try {
       const data: QueryResponse = await queryAPI(submittedQuery, windowId);
       const newInteraction: Interaction = {
-        query: submittedQuery,
+        query: submittedQuery, // Keep the original query for consistency
         response: data.error ? null : (data.response || "No response from the AI."),
         error: data.error || null,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        sender: 'wintermute', // Mark as sent by Wintermute
+        isProcessing: false,
       };
 
-      setInteractions(prevInteractions => [...prevInteractions, newInteraction]);
+      // Replace user interaction with the response
+      setInteractions(prevInteractions => {
+          const updatedInteractions = [...prevInteractions];
+          const userIndex = updatedInteractions.findIndex(i => i.timestamp === userInteraction.timestamp);
+          if (userIndex > -1) {
+              updatedInteractions[userIndex] = newInteraction;
+          } else {
+              // Fallback in case we could not find the user message
+              updatedInteractions.push(newInteraction)
+          }
+
+          return updatedInteractions;
+      });
+
     } catch (error) {
       console.error("API call failed:", error);
       setErrorMessage(error instanceof Error ? error.message : "Unknown error occurred");
@@ -77,9 +104,23 @@ const WintermuteInterface: React.FC = () => {
           message: error instanceof Error ? error.message : 'An unknown error occurred',
           timestamp: new Date().toISOString()
         },
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+          sender: 'wintermute', // Mark error as from Wintermute
       };
-      setInteractions(prevInteractions => [...prevInteractions, errorInteraction]);
+
+      // Replace the user interaction with the error, if possible
+      setInteractions(prevInteractions => {
+        const updatedInteractions = [...prevInteractions];
+        const userIndex = updatedInteractions.findIndex(i => i.timestamp === userInteraction.timestamp);
+
+        if(userIndex > -1) {
+            updatedInteractions[userIndex] = errorInteraction;
+        } else {
+            // Fallback if not found.
+            updatedInteractions.push(errorInteraction);
+        }
+        return updatedInteractions;
+      });
     } finally {
       setLoading(false);
     }
@@ -105,16 +146,25 @@ const WintermuteInterface: React.FC = () => {
         ) : (
           interactions.map((interaction, index) => (
             <div key={index} className="mb-6 last:mb-2">
-              {/* User query */}
+              {/* User query or AI response, distinguished by sender */}
               <div className="mb-2">
-                <div className="font-bold text-blue-400 mb-1">You:</div>
-                <div className="pl-3 border-l-2 border-blue-400 text-gray-300">
-                  {interaction.query}
+                <div className="font-bold text-blue-400 mb-1">
+                    {interaction.sender === 'user' ? 'You:' : 'Wintermute:'}
+                </div>
+                <div className={`pl-3 border-l-2 ${interaction.sender === 'user' ? 'border-blue-400 text-gray-300' : 'border-green-400 text-gray-300 whitespace-pre-wrap'}`}>
+                    {interaction.sender === 'user' ? interaction.query : interaction.response}
+                    {interaction.isProcessing && interaction.sender === 'wintermute' && (
+                      <span className="inline-flex ml-2">
+                        <span className="animate-bounce mx-px">.</span>
+                        <span className="animate-bounce animation-delay-200 mx-px">.</span>
+                        <span className="animate-bounce animation-delay-400 mx-px">.</span>
+                      </span>
+                    )}
                 </div>
               </div>
 
-              {/* AI response or error */}
-              {interaction.error ? (
+              {/* Error (only shown if it's an error from Wintermute) */}
+              {interaction.error && interaction.sender === 'wintermute' ? (
                 <div className="mt-2">
                   <div className="font-bold text-red-500 mb-1">Error:</div>
                   <div className="p-3 bg-red-900 border border-red-500 rounded-lg">
@@ -127,23 +177,7 @@ const WintermuteInterface: React.FC = () => {
                     )}
                   </div>
                 </div>
-              ) : (
-                <div className="mt-2">
-                  <div className="font-bold text-green-400 mb-1">
-                    <span>Wintermute:</span>
-                  </div>
-                  <div className={`pl-3 border-l-2 border-green-400 text-gray-300 whitespace-pre-wrap ${interaction.isProcessing ? "italic text-gray-500" : ""}`}>
-                    {interaction.response}
-                    {interaction.isProcessing && (
-                      <span className="inline-flex ml-2">
-                        <span className="animate-bounce mx-px">.</span>
-                        <span className="animate-bounce animation-delay-200 mx-px">.</span>
-                        <span className="animate-bounce animation-delay-400 mx-px">.</span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
+              ) : null}
             </div>
           ))
         )}
