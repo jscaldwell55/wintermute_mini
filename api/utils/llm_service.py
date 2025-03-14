@@ -22,6 +22,17 @@ class LLMServiceError(Exception):
         self.retry_count = retry_count
         super().__init__(f"LLM operation failed: {operation} - {details}")
 
+class DummyCache:
+    """A dummy cache that always misses and does nothing when setting values."""
+    async def get(self, *args, **kwargs):
+        return None
+        
+    async def set(self, *args, **kwargs):
+        pass
+        
+    async def clear(self):
+        return 0
+
 class LLMService:
     """Service for interacting with OpenAI's LLM APIs."""
 

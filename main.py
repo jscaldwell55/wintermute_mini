@@ -43,7 +43,7 @@ from api.core.memory.models import (
 from api.core.memory.memory import MemorySystem, MemoryOperationError
 from api.core.vector.vector_operations import VectorOperationsImpl
 from api.utils.pinecone_service import PineconeService
-from api.utils.llm_service import LLMService
+from api.utils.llm_service import LLMService, DummyCache
 from api.utils.config import get_settings, Settings
 from api.core.consolidation.config import ConsolidationConfig
 from api.core.consolidation.enhanced_memory_consolidator import EnhancedMemoryConsolidator, get_consolidation_config
