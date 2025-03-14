@@ -174,7 +174,7 @@ class SystemComponents:
                 from api.core.memory.graph.graph_memory_retriever import GraphMemoryRetriever
                 self.graph_memory_retriever = GraphMemoryRetriever(
                     memory_graph=self.memory_graph,
-                    inecone_service=self.pinecone_service,
+                    pinecone_service=self.pinecone_service,
                     vector_operations=self.vector_operations
                 )
                 logger.info("✅ Graph memory retriever initialized")
