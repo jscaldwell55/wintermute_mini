@@ -161,9 +161,17 @@ class SystemComponents:
                 self.llm_service = LLMService()
                 logger.info("✅ LLM service initialized")
 
-                 # Initialize the memory graph
-                from api.core.memory.graph.memory_graph import MemoryGraph
-                self.memory_graph = MemoryGraph()
+                # Initialize the graph memory components using the factory
+                from api.core.memory.graph.memory_factory import GraphMemoryFactory
+
+                logger.info("🔍 Initializing graph memory components with factory...")
+                graph_components = await GraphMemoryFactory.create_graph_memory_system(
+                    pinecone_service=self.pinecone_service,
+                    vector_operations=self.vector_operations,
+                    llm_service=self.llm_service
+                )
+
+                self.memory_graph = graph_components["memory_graph"]
                 logger.info("✅ Memory graph initialized")
 
                 self.memory_system = MemorySystem(
@@ -172,19 +180,26 @@ class SystemComponents:
                     llm_service=self.llm_service,
                     settings=self.settings,
                 )
+                logger.info("✅ Memory system initialized")
 
-                from api.core.memory.graph.graph_memory_retriever import GraphMemoryRetriever
-                self.graph_memory_retriever = GraphMemoryRetriever(
-                    memory_graph=self.memory_graph,
-                    pinecone_service=self.pinecone_service,
-                    vector_operations=self.vector_operations
-                )
+                self.graph_memory_retriever = graph_components["graph_retriever"]
                 logger.info("✅ Graph memory retriever initialized")
+
+                # Important: Initialize the graph with existing memories
+                logger.info("🔍 Populating memory graph with existing memories...")
+                await GraphMemoryFactory.initialize_graph_from_existing_memories(
+                    memory_graph=self.memory_graph,
+                    relationship_detector=graph_components["relationship_detector"],
+                    pinecone_service=self.pinecone_service,
+                    max_memories=500  # Adjust based on your needs
+                )
+                logger.info("✅ Memory graph populated with existing memories")
+
                 self.response_cache = ResponseCache(
                     max_size=1000,  # Cache up to 1000 responses
                     ttl_seconds=3600 * 24,  # Cache responses for 24 hours
-                    similarity_threshold=0.50  # 92% similarity threshold
-            )
+                    similarity_threshold=0.50  # 50% similarity threshold
+                )
             # Initialize consolidation scheduler
                 config = get_consolidation_config()
                 self.consolidation_scheduler = ConsolidationScheduler(
@@ -415,6 +430,22 @@ async def visualize_memory_graph():
     # Convert graph to JSON for JS
     graph_data = nx.node_link_data(memory_graph.graph)
     
+    # Check if the graph is empty
+    if memory_graph.graph.number_of_nodes() == 0:
+        return HTMLResponse(content="""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Memory Graph Visualization</title>
+        </head>
+        <body>
+            <h1>Memory Graph Visualization</h1>
+            <p style="color: red; font-size: 18px;">The memory graph is currently empty. No nodes or edges to display.</p>
+            <p>Try initializing the graph with existing memories first.</p>
+        </body>
+        </html>
+        """)
+    
     # Simple HTML with vis.js for visualization
     html = f"""
     <!DOCTYPE html>
@@ -494,6 +525,28 @@ async def visualize_memory_graph():
     
     return HTMLResponse(content=html)
 
+@api_router.get("/memory/graph/stats")
+async def get_memory_graph_stats():
+    """Get statistics about the memory graph."""
+    try:
+        memory_graph = components.memory_graph
+        
+        stats = memory_graph.get_graph_stats()
+        
+        return {
+            "success": True,
+            "stats": stats,
+            "node_count": memory_graph.graph.number_of_nodes(),
+            "edge_count": memory_graph.graph.number_of_edges(),
+            "is_empty": memory_graph.graph.number_of_nodes() == 0
+        }
+    except Exception as e:
+        logger.error(f"Error getting memory graph stats: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 @api_router.post("/memory/graph/reset")
 async def reset_memory_graph():
     """Reset the memory graph by clearing all nodes and edges."""
@@ -521,6 +574,44 @@ async def reset_memory_graph():
             status_code=500,
             detail=f"Failed to reset memory graph: {str(e)}"
         )
+    
+@api_router.post("/memory/graph/populate")
+async def populate_memory_graph():
+    """Manually populate the memory graph with existing memories."""
+    try:
+        from api.core.memory.graph.memory_factory import GraphMemoryFactory
+        
+        # Get the relationship detector or create one
+        if not hasattr(components, 'relationship_detector'):
+            from api.core.memory.graph.relationship_detector import MemoryRelationshipDetector
+            components.relationship_detector = MemoryRelationshipDetector(components.llm_service)
+        
+        # Initialize graph from existing memories
+        success = await GraphMemoryFactory.initialize_graph_from_existing_memories(
+            memory_graph=components.memory_graph,
+            relationship_detector=components.relationship_detector,
+            pinecone_service=components.pinecone_service,
+            max_memories=500
+        )
+        
+        if success:
+            stats = components.memory_graph.get_graph_stats()
+            return {
+                "success": True,
+                "message": "Memory graph populated successfully",
+                "stats": stats
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Failed to populate memory graph"
+            }
+    except Exception as e:
+        logger.error(f"Error populating memory graph: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 @api_router.post("/cache/disable")
 async def disable_cache(
