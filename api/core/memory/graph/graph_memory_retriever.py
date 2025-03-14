@@ -199,11 +199,14 @@ class GraphMemoryRetriever:
                     
                     memory_response = MemoryResponse(
                         id=memory_data["id"],
-                        content=memory_data["metadata"]["content"],
-                        memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                        # Try to access content directly, then in metadata
+                        content=memory_data.get("content", memory_data.get("metadata", {}).get("content", "")),
+                        # Similar pattern for memory_type
+                        memory_type=memory_data.get("memory_type", 
+                                        memory_data.get("metadata", {}).get("memory_type", MemoryType.EPISODIC)),
                         created_at=created_at_str,
-                        metadata=memory_data["metadata"],
-                        window_id=memory_data["metadata"].get("window_id")
+                        metadata=memory_data.get("metadata", {}),
+                        window_id=memory_data.get("window_id", memory_data.get("metadata", {}).get("window_id"))
                     )
                     matches.append(memory_response)
                     scores.append(score)
