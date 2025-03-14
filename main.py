@@ -671,6 +671,53 @@ async def get_graph_initialization_status():
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+    
+@api_router.get("/memory/graph/stats")
+async def get_graph_stats_with_redis():
+    """Get detailed statistics about the memory graph and Redis store."""
+    if not hasattr(components, 'memory_graph'):
+        return {"status": "not_started", "node_count": 0, "edge_count": 0, "redis": {"initialized": False}}
+        
+    try:
+        # Use the new method that includes Redis information
+        stats = await components.memory_graph.get_graph_stats_with_redis()
+        
+        return {
+            "status": "complete" if stats['memory_graph']['node_count'] > 0 else "in_progress",
+            "memory_graph": stats['memory_graph'],
+            "redis_store": stats['redis_store'],
+            "is_synchronized": (
+                stats['memory_graph']['node_count'] > 0 and 
+                stats['redis_store']['nodes'] > 0 and
+                stats['memory_graph']['edge_count'] == stats['redis_store']['relationships']
+            )
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    
+@api_router.post("/memory/graph/reload")
+async def reload_graph_from_redis():
+    """Reload the memory graph from Redis."""
+    if not hasattr(components, 'memory_graph'):
+        return {"status": "error", "message": "Memory graph not initialized"}
+        
+    try:
+        # Clear the current graph and reload from Redis
+        components.memory_graph.graph.clear()
+        await components.memory_graph.load_from_redis()
+        
+        # Get stats after reload
+        stats = await components.memory_graph.get_graph_stats_with_redis()
+        
+        return {
+            "status": "success",
+            "message": f"Reloaded {stats['memory_graph']['node_count']} nodes and {stats['memory_graph']['edge_count']} edges from Redis",
+            "stats": stats
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    
+
 
 @api_router.post("/cache/disable")
 async def disable_cache(

@@ -8,6 +8,7 @@ gunicorn>=21.2.0
 requests==2.31.0
 python-multipart>=0.0.5
 networkx==3.1  # or whatever version you need
+aioredis==2.0.1
 
 
 

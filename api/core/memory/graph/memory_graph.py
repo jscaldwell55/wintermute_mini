@@ -5,8 +5,10 @@ import logging
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
 import uuid
+import asyncio
 
 from api.core.memory.models import Memory, MemoryType
+from api.utils.redis_graph_store import RedisGraphStore 
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +16,7 @@ class MemoryGraph:
     """
     A graph-based memory system for associative memory representation.
     Maintains an in-memory graph of memories and their relationships.
+    Persists to Redis for durability across application restarts.
     """
     
     def __init__(self):
@@ -23,9 +26,87 @@ class MemoryGraph:
         # Counter for edge weights to track relationship strength
         self.relationship_counter = {}
         
+        # Redis persistence store
+        self.redis_store = RedisGraphStore()
+        self._initialized = False
+        
         # Setup logging
         self.logger = logging.getLogger(__name__)
         self.logger.info("Memory graph initialized")
+    
+    async def initialize(self):
+        """Initialize the memory graph and load from Redis if available."""
+        # Initialize Redis store
+        redis_initialized = await self.redis_store.initialize()
+        
+        if redis_initialized:
+            # Load graph from Redis
+            await self.load_from_redis()
+            
+        self._initialized = True
+        self.logger.info(f"Memory graph initialization complete. Redis initialized: {redis_initialized}")
+        return True
+    
+    async def load_from_redis(self):
+        """Load graph structure from Redis."""
+        try:
+            self.logger.info("Loading graph structure from Redis...")
+            
+            # Get all relationships
+            relationships = await self.redis_store.get_all_relationships()
+            
+            # Add to in-memory graph
+            for rel in relationships:
+                source_id = rel.get("source_id")
+                target_id = rel.get("target_id")
+                rel_type = rel.get("rel_type")
+                weight = rel.get("weight", 0.5)
+                
+                if source_id and target_id:
+                    # Add to NetworkX graph if nodes don't exist yet
+                    if not self.graph.has_node(source_id):
+                        self.graph.add_node(source_id)
+                    
+                    if not self.graph.has_node(target_id):
+                        self.graph.add_node(target_id)
+                    
+                    # Add the edge with attributes
+                    self.graph.add_edge(
+                        source_id, 
+                        target_id, 
+                        type=rel_type, 
+                        weight=weight
+                    )
+                    
+                    # Update relationship counter
+                    rel_key = f"{source_id}_{target_id}_{rel_type}"
+                    self.relationship_counter[rel_key] = self.relationship_counter.get(rel_key, 0) + 1
+            
+            node_count = self.graph.number_of_nodes()
+            edge_count = self.graph.number_of_edges()
+            self.logger.info(f"Loaded graph with {node_count} nodes and {edge_count} edges from Redis")
+            
+        except Exception as e:
+            self.logger.error(f"Error loading graph from Redis: {e}")
+    
+    async def get_graph_stats_with_redis(self) -> Dict[str, Any]:
+        """Get statistics about the memory graph and Redis store."""
+        redis_node_count = await self.redis_store.get_node_count()
+        redis_rel_count = await self.redis_store.get_relationship_count()
+        
+        memory_node_count = self.graph.number_of_nodes()
+        memory_edge_count = self.graph.number_of_edges()
+        
+        graph_stats = self.get_graph_stats()
+        
+        return {
+            "memory_graph": graph_stats,
+            "redis_store": {
+                "nodes": redis_node_count,
+                "relationships": redis_rel_count,
+                "initialized": self.redis_store.initialized
+            }
+        }
     
     def add_memory_node(self, memory: Memory) -> str:
         """
@@ -81,6 +162,7 @@ class MemoryGraph:
                          metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
         Add a relationship (edge) between two memory nodes.
+        Also persists to Redis for durability across restarts.
         
         Args:
             source_id: Source memory node ID
@@ -131,6 +213,11 @@ class MemoryGraph:
             
             self.logger.info(f"Added new relationship ({rel_type}) from {source_id} to {target_id}")
         
+        # Persist to Redis asynchronously
+        asyncio.create_task(self.redis_store.store_relationship(
+            source_id, target_id, rel_type, edge_attrs['weight']
+        ))
+        
         return True
     
     # In memory_graph.py or similar
@@ -155,7 +242,7 @@ class MemoryGraph:
             memory_nodes.sort(key=lambda x: self._parse_timestamp(x[1]))
             
             # Add relationships for sequential memories within time threshold
-            relationships_added = a = 0
+            relationships_added = 0
             for i in range(1, len(memory_nodes)):
                 current_node_id, current_timestamp = memory_nodes[i]
                 prev_node_id, prev_timestamp = memory_nodes[i-1]
@@ -319,13 +406,20 @@ class MemoryGraph:
 
     def get_graph_stats(self) -> Dict[str, Any]:
         """Get statistics about the memory graph."""
+        # Calculate clustering coefficient safely
+        try:
+            avg_clustering = nx.average_clustering(self.graph.to_undirected())
+        except:
+            # Handle empty graphs or other issues
+            avg_clustering = 0.0
+            
         return {
             'node_count': self.graph.number_of_nodes(),
             'edge_count': self.graph.number_of_edges(),
             'memory_types': self._count_node_types(),
             'relationship_types': self._count_edge_types(),
-            'is_connected': nx.is_weakly_connected(self.graph),
-            'avg_clustering': nx.average_clustering(self.graph.to_undirected())
+            'is_connected': nx.is_weakly_connected(self.graph) if self.graph.number_of_nodes() > 0 else False,
+            'avg_clustering': avg_clustering
         }
     
     def _count_node_types(self) -> Dict[str, int]:
@@ -343,3 +437,22 @@ class MemoryGraph:
             rel_type = attrs.get('type', 'UNKNOWN')
             counts[rel_type] = counts.get(rel_type, 0) + 1
         return counts
+        
+    async def clear_all_relationships(self) -> bool:
+        """
+        Clear all relationships from both in-memory graph and Redis.
+        Mainly for testing or administrative purposes.
+        """
+        try:
+            # Clear NetworkX graph
+            self.graph.clear()
+            self.relationship_counter = {}
+            
+            # Clear Redis
+            await self.redis_store.clear_all_relationships()
+            
+            self.logger.info("Cleared all relationships from graph and Redis")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error clearing relationships: {e}")
+            return False
