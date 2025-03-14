@@ -294,9 +294,12 @@ class GraphMemoryRetriever:
                 # Get connected memories from graph
                 connected_memories = self.memory_graph.get_connected_memories(
                     memory.id, 
-                    max_depth=self.max_graph_depth,
-                    max_results=self.max_memories_per_hop
+                    max_depth=self.max_graph_depth
                 )
+
+                # If you need to limit the number of results, do it after the call
+                if connected_memories:
+                    connected_memories = connected_memories[:self.max_memories_per_hop]
                 
                 for connected_id, relevance, depth in connected_memories:
                     # Skip if already visited

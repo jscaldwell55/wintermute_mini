@@ -427,8 +427,15 @@ async def visualize_memory_graph():
     """Return an HTML page to visualize the memory graph."""
     memory_graph = components.memory_graph  # Access the memory graph from components
     
-    # Convert graph to JSON for JS
-    graph_data = nx.node_link_data(memory_graph.graph)
+    # First convert the graph to a basic dict representation
+    graph_dict = nx.node_link_data(memory_graph.graph)
+    
+    # Define a custom JSON encoder that can handle datetime objects
+    class DateTimeEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            return super().default(obj)
     
     # Check if the graph is empty
     if memory_graph.graph.number_of_nodes() == 0:
@@ -445,6 +452,9 @@ async def visualize_memory_graph():
         </body>
         </html>
         """)
+    
+    # Convert graph data to JSON using the custom encoder
+    graph_json = json.dumps(graph_dict, cls=DateTimeEncoder)
     
     # Simple HTML with vis.js for visualization
     html = f"""
@@ -466,7 +476,7 @@ async def visualize_memory_graph():
         <h1>Memory Graph Visualization</h1>
         <div id="graph"></div>
         <script>
-            const graph = {json.dumps(graph_data)};
+            const graph = {graph_json};
             
             // Convert to vis.js format
             const nodes = graph.nodes.map(node => ({{
