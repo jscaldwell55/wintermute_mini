@@ -702,12 +702,7 @@ async def query_memory(
     use_cache = not disable_cache
     
     try:
-        enable_keyword_search = query.enable_keyword_search
-        if enable_keyword_search is None:
-            # Default to system setting if not specified in request
-            enable_keyword_search = memory_system.settings.enable_keyword_search if hasattr(memory_system.settings, 'enable_keyword_search') else True
-            
-        logger.info(f"[{trace_id}] Keyword search enabled: {enable_keyword_search}")
+      
         logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
 
         # Check for duplicates (existing code)
@@ -757,7 +752,6 @@ async def query_memory(
             query=query.prompt,
             window_id=query.window_id,
             top_k_per_type=5,
-            enable_keyword_search=enable_keyword_search,
             request_metadata=query.request_metadata
         )
 
