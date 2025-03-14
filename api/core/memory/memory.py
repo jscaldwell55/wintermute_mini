@@ -274,6 +274,8 @@ class MemorySystem:
     async def query_memories(self, request: QueryRequest) -> QueryResponse:
         """Query memories based on the given request, with hybrid vector and keyword search."""
         try:
+            # Store the current query for time-based filtering
+            self.current_query = request.prompt
             logger.info(f"Starting memory query with request: {request}")
             
             # Set a limit on processing attempts to avoid infinite loops
@@ -934,31 +936,8 @@ class MemorySystem:
         return memory_scores
     
     def _calculate_bell_curve_recency(self, age_hours):
-
-         # For very recent memories (<1h): use higher starting score for time-explicit queries
-        if "this morning" in self.current_query.lower() or "today" in self.current_query.lower():
-            # Override normal curve for explicit time queries
-            if age_hours < 24:  # Within last 24 hours
-                return 0.9  # High priority for recent memories
-            else:
-                return 0.5  # Medium priority for older memories
-            
-        # Original bell curve logic below (keep as fallback)
-        if age_hours < very_recent_threshold:
-            # Increase base score from 0.2 to 0.7 for recent memories
-            return 0.7 + (0.2 * age_hours / very_recent_threshold)
         """
-        Calculate recency score using a bell curve pattern:
-        - Very recent memories (<1h) are heavily de-prioritized (0.2-0.4)
-        - Memories <24h old have gradually increasing priority (0.4-0.8)
-        - Peak priority is around 2-3 days old (0.8-1.0)
-        - Gradual decay for older memories (approaching 0.2 at 7 days)
-        
-        Args:
-            age_hours: Age of memory in hours
-            
-        Returns:
-            Recency score between 0 and 1
+        Calculate recency score using a bell curve pattern with special handling for temporal queries.
         """
         # Get settings parameters (or use defaults if not defined)
         peak_hours = getattr(self.settings, 'episodic_peak_hours', 60)
@@ -966,6 +945,19 @@ class MemorySystem:
         recent_threshold = getattr(self.settings, 'episodic_recent_threshold', 24.0)
         steepness = getattr(self.settings, 'episodic_bell_curve_steepness', 2.5)
         
+        # Check if this is a temporal query (looking for a specific time period)
+        # We need to save the query in an instance variable first
+        query = getattr(self, 'current_query', '').lower()
+        
+        # Special handling for time-specific queries
+        if query and ('this morning' in query or 'today' in query or 'earlier today' in query):
+            # For temporal queries, boost recent memories (different from standard bell curve)
+            if age_hours < 24:  # Within last 24 hours
+                return 0.9  # High priority for recent memories
+            else:
+                return 0.5  # Medium priority for older memories
+        
+        # Standard bell curve logic for non-temporal queries
         # For very recent memories (<1h): start with a low score
         if age_hours < very_recent_threshold:
             # Map from 0.2 (at 0 hours) to 0.4 (at 1 hour)
@@ -983,8 +975,6 @@ class MemorySystem:
             distance_from_peak = abs(age_hours - peak_hours)
             
             # Convert to a bell curve shape (Gaussian-inspired)
-            # Distance of 0 from peak = 1.0 score
-            # Maximum reasonable age for scoring is settings.episodic_max_age_days * 24
             max_distance = self.settings.episodic_max_age_days * 24 - peak_hours
             
             # Normalized distance from peak (0-1)
