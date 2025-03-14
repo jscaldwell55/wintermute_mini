@@ -435,16 +435,21 @@ class MemorySystem:
                             logger.warning(f"Error calculating age for memory {memory_data['id']}: {e}")
                             # Default to recent memory (1 hour old) to avoid filtering
                             age_hours = 1.0
-                    
-                        if age_hours <= self.settings.episodic_recent_hours:  # Changed from recent_boost_hours
-                            # Linear decrease from 1.0 to 0.7 during the boost period
-                            recency_score = 1.0 - (age_hours / self.settings.episodic_recent_hours) * 0.3
+                        
+                        # Use bell curve recency scoring if enabled, otherwise use original method
+                        use_bell_curve = getattr(self.settings, 'episodic_bell_curve_enabled', True)
+                        
+                        if use_bell_curve:
+                            # Apply bell curve scoring
+                            recency_score = self._calculate_bell_curve_recency(age_hours)
                         else:
-                            # Exponential decay for older memories
-                            max_age_hours = self.settings.episodic_max_age_days * 24  # Changed from max_age_days
-                            relative_age = (age_hours - self.settings.episodic_recent_hours) / (max_age_hours - self.settings.episodic_recent_hours)
-                            # Exponential decay from 0.7 to 0.1
-                            recency_score = 0.7 * (0.1/0.7) ** relative_age
+                            # Original method (linear then exponential decay)
+                            if age_hours <= self.settings.episodic_recent_hours:
+                                recency_score = 1.0 - (age_hours / self.settings.episodic_recent_hours) * 0.3
+                            else:
+                                max_age_hours = self.settings.episodic_max_age_days * 24
+                                relative_age = (age_hours - self.settings.episodic_recent_hours) / (max_age_hours - self.settings.episodic_recent_hours)
+                                recency_score = 0.7 * (0.1/0.7) ** relative_age
                         
                         # Ensure recency score is between 0-1
                         recency_score = max(0.0, min(1.0, recency_score))
@@ -935,17 +940,23 @@ class MemorySystem:
                         elif current_time.tzinfo is not None and created_at.tzinfo is None:
                             created_at = created_at.replace(tzinfo=timezone.utc)
                         
-                        # Calculate age and recency score
+                        # Calculate age in hours
                         age_hours = (current_time - created_at).total_seconds() / (60*60)
                         
-                        if age_hours <= self.settings.episodic_recent_hours:
-                            # Gentler linear decrease from 1.0 to 0.85 during the boost period
-                            recency_score = 1.0 - (age_hours / self.settings.episodic_recent_hours) * 0.15
+                        # Use bell curve recency scoring if enabled, otherwise use original method
+                        use_bell_curve = getattr(self.settings, 'episodic_bell_curve_enabled', True)
+                        
+                        if use_bell_curve:
+                            # Apply bell curve scoring
+                            recency_score = self._calculate_bell_curve_recency(age_hours)
                         else:
-                            max_age_hours = self.settings.episodic_max_age_days * 24
-                            relative_age = (age_hours - self.settings.episodic_recent_hours) / (max_age_hours - self.settings.episodic_recent_hours)
-                            # Gentler exponential decay from 0.85 to 0.3
-                            recency_score = 0.85 * (0.3/0.85) ** relative_age
+                            # Original method (linear then exponential decay)
+                            if age_hours <= self.settings.episodic_recent_hours:
+                                recency_score = 1.0 - (age_hours / self.settings.episodic_recent_hours) * 0.15
+                            else:
+                                max_age_hours = self.settings.episodic_max_age_days * 24
+                                relative_age = (age_hours - self.settings.episodic_recent_hours) / (max_age_hours - self.settings.episodic_recent_hours)
+                                recency_score = 0.85 * (0.3/0.85) ** relative_age
                         
                         recency_score = max(0.0, min(1.0, recency_score))
                         

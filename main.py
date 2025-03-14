@@ -714,8 +714,12 @@ async def query_memory(
     disable_cache = query.metadata and query.metadata.get("disable_cache", False) if hasattr(query, "metadata") else False
     use_cache = not disable_cache
     
+    # Set temperature value early to avoid unbound variable error
+    # Use a fixed temperature without random variation
+    base_temp = 2.0  # Fixed base temperature at maximum safe value
+    temperature = min(2.0, base_temp)  # Ensure we never exceed OpenAI's limit
+    
     try:
-      
         logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
 
         # First check if this is a temporal query
@@ -747,7 +751,6 @@ async def query_memory(
                 error=None,
                 metadata={"success": True, "from_temporal_query": True}
             )
-
         # Check for duplicates (existing code)
         if await memory_system._check_recent_duplicate(query.prompt):
             logger.warning(f"[{trace_id}] Duplicate query detected. Skipping LLM call.")

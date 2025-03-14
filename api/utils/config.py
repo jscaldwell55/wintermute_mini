@@ -214,11 +214,18 @@ class Settings(BaseSettings):
     
     # Episodic Memory Settings - NEW
     episodic_max_age_days: int = 7      # Only consider past 7 days
-    episodic_recency_weight: float = 0.25  # Weight for recency in scoring
+    episodic_recency_weight: float = 0.35  # Weight for recency in scoring
     episodic_recent_hours: int = 48     # Hours considered "recent" (higher priority)
     episodic_decay_factor: float = 120  # Controls exponential decay rate for older memories
     episodic_memory_ttl_days: int = 30  # Time-to-live for episodic memories in days
     auto_delete_old_memories: bool = True  # Toggle for the auto-deletion feature
+
+    # Episodic Memory Bell Curve Settings
+    episodic_bell_curve_enabled: bool = True  # Toggle for using bell curve vs. original decay
+    episodic_peak_hours: int = 60             # Peak priority around 2-3 days (60 hours)
+    episodic_very_recent_threshold: float = 1.0    # Threshold for "very recent" memories in hours
+    episodic_recent_threshold: float = 24.0        # Threshold for "recent" memories in hours 
+    episodic_bell_curve_steepness: float = 2.5     # Controls steepness of bell curve decay
     
     # Semantic Memory Settings - NEW
     semantic_min_words: int = 5  # Minimum word count for semantic memories
