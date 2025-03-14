@@ -61,8 +61,12 @@ class ConsolidationScheduler:
             )
             logger.info("Enhanced memory consolidator initialized with graph support")
             
-            # Initialize graph with existing memories (in background)
-            asyncio.create_task(self._initialize_graph_from_existing_memories())
+            # Only initialize graph if auto_populate_graph is enabled
+            if hasattr(self.settings, 'auto_populate_graph') and self.settings.auto_populate_graph:
+                logger.info("Auto-populating graph as configured in settings")
+                asyncio.create_task(self._initialize_graph_from_existing_memories())
+            else:
+                logger.info("Skipping automatic graph population (use API endpoint or manual trigger to populate)")
         else:
             logger.info("Using standard consolidator without graph memory")
             # Use original consolidator
