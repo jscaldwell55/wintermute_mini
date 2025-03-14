@@ -179,8 +179,6 @@ class GraphMemoryRetriever:
             filter_dict = {}
             if request.memory_type:
                 filter_dict["memory_type"] = request.memory_type.value
-            if request.window_id:
-                filter_dict["window_id"] = request.window_id
                 
             # Query Pinecone
             results = await self.pinecone_service.query_memories(

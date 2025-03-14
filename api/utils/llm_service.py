@@ -40,11 +40,19 @@ class LLMService:
         self.default_top_p = 0.8
         self.default_frequency_penalty = 0.0
         self.default_presence_penalty = 0.0
-        self.response_cache = ResponseCache(
-            max_size=1000,  # Cache up to 1000 responses
-            ttl_seconds=3600 * 24,  # Cache responses for 24 hours
-            similarity_threshold=0.50  # 92% similarity threshold
-        )
+        self.response_cache = DummyCache()
+
+    class DummyCache:
+        """A dummy cache that always misses and does nothing when setting values."""
+        async def get(self, *args, **kwargs):
+            return None
+            
+        async def set(self, *args, **kwargs):
+            pass
+            
+        async def clear(self):
+            return 0
+        
 
 
     async def validate_prompt(self, prompt: str, minimal: bool = False) -> str:
@@ -138,9 +146,10 @@ class LLMService:
         system_message: str = None,
         is_health_check: bool = False,
         model_override: str = None,
-        use_cache: bool = True,
+        use_cache: bool = False,
         window_id: str = None
     ) -> str:
+        use_cache = False
         logger.info(f"LLMService.generate_gpt_response_async called with prompt: '{prompt[:500]}...' (truncated), temperature: {temperature}, max_tokens: {max_tokens}, top_p: {top_p}, frequency_penalty: {frequency_penalty}, presence_penalty: {presence_penalty}, system_message: '{system_message[:500] if system_message else None}' (truncated), is_health_check: {is_health_check}")
 
         start_time = time.time()
@@ -320,3 +329,16 @@ class LLMService:
                 message=error_msg,
                 error=str(e)
             )
+        
+    async def clear_cache(self) -> int:
+        """
+        Clear all entries from the response cache.
+        
+        Returns:
+            Number of entries cleared
+        """
+        if hasattr(self.response_cache, 'clear'):
+            return await self.response_cache.clear()
+        else:
+            logger.warning("Response cache doesn't have a clear method")
+            return 0

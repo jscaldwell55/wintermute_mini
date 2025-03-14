@@ -19,6 +19,8 @@ import uuid
 import time
 from datetime import datetime, timezone, timedelta
 import hashlib
+import json
+import networkx as nx
 
 
 from starlette.routing import Mount
@@ -404,7 +406,141 @@ async def get_consolidation_status():
             status_code=500,
             detail=f"Failed to get scheduler status: {str(e)}"
         )
+    
+@api_router.get("/memory/visualize", response_class=HTMLResponse)
+async def visualize_memory_graph():
+    """Return an HTML page to visualize the memory graph."""
+    memory_graph = components.memory_graph  # Access the memory graph from components
+    
+    # Convert graph to JSON for JS
+    graph_data = nx.node_link_data(memory_graph.graph)
+    
+    # Simple HTML with vis.js for visualization
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Memory Graph Visualization</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" />
+        <style>
+            #graph {{
+                width: 100%;
+                height: 800px;
+                border: 1px solid lightgray;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Memory Graph Visualization</h1>
+        <div id="graph"></div>
+        <script>
+            const graph = {json.dumps(graph_data)};
+            
+            // Convert to vis.js format
+            const nodes = graph.nodes.map(node => ({{
+                id: node.id,
+                label: node.id.substring(0, 8),
+                title: node.content ? node.content.substring(0, 100) : 'No content',
+                group: node.memory_type
+            }}));
+            
+            const edges = graph.links.map(link => ({{
+                from: link.source,
+                to: link.target,
+                title: link.type,
+                width: link.weight
+            }}));
+            
+            const data = {{
+                nodes: new vis.DataSet(nodes),
+                edges: new vis.DataSet(edges)
+            }};
+            
+            const options = {{
+                nodes: {{
+                    shape: 'dot',
+                    size: 10,
+                    font: {{
+                        size: 12
+                    }}
+                }},
+                edges: {{
+                    smooth: {{
+                        type: 'dynamic'
+                    }}
+                }},
+                physics: {{
+                    stabilization: true,
+                    barnesHut: {{
+                        gravitationalConstant: -80,
+                        springConstant: 0.001,
+                        springLength: 200
+                    }}
+                }},
+                groups: {{
+                    'SEMANTIC': {{color: '#97C2FC'}},
+                    'EPISODIC': {{color: '#FB7E81'}},
+                    'LEARNED': {{color: '#7BE141'}}
+                }}
+            }};
+            
+            const container = document.getElementById('graph');
+            const network = new vis.Network(container, data, options);
+        </script>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=html)
 
+@api_router.post("/memory/graph/reset")
+async def reset_memory_graph():
+    """Reset the memory graph by clearing all nodes and edges."""
+    try:
+        memory_graph = components.memory_graph
+        
+        # Get initial stats for logging
+        initial_nodes = memory_graph.graph.number_of_nodes()
+        initial_edges = memory_graph.graph.number_of_edges()
+        
+        # Clear the graph completely
+        memory_graph.graph.clear()
+        
+        # Log the reset
+        logger.info(f"Memory graph reset: removed {initial_nodes} nodes and {initial_edges} edges")
+        
+        return {
+            "success": True,
+            "message": f"Memory graph was reset. Removed {initial_nodes} nodes and {initial_edges} edges.",
+            "current_stats": memory_graph.get_graph_stats()
+        }
+    except Exception as e:
+        logger.error(f"Error resetting memory graph: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset memory graph: {str(e)}"
+        )
+
+@api_router.post("/cache/disable")
+async def disable_cache(
+    llm_service: LLMService = Depends(lambda: components.llm_service)
+):
+    """Disable the cache system."""
+    try:
+        # Replace with dummy cache
+        llm_service.response_cache = DummyCache()
+        
+        return {
+            "success": True,
+            "message": "Cache system has been disabled"
+        }
+    except Exception as e:
+        logger.error(f"Error disabling cache: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 @api_router.get("/ping")
 async def ping():
     return {"message": "pong"}
@@ -685,17 +821,21 @@ async def debug_query(request: Request):
             "body": body,
         },
     }
-# Removed duplicate import of batty_response_template
 
-# Modifications for the query_memory endpoint in main.py
 
 @api_router.post("/query")
 async def query_memory(
     request: Request,
     query: QueryRequest,
     memory_system: MemorySystem = Depends(get_memory_system),
-    llm_service: LLMService = Depends(lambda: components.llm_service)
+    llm_service: LLMService = Depends(lambda: components.llm_service),  # Added comma here
+    disable_window_filtering: bool = Query(False) 
 ) -> QueryResponse:
+    """
+    Process a query and generate a response with caching support.
+    """
+    if disable_window_filtering:
+        query.window_id = None
     """
     Process a query and generate a response with caching support.
     """
@@ -904,7 +1044,7 @@ async def query_memory(
             prompt,
             max_tokens=1000,
             temperature=temperature,
-            use_cache=use_cache,
+            use_cache=False,
             window_id=query.window_id
         )
         

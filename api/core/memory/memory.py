@@ -135,8 +135,6 @@ class MemorySystem:
                 "memory_type": request.memory_type.value,
                 **(request.metadata or {}),  # Include any extra metadata from the request
             }
-            if request.window_id: #add window id
-                metadata["window_id"] = request.window_id
 
             memory = Memory(
                 id=memory_id,
@@ -252,8 +250,6 @@ class MemorySystem:
             if not hasattr(request, 'memory_type') or request.memory_type is None:
                 # Default case - query all types
                 pinecone_filter = {}
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying ALL memory types with filter: {pinecone_filter}")
                 
                 vector_task = asyncio.create_task(
@@ -322,8 +318,6 @@ class MemorySystem:
             elif request.memory_type == MemoryType.LEARNED:
                 # For learned memories
                 pinecone_filter = {"memory_type": "LEARNED"}
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying LEARNED memories with filter: {pinecone_filter}")
                 
                 vector_task = asyncio.create_task(
@@ -339,8 +333,6 @@ class MemorySystem:
             else:
                 # Fallback for unknown types
                 pinecone_filter = {}
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
                 logger.info(f"Querying with unknown memory type, using ALL types with filter: {pinecone_filter}")
                 
                 vector_task = asyncio.create_task(
@@ -936,16 +928,8 @@ class MemorySystem:
                     "memory_type": "EPISODIC",
                     "created_at": {"$gte": seven_days_ago_timestamp}
                 }
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
             elif request.memory_type == MemoryType.LEARNED:
                 pinecone_filter = {"memory_type": "LEARNED"}
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
-            else:
-                pinecone_filter = {}
-                if request.window_id:
-                    pinecone_filter["window_id"] = request.window_id
             
             # Execute vector search
             vector_results = await self.pinecone_service.query_memories(
