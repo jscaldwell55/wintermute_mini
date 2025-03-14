@@ -10,6 +10,7 @@ import time
 import random
 from api.utils.responses import create_response
 from api.utils.response_cache import ResponseCache
+from api.utils.rate_limiter import openai_limiter
 import hashlib
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,7 @@ class LLMService:
         use_cache: bool = False,
         window_id: str = None
     ) -> str:
+        await openai_limiter.consume()
         use_cache = False
         logger.info(f"LLMService.generate_gpt_response_async called with prompt: '{prompt[:500]}...' (truncated), temperature: {temperature}, max_tokens: {max_tokens}, top_p: {top_p}, frequency_penalty: {frequency_penalty}, presence_penalty: {presence_penalty}, system_message: '{system_message[:500] if system_message else None}' (truncated), is_health_check: {is_health_check}")
 

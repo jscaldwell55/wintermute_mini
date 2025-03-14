@@ -5,9 +5,23 @@ import numpy as np
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Tuple, Optional
 from sklearn.metrics.pairwise import cosine_similarity
+import asyncio
+
 
 from api.core.memory.models import Memory, MemoryType
 from api.utils.llm_service import LLMService
+from api.utils.rate_limiter import openai_limiter
+
+class MemoryRelationshipDetector:
+    # ... existing code ...
+    
+    async def detect_relationships(self, source_memory, target_memories):
+        # Wait until we have capacity before making API call
+        while not await openai_limiter.consume():
+            await asyncio.sleep(0.1)
+            
+        # Make the API call through LLM service
+        # ... existing code ...
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +72,8 @@ class MemoryRelationshipDetector:
         memory_vector = np.array(memory.semantic_vector).reshape(1, -1)
         
         # Process candidates in batches for efficiency
-        batch_size = 100
+        batch_size = 10
+        await asyncio.sleep(1) 
         for i in range(0, len(candidate_memories), batch_size):
             batch = candidate_memories[i:i+batch_size]
             
@@ -138,9 +153,9 @@ class MemoryRelationshipDetector:
         return relationships[:self.max_relationships_per_memory]
     
     async def detect_thematic_relationships(self,
-                                     memory: Memory,
-                                     candidate_memories: List[Memory],
-                                     top_k: int = 5) -> List[Tuple[Memory, float]]:
+                                 memory: Memory,
+                                 candidate_memories: List[Memory],
+                                 top_k: int = 5) -> List[Tuple[Memory, float]]:
         """
         Detect thematic relationships using LLM analysis.
         Uses a sampling approach since it requires LLM calls.
@@ -169,6 +184,9 @@ class MemoryRelationshipDetector:
         # Analyze thematic connections with LLM
         for candidate, similarity in top_candidates:
             try:
+                # Wait until we have capacity before making API call
+                await openai_limiter.consume()  # Add this line here
+                
                 # Prepare LLM prompt
                 prompt = f"""Analyze these two passages and determine if they share thematic connections:
                 

@@ -12,6 +12,8 @@ from api.utils.pinecone_service import PineconeService
 from api.core.vector.vector_operations import VectorOperationsImpl
 
 from api.utils.llm_service import LLMService
+from api.utils.rate_limiter import openai_limiter
+
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +159,9 @@ class GraphMemoryFactory:
                         [m for m in memories if m.id != memory.id],
                         min(100, len(memories) - 1)  # Up to 100 candidates
                     )
+                    
+                    # Add rate limiting before relationship detection
+                    await openai_limiter.consume()  # Add this line here
                     
                     # Detect and add relationships
                     relationships_by_type = await relationship_detector.analyze_memory_relationships(
