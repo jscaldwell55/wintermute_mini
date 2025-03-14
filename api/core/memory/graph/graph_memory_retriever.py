@@ -212,6 +212,9 @@ class GraphMemoryRetriever:
                     scores.append(score)
                 except Exception as e:
                     self.logger.error(f"Error processing memory result: {e}")
+                    self.logger.info(f"Querying with filter: {filter_dict}")
+                    self.logger.info(f"Raw query results: {results[:3]}")
+                    self.logger.info(f"Graph stats: {self.memory_graph.get_graph_stats()}")
                     continue
 
             # Apply bell curve scoring to memories
@@ -382,7 +385,8 @@ class GraphMemoryRetriever:
                         )
                         
                         # Apply bell curve scoring if this is an episodic memory
-                        if memory_data["metadata"]["memory_type"] == MemoryType.EPISODIC.value:
+                        memory_type_str = memory_data.get("metadata", {}).get("memory_type", "UNKNOWN")
+                        if memory_type_str == "EPISODIC":
                             current_time = datetime.now(timezone.utc)
                             created_at = datetime.fromisoformat(created_at_str.rstrip('Z'))
                             

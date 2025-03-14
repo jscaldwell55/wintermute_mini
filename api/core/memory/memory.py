@@ -341,7 +341,7 @@ class MemorySystem:
                 
             elif request.memory_type == MemoryType.EPISODIC:
                 # For episodic memories with time filtering
-                seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+                seven_days_ago = datetime.now(timezone.utc) - timedelta(days=14)
                 seven_days_ago_timestamp = int(seven_days_ago.timestamp())
                 
                 pinecone_filter = {
@@ -984,7 +984,7 @@ class MemorySystem:
             if request.memory_type == MemoryType.SEMANTIC:
                 pinecone_filter = {"memory_type": "SEMANTIC"}
             elif request.memory_type == MemoryType.EPISODIC:
-                seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+                seven_days_ago = datetime.now(timezone.utc) - timedelta(days=14)
                 seven_days_ago_timestamp = int(seven_days_ago.timestamp())
                 pinecone_filter = {
                     "memory_type": "EPISODIC",
