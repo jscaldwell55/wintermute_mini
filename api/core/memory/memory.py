@@ -1178,42 +1178,53 @@ class MemorySystem:
         episodic_memories: List[Tuple[MemoryResponse, float]],
         learned_memories: List[Tuple[MemoryResponse, float]],
         time_expression: Optional[str] = None,
-        temporal_context: Optional[str] = None  # Parameter is here
+        temporal_context: Optional[str] = None
     ) -> Dict[str, str]:
-        """
-        Use an LLM to process retrieved memories into more human-like summaries.
-        
-        Args:
-            query: The user query
-            semantic_memories: Semantic memories with scores
-            episodic_memories: Episodic memories with scores
-            learned_memories: Learned memories with scores
-            time_expression: Optional time expression from temporal query
-            temporal_context: Additional temporal context for the prompt
-            
-        Returns:
-            Dictionary with summarized memories by type
-        """
+        """Use an LLM to process retrieved memories into more human-like summaries."""
         logger.info(f"Processing memories with summarization agent for query: {query[:50]}...")
         
         # Format memories for summarization
         semantic_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
                                     else f"- {mem.content}" for mem, _ in semantic_memories])
         
-        # When formatting episodic memories for summarization
-        episodic_content = "\n".join([
-            # Only include time reference if memory is older than threshold (e.g., 30 minutes)
-            f"- ({self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z'))) or ''}) " +
-            f"{mem.content[:300]}..." if len(mem.content) > 300 
-            else f"- ({self._format_time_ago(datetime.fromisoformat(mem.created_at.rstrip('Z'))) or ''}) {mem.content}" 
-            for mem, _ in episodic_memories
-        ])
-
-        # Remove any empty parentheses that might result from missing time references
-        episodic_content = episodic_content.replace("() ", "")
+        # Format episodic memories with enhanced time information
+        episodic_content_list = []
+        for mem, _ in episodic_memories:
+            # Try to extract rich time info from metadata
+            time_context = ""
+            if hasattr(mem, 'metadata') and mem.metadata:
+                time_of_day = mem.metadata.get('time_of_day', '')
+                day_of_week = mem.metadata.get('day_of_week', '')
+                date_str = mem.metadata.get('date_str', '')
+                
+                # Create a natural time reference
+                if day_of_week and time_of_day:
+                    # Check if this is today
+                    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    if date_str == today_str:
+                        time_context = f"earlier {time_of_day}"
+                    else:
+                        time_context = f"{day_of_week} {time_of_day}"
+                elif time_of_day:
+                    time_context = f"the {time_of_day}"
+            
+            # Fall back to the time_ago field or computed value if necessary
+            if not time_context:
+                if mem.time_ago:
+                    time_context = mem.time_ago
+                elif hasattr(mem, 'created_at'):
+                    created_at = datetime.fromisoformat(mem.created_at.rstrip('Z'))
+                    time_context = self._format_time_ago(created_at) or "recently"
+            
+            # Format the memory content with the time context
+            content = mem.content[:300] + "..." if len(mem.content) > 300 else mem.content
+            episodic_content_list.append(f"- ({time_context}) {content}")
+        
+        episodic_content = "\n".join(episodic_content_list) if episodic_content_list else "No relevant conversations found."
         
         learned_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
                                     else f"- {mem.content}" for mem, _ in learned_memories])
+    
         
         # Create separate prompts for each memory type
         semantic_prompt = f"""
@@ -1237,29 +1248,29 @@ class MemorySystem:
         
         # Updated episodic prompt with time expression awareness and temporal context
         episodic_prompt = f"""
-        You are an AI memory processor helping a conversational AI recall past conversations.
+            You are an AI memory processor helping a conversational AI recall past conversations.
 
-        **User Query:** "{query}"
-        {f"**Time Period Referenced:** {time_expression}" if time_expression else ""}
-        {temporal_context if temporal_context else ""}  # This is using the parameter now
+            **User Query:** "{query}"
+            {f"**Time Period Referenced:** {time_expression}" if time_expression else ""}
+            {temporal_context if temporal_context else ""}
 
-        **Retrieved Conversation Fragments:**
-        {episodic_content or "No relevant conversations found."}
+            **Retrieved Conversation Fragments:**
+            {episodic_content or "No relevant conversations found."}
 
-        **Task:**
-        - Summarize these past conversations like a human would recall them.
-        {f"- Frame your summary specifically about conversations that happened {time_expression}." if time_expression else "- Only mention timing when the conversation happened more than 1 hour ago."}
-        - For very recent conversations (less than an hour old), treat them as part of the current conversation flow.
-        - Keep it concise (max 150 words).
-        - Prioritize conversations that are most relevant to the current query.
-        {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
-        - Be specific about the timing of these conversations when responding.
-        - If the user asks about a specific time reference like "tonight," "this morning," or "yesterday," use natural time expressions in your response (e.g., "Earlier tonight we talked about..." or "This morning we discussed...").
-        - Group related topics from the same time period together for a more natural recall pattern.
-        - Mention the sequence of topics if they occurred in a meaningful order.
+            **Task:**
+            - Summarize these past conversations like a human would recall them.
+            {f"- Frame your summary specifically about conversations that happened {time_expression}." if time_expression else "- Only mention timing when the conversation happened more than 1 hour ago."}
+            - For very recent conversations (less than an hour old), treat them as part of the current conversation flow.
+            - Keep it concise (max 150 words).
+            - Prioritize conversations that are most relevant to the current query.
+            {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
+            - Be specific about the timing of these conversations when responding.
+            - Use natural time expressions like "this morning," "earlier today," or "yesterday evening" when referring to conversations.
+            - Group related topics from the same time period together to sound more natural.
+            - If time information is provided for each memory (like "Monday morning" or "earlier afternoon"), incorporate these specific time references in your summary.
 
-        **Output just the summarized memory:**
-        """
+            **Output just the summarized memory:**
+            """
     
         
         learned_prompt = f"""
@@ -1456,22 +1467,31 @@ class MemorySystem:
 
             semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
             memory_id = f"mem_{uuid.uuid4().hex}"
-            created_at = int(datetime.now(timezone.utc).timestamp())
             
             # Get current time for enhanced time metadata
             current_time = datetime.now(timezone.utc)
             
+            # Add time metadata
+            hour = current_time.hour
+            if 5 <= hour < 12:
+                time_of_day = "morning"
+            elif 12 <= hour < 17:
+                time_of_day = "afternoon"
+            elif 17 <= hour < 21:
+                time_of_day = "evening"
+            else:
+                time_of_day = "night"
+            
             metadata = {
                 "content": interaction_text,  # Store the COMBINED text
                 "memory_type": "EPISODIC",
-                "created_at": created_at, # Use consistent format here
+                "created_at": int(current_time.timestamp()), # Use consistent format here
                 "window_id": window_id,
                 "source": "user_interaction",  # Indicate the source of this memory
                 # Enhanced time metadata
-                "hour_of_day": current_time.hour,
+                "time_of_day": time_of_day,
                 "day_of_week": current_time.strftime("%A"),
-                "date": current_time.strftime("%Y-%m-%d"),
-                "time": current_time.strftime("%H:%M:%S")
+                "date_str": current_time.strftime("%Y-%m-%d")
             }
 
             # Create the Memory object first
@@ -1479,7 +1499,7 @@ class MemorySystem:
                 id=memory_id,
                 content=interaction_text,
                 memory_type=MemoryType.EPISODIC,
-                created_at=datetime.fromtimestamp(created_at, tz=timezone.utc),  # Convert to datetime
+                created_at=current_time,  # Use datetime object per your model
                 metadata=metadata,
                 window_id=window_id,
                 semantic_vector=semantic_vector,
@@ -1496,9 +1516,6 @@ class MemorySystem:
                 raise MemoryOperationError("Failed to store memory in vector database")
 
             logger.info(f"Episodic memory stored successfully: {memory_id}")
-
-           
-
             return memory
 
         except Exception as e:

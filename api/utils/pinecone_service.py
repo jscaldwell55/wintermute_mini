@@ -102,10 +102,17 @@ class PineconeService(MemoryService):
                 logger.error("❌ Pinecone index is not initialized. Cannot create memory.")
                 raise PineconeError("Pinecone index is not initialized.")
 
+            # Ensure time metadata fields are preserved
+            time_fields = ["time_of_day", "day_of_week", "date_str"]
+            
             # Sanitize metadata
             cleaned_metadata = {}
             for key, value in metadata.items():
-                if isinstance(value, (str, int, float, bool)):
+                # Special handling for time metadata fields
+                if key in time_fields and value is not None:
+                    cleaned_metadata[key] = str(value)
+                # Normal handling for other fields
+                elif isinstance(value, (str, int, float, bool)):
                     cleaned_metadata[key] = value
                 elif isinstance(value, list) and all(isinstance(x, str) for x in value):
                     cleaned_metadata[key] = value
