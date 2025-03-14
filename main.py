@@ -718,6 +718,36 @@ async def query_memory(
       
         logger.info(f"[{trace_id}] Received query request: {query.prompt[:100]}...")
 
+        # First check if this is a temporal query
+        temporal_summaries = await memory_system.process_temporal_query(query.prompt, query.window_id)
+        if temporal_summaries and "episodic" in temporal_summaries:
+            # If it's a temporal query and we got results, return them directly
+            logger.info(f"[{trace_id}] Processed as temporal query, creating response based on time-filtered memories")
+            
+            # Create a response based on the temporal summary
+            response = await llm_service.generate_gpt_response_async(
+                # Create an appropriate prompt with the temporal summary
+                f"The user asked: {query.prompt}\n\nBased on our conversation history: {temporal_summaries['episodic']}\n\nRespond naturally to the user's question.",
+                temperature=temperature,
+                max_tokens=1000
+            )
+            
+            # Store the interaction and return the response
+            asyncio.create_task(memory_system.store_interaction_enhanced(
+                query=query.prompt,
+                response=response,
+                window_id=query.window_id,
+            ))
+            
+            return QueryResponse(
+                response=response, 
+                matches=[], 
+                trace_id=trace_id, 
+                similarity_scores=[], 
+                error=None,
+                metadata={"success": True, "from_temporal_query": True}
+            )
+
         # Check for duplicates (existing code)
         if await memory_system._check_recent_duplicate(query.prompt):
             logger.warning(f"[{trace_id}] Duplicate query detected. Skipping LLM call.")

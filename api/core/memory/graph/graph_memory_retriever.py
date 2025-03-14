@@ -127,7 +127,7 @@ class GraphMemoryRetriever:
                         id=memory_data["id"],
                         content=memory_data["metadata"]["content"],
                         memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
-                        created_at=memory_data["metadata"]["created_at"],
+                        created_at=memory_data["metadata"]["created_at"].isoformat() + "Z" if isinstance(memory_data["metadata"]["created_at"], datetime) else memory_data["metadata"]["created_at"],
                         metadata=memory_data["metadata"],
                         window_id=memory_data["metadata"].get("window_id")
                     )
