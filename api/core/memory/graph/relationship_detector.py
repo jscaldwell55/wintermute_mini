@@ -30,7 +30,7 @@ class MemoryRelationshipDetector:
         self.logger = logging.getLogger(__name__)
         
         # Configuration parameters
-        self.semantic_similarity_threshold = 0.75
+        self.semantic_similarity_threshold = 0.65
         self.temporal_proximity_threshold = timedelta(minutes=30)
         self.max_relationships_per_memory = 10
     

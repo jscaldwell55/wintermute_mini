@@ -140,6 +140,8 @@ class GraphMemoryFactory:
                 memory_graph.add_memory_node(memory)
             
             logger.info(f"Added {len(memories)} memory nodes to graph")
+            logger.info("Adding temporal relationships between memories")
+            memory_graph.add_temporal_relationships()
             
             # Process relationships in smaller batches to avoid overwhelming the LLM service
             max_relationship_batch = 20
@@ -153,22 +155,23 @@ class GraphMemoryFactory:
                     import random
                     candidate_sample = random.sample(
                         [m for m in memories if m.id != memory.id],
-                        min(50, len(memories) - 1)  # Up to 50 candidates
+                        min(100, len(memories) - 1)  # Up to 100 candidates
                     )
                     
                     # Detect and add relationships
-                    relationships = await relationship_detector.detect_semantic_relationships(
+                    relationships_by_type = await relationship_detector.analyze_memory_relationships(
                         memory, candidate_sample
                     )
                     
-                    for related_memory, strength in relationships:
-                        memory_graph.add_relationship(
-                            source_id=memory.id,
-                            target_id=related_memory.id,
-                            rel_type=relationship_detector.REL_SEMANTIC,
-                            weight=strength
-                        )
-                        relationship_count += 1
+                    for rel_type, rel_list in relationships_by_type.items():
+                        for related_memory, strength in rel_list:
+                            memory_graph.add_relationship(
+                                source_id=memory.id,
+                                target_id=related_memory.id,
+                                rel_type=rel_type,
+                                weight=strength
+                            )
+                            relationship_count += 1
             
             logger.info(f"Added {relationship_count} relationships to graph")
             

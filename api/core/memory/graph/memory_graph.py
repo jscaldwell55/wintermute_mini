@@ -134,15 +134,98 @@ class MemoryGraph:
         return True
     
     # In memory_graph.py or similar
-    def add_temporal_relationships(memory_graph, new_memory):
-        """Add temporal relationships between memories."""
-        # Find memories from similar timeframe (e.g., same day)
-        same_day_memories = memory_graph.get_memories_by_date(new_memory.timestamp.date())
+    def add_temporal_relationships(self, max_time_diff_seconds: int = 3600):
+        """
+        Add temporal relationships between memories in chronological sequence.
         
-        for memory in same_day_memories:
-            # Add bidirectional "same_day" relationship
-            memory_graph.add_edge(new_memory.id, memory.id, "temporal_sequence")
-            memory_graph.add_edge(memory.id, new_memory.id, "temporal_sequence")
+        Args:
+            max_time_diff_seconds: Maximum time difference in seconds for creating temporal relationships
+            
+        Returns:
+            Number of relationships added
+        """
+        try:
+            # Get all memory nodes with created_at timestamp
+            memory_nodes = []
+            for node_id in self.graph.nodes():
+                if 'created_at' in self.graph.nodes[node_id]:
+                    memory_nodes.append((node_id, self.graph.nodes[node_id]['created_at']))
+                    
+            # Sort nodes by creation time
+            memory_nodes.sort(key=lambda x: self._parse_timestamp(x[1]))
+            
+            # Add relationships for sequential memories within time threshold
+            relationships_added = a = 0
+            for i in range(1, len(memory_nodes)):
+                current_node_id, current_timestamp = memory_nodes[i]
+                prev_node_id, prev_timestamp = memory_nodes[i-1]
+                
+                # Parse timestamps
+                current_time = self._parse_timestamp(current_timestamp)
+                prev_time = self._parse_timestamp(prev_timestamp)
+                
+                if current_time and prev_time:
+                    time_diff = (current_time - prev_time).total_seconds()
+                    
+                    # Add relationship if within threshold
+                    if time_diff <= max_time_diff_seconds:
+                        # Calculate strength based on time proximity (closer = stronger)
+                        strength = 1.0 - (time_diff / max_time_diff_seconds)
+                        
+                        # Add the temporal relationship
+                        success = self.add_relationship(
+                            source_id=prev_node_id,
+                            target_id=current_node_id,
+                            rel_type="temporal_sequence",
+                            weight=strength
+                        )
+                        
+                        if success:
+                            relationships_added += 1
+                        
+            # Log results
+            self.logger.info(f"Added {relationships_added} temporal relationships")
+            return relationships_added
+            
+        except Exception as e:
+            self.logger.error(f"Error adding temporal relationships: {e}")
+            return 0
+    
+    def _parse_timestamp(self, timestamp):
+        """Parse timestamp string or value to datetime object."""
+        try:
+            # Handle different timestamp formats
+            if isinstance(timestamp, (int, float)):
+                # Unix timestamp
+                return datetime.fromtimestamp(timestamp, timezone.utc)
+            elif isinstance(timestamp, str):
+                # ISO format string
+                return datetime.fromisoformat(timestamp.rstrip('Z')).replace(tzinfo=timezone.utc)
+            elif isinstance(timestamp, datetime):
+                # Already a datetime
+                return timestamp
+            return None
+        except Exception as e:
+            self.logger.warning(f"Failed to parse timestamp {timestamp}: {e}")
+            return None
+
+    def get_memories_by_date(self, target_date):
+        """
+        Get memories created on a specific date.
+        
+        Args:
+            target_date: Date to filter memories by
+            
+        Returns:
+            List of memory node IDs from the specified date
+        """
+        matching_memories = []
+        for node_id in self.graph.nodes():
+            if 'created_at' in self.graph.nodes[node_id]:
+                created_at = self._parse_timestamp(self.graph.nodes[node_id]['created_at'])
+                if created_at and created_at.date() == target_date:
+                    matching_memories.append(node_id)
+        return matching_memories
     
     def get_connected_memories(self, memory_id: str, max_depth: int = 2) -> List[Tuple[str, float, int]]:
         """

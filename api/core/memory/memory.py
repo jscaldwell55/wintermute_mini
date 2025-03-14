@@ -152,6 +152,27 @@ class MemorySystem:
                 vector=semantic_vector,
                 metadata=memory.metadata
             )
+
+            if success and hasattr(self, 'memory_graph'):
+                self.memory_graph.add_memory_node(memory)
+                
+                # Also add relationships to existing memories
+                if hasattr(self, 'relationship_detector'):
+                    # Get a sample of existing memories as candidates
+                    candidate_memories = await self.memories(50, exclude_id=memory.id)
+                    relationships_by_type = await self.relationship_detector.analyze_memory_relationships(
+                        memory, candidate_memories
+                    )
+                    
+                    # Add all detected relationships
+                    for rel_type, rel_list in relationships_by_type.items():
+                        for related_memory, strength in rel_list:
+                            self.memory_graph.add_relationship(
+                                source_id=memory.id, 
+                                target_id=related_memory.id,
+                                rel_type=rel_type, 
+                                weight=strength
+                            )
             
             if not success:
                 raise MemoryOperationError("Failed to store memory in vector database")
@@ -184,6 +205,46 @@ class MemorySystem:
         except Exception as e:
             logger.error(f"Failed to retrieve memory by ID: {e}", exc_info=True)
             raise
+
+    # Add to MemorySystem class in memory_system.py
+    async def get_sample_memories(self, sample_size: int, exclude_id: Optional[str] = None) -> List[Memory]:
+        """Get a random sample of memories for relationship detection."""
+        try:
+            # Create dummy vector for query
+            dummy_vector = [0.0] * self.pinecone_service.embedding_dimension
+            
+            # Query for memories
+            results = await self.pinecone_service.query_memories(
+                query_vector=dummy_vector,
+                top_k=sample_size * 2,  # Request more to account for filtering
+                filter={},  # No filter to get all memory types
+                include_metadata=True
+            )
+            
+            # Convert to Memory objects
+            memories = []
+            for memory_data, _ in results:
+                if exclude_id and memory_data["id"] == exclude_id:
+                    continue
+                    
+                memory = Memory(
+                    id=memory_data["id"],
+                    content=memory_data["metadata"]["content"],
+                    memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                    created_at=memory_data["metadata"]["created_at"],
+                    metadata=memory_data["metadata"],
+                    semantic_vector=memory_data.get("vector")
+                )
+                memories.append(memory)
+                
+                if len(memories) >= sample_size:
+                    break
+                    
+            return memories
+            
+        except Exception as e:
+            logger.error(f"Error getting sample memories: {e}")
+            return []
 
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID and remove it from keyword index."""
@@ -1187,38 +1248,57 @@ class MemorySystem:
         semantic_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
                                     else f"- {mem.content}" for mem, _ in semantic_memories])
         
-        # Format episodic memories with enhanced time information
+        # 1. Check if the user is explicitly asking for exact time
+        lower_query = query.lower()
+        is_exact_time_requested = ("what time" in lower_query) or ("when exactly" in lower_query)
+
         episodic_content_list = []
-        for mem, _ in episodic_memories:
-            # Try to extract rich time info from metadata
+
+        for mem, _score in episodic_memories:
+            # === Step A: Build a human-friendly "time_context" as before ===
             time_context = ""
             if hasattr(mem, 'metadata') and mem.metadata:
                 time_of_day = mem.metadata.get('time_of_day', '')
                 day_of_week = mem.metadata.get('day_of_week', '')
                 date_str = mem.metadata.get('date_str', '')
-                
-                # Create a natural time reference
+
+                # If the metadata says "Wednesday morning" or "Monday evening", etc.
                 if day_of_week and time_of_day:
-                    # Check if this is today
+                    # Check if it's "today"
                     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
                     if date_str == today_str:
+                        # e.g. "earlier morning"
                         time_context = f"earlier {time_of_day}"
                     else:
                         time_context = f"{day_of_week} {time_of_day}"
                 elif time_of_day:
                     time_context = f"the {time_of_day}"
-            
-            # Fall back to the time_ago field or computed value if necessary
+
+            # If we still don't have a time_context, fall back to time_ago or "recently"
             if not time_context:
                 if mem.time_ago:
                     time_context = mem.time_ago
                 elif hasattr(mem, 'created_at'):
-                    created_at = datetime.fromisoformat(mem.created_at.rstrip('Z'))
-                    time_context = self._format_time_ago(created_at) or "recently"
+                    # Convert the created_at (ISO string) to datetime
+                    created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
+                    time_context = self._format_time_ago(created_at_dt) or "recently"
+
+            # === Step B: Build the memory content snippet ===
+            content = mem.content
+            if len(content) > 300:
+                content = content[:300] + "..."
+
+            # === Step C: If user wants EXACT time, show created_at_iso ===
+            iso_time = mem.metadata.get("created_at_iso")
             
-            # Format the memory content with the time context
-            content = mem.content[:300] + "..." if len(mem.content) > 300 else mem.content
-            episodic_content_list.append(f"- ({time_context}) {content}")
+            if is_exact_time_requested and iso_time:
+                # Example: "- (earlier morning, exact time: 2025-03-14T10:40:36Z) ..."
+                fragment = f"- ({time_context}, exact time: {iso_time}) {content}"
+            else:
+                # Fallback to original approach
+                fragment = f"- ({time_context}) {content}"
+
+            episodic_content_list.append(fragment)      
         
         episodic_content = "\n".join(episodic_content_list) if episodic_content_list else "No relevant conversations found."
         
@@ -1248,33 +1328,33 @@ class MemorySystem:
         
         # Updated episodic prompt with time expression awareness and temporal context
         episodic_prompt = f"""
-    You are an AI memory processor helping a conversational AI recall past conversations.
+        You are an AI memory processor helping a conversational AI recall past conversations.
 
-    **User Query:** "{query}"
-    {f"**Time Period Referenced:** {time_expression}" if time_expression else ""}
-    {temporal_context if temporal_context else ""}
+        **User Query:** "{query}"
+        {f"**Time Period Referenced:** {time_expression}" if time_expression else ""}
+        {temporal_context if temporal_context else ""}
 
-    **Retrieved Conversation Fragments:**
-    {episodic_content or "No relevant conversations found."}
+        **Retrieved Conversation Fragments:**
+        {episodic_content}
 
-    **Task:**
-    - Summarize these past conversations like a human would recall them.
-    {f"- Frame your summary specifically about conversations that happened {time_expression}." if time_expression else "- Only mention timing when the conversation happened more than 1 hour ago."}
-    - For very recent conversations (less than an hour old), treat them as part of the current conversation flow.
-    - Keep it concise (max 150 words).
-    - Prioritize conversations that are most relevant to the current query.
-    {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
-    - Be specific about the timing of these conversations when responding.
-    - Use natural time expressions like "this morning," "earlier today," or "yesterday evening" when referring to conversations.
-    - Group related topics from the same time period together to sound more natural.
-    - If time information is provided for each memory (like "Monday morning" or "earlier afternoon"), incorporate these specific time references in your summary.
+        **Task:**
+        - Summarize these past conversations like a human would recall them.
+        {f"- Frame your summary specifically about conversations that happened {time_expression}." if time_expression else "- Only mention timing when the conversation happened more than 1 hour ago."}
+        - For very recent conversations (less than an hour old), treat them as part of the current conversation flow.
+        - Keep it concise (max 150 words).
+        - Prioritize conversations that are most relevant to the current query.
+        {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
+        - Be specific about the timing of these conversations when responding.
+        - Use natural time expressions like "this morning," "earlier today," or "yesterday evening" when referring to conversations.
+        - Group related topics from the same time period together to sound more natural.
+        - If time information is provided for each memory (like "Monday morning" or "earlier afternoon"), incorporate these specific time references in your summary.
 
-    IMPORTANT:
-    - If the user explicitly requests an EXACT time or timestamp (e.g., "What time was it, exactly?" or "When exactly did we talk about X?"), 
-      provide the stored 'created_at_iso' from the memory metadata. 
-      Do not round or paraphrase timestamps in this case.
+        IMPORTANT:
+        - If the user explicitly requests an EXACT time or timestamp (e.g., "What time was it, exactly?" or "When exactly did we talk about X?"), 
+          provide the stored 'created_at_iso' from the memory metadata. 
+          Do not round or paraphrase timestamps in this case.
 
-    **Output just the summarized memory:**
+        **Output just the summarized memory:**
 """
 
     
