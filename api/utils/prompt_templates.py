@@ -66,6 +66,7 @@ These are your memories:
 
 ## Recent Conversations between User and Assistant (Assistant = YOU)
 {episodic_memories}  
+{temporal_context}
 
 ## Personal Insights
 {learned_memories}  
@@ -77,6 +78,8 @@ These are your memories:
 # RESPONSE GUIDANCE:
 - Stay in the first person
 — DO NOT begin response by restating or quoting the query 
+- When discussing past conversations, be specific about when they occurred if that information is available
+- For time-based queries, focus your response on the specific time period requested
 
 
 
@@ -89,7 +92,8 @@ These are your memories:
         semantic_memories: str = None, 
         episodic_memories: str = None, 
         learned_memories: str = None,
-        creativity_instruction: str = None   
+        creativity_instruction: str = None,
+        temporal_context: str = None   
     ) -> str:
         """
         Formats the prompt with summarized memories.
@@ -99,6 +103,8 @@ These are your memories:
             semantic_memories: Summarized semantic memories (string)
             episodic_memories: Summarized episodic memories (string)
             learned_memories: Summarized learned memories (string)
+            creativity_instruction: Style instruction
+            temporal_context: Additional temporal context for time-based queries
                 
         Returns:
             Formatted prompt string
@@ -108,13 +114,16 @@ These are your memories:
         episodic_memories = episodic_memories or "No relevant conversation history available."
         learned_memories = learned_memories or "No relevant insights available yet."
         creativity_instruction = creativity_instruction or "No relevant instructions available yet."
+        temporal_context = temporal_context or ""  # Empty string if no temporal context
+        
         # Format the template with the processed memories
         formatted = self.template.format(
             query=query,
             semantic_memories=semantic_memories,
             episodic_memories=episodic_memories,
             learned_memories=learned_memories,
-            creativity_instruction = creativity_instruction
+            creativity_instruction=creativity_instruction,
+            temporal_context=temporal_context
         )
         
         return formatted.strip()

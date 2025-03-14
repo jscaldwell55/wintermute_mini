@@ -779,6 +779,16 @@ async def query_memory(
             learned_memories=learned_memories_raw
         )
 
+        temporal_context = ""
+        if episodic_memories_raw and len(episodic_memories_raw) > 0:
+            # Check if the first memory has a temporal context marker
+            first_memory = episodic_memories_raw[0][0]
+            if first_memory.id == "temporal_summary" and first_memory.metadata and "source" in first_memory.metadata:
+                if first_memory.metadata["source"] == "temporal_query_summary":
+                    # This was processed as a temporal query
+                    logger.info(f"[{trace_id}] Detected response from temporal query processing")
+                    temporal_context = f"Note: The user is asking about a specific time period."
+
         # Summarization time 
         summarization_time = time.time() - start_time - memory_time
 
@@ -808,7 +818,8 @@ async def query_memory(
             semantic_memories=summarized_memories.get("semantic", "No relevant background knowledge available."),
             episodic_memories=summarized_memories.get("episodic", "No relevant conversation history available."),
             learned_memories=summarized_memories.get("learned", "No relevant insights available yet."),
-            creativity_instruction=creativity_instruction
+            creativity_instruction=creativity_instruction,
+            temporal_context=temporal_context
         )
 
         # Use a fixed temperature without random variation

@@ -6,6 +6,7 @@ import math
 import asyncio
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
+import re 
 
 # Corrected imports: Import from the correct locations
 from api.utils.config import get_settings, Settings
@@ -35,14 +36,7 @@ class MemorySystem:
         self.settings = settings or get_settings()  # Use provided settings or get defaults
         self._initialized = False
 
-        # Only initialize keyword index if enabled in settings
-        keyword_search_enabled = getattr(self.settings, 'keyword_search_enabled', False)
-        if keyword_search_enabled:
-            from api.core.memory.keyword_index import KeywordIndex
-            self.keyword_index = KeywordIndex()
-            logger.info("Keyword index initialized")
-        else:
-            logger.info("Keyword index disabled via settings")
+       
 
     async def initialize(self) -> bool:
         """Initialize the memory system and its components."""
@@ -55,19 +49,7 @@ class MemorySystem:
             if hasattr(self.pinecone_service, 'initialize'):
                 await self.pinecone_service.initialize()
 
-            if not self._initialized and hasattr(self, 'keyword_index') and getattr(self.settings, 'keyword_search_enabled', False):
-                try:
-                    # Get a sample of memories to build the initial index
-                    # Consider limiting this to avoid overloading during startup
-                    memory_samples = await self.pinecone_service.sample_memories(
-                        limit=1000,  # Adjust based on your system's capabilities
-                        include_vector=False  # We don't need vectors for keyword index
-                    )
-                    if memory_samples:
-                        logger.info(f"Building keyword index with {len(memory_samples)} initial memories")
-                        await self.keyword_index.build_index(memory_samples)
-                except Exception as e:
-                    logger.warning(f"Initial keyword index build failed, will build incrementally: {e}")
+            
 
             self._initialized = True
             logger.info("Memory system initialized successfully")
@@ -172,10 +154,7 @@ class MemorySystem:
                 vector=semantic_vector,
                 metadata=memory.metadata
             )
-            if hasattr(self, 'keyword_index') and getattr(self.settings, 'keyword_search_enabled', False):
-                # Add to keyword index
-                self.keyword_index.add_to_index(memory)
-                logger.info(f"Added memory {memory_id} to keyword index")
+            
             if not success:
                 raise MemoryOperationError("Failed to store memory in vector database")
 
@@ -213,10 +192,7 @@ class MemorySystem:
         try:
             logger.info(f"Deleting memory with ID: {memory_id}")
             
-            # Remove from keyword index first
-            if hasattr(self, 'keyword_index'):
-                self.keyword_index._remove_from_index(memory_id)
-                logger.info(f"Removed memory {memory_id} from keyword index")
+    
                 
             # Then delete from Pinecone
             result = await self.pinecone_service.delete_memory(memory_id)
@@ -263,9 +239,7 @@ class MemorySystem:
             query_vector = await get_cached_embedding(request.prompt)
             logger.info(f"Query vector generated (first 5 elements): {query_vector[:5]}")
             
-            # Extract keywords for keyword search
-            keywords = self._extract_keywords(request.prompt)
-            logger.info(f"Extracted keywords: {keywords}")
+           
             
             # Determine memory type filter
             memory_type_value = request.memory_type.value if hasattr(request, 'memory_type') and request.memory_type else None
@@ -379,17 +353,7 @@ class MemorySystem:
                 )
                 tasks.append(("vector_unknown", vector_task))
             
-            # Add keyword search task if we have keywords
-            if keywords and getattr(self.settings, 'keyword_search_enabled', False):
-                keyword_task = asyncio.create_task(
-                    self.keyword_index.search(
-                        keywords=keywords,
-                        limit=self.settings.keyword_search_top_k,
-                        memory_type=memory_type_value,
-                        window_id=request.window_id
-                    )
-                )
-                tasks.append(("keyword", keyword_task))
+        
             
             # Wait for all tasks to complete
             task_results = {}
@@ -421,20 +385,12 @@ class MemorySystem:
             
             logger.info(f"Received {len(vector_results)} raw results from vector search.")
             
-            # Process keyword results if any
-            if "keyword" in task_results and attempt_count < max_attempts:
-                attempt_count += 1
-                keyword_results = task_results["keyword"]
-                logger.info(f"Received {len(keyword_results)} raw results from keyword search.")
-            else:
-                keyword_results = []
+         
 
             
-            # Combine both types of results
-            combined_results = await self._combine_search_results(
-                vector_results=vector_results,
-                keyword_results=keyword_results
-            )
+            # Just use vector results directly since keyword search is removed
+            combined_results = [(memory_data, score) for memory_data, score in vector_results]
+            
             
             matches = []
             similarity_scores = []
@@ -593,35 +549,212 @@ class MemorySystem:
             logger.error(f"Error querying memories: {e}", exc_info=True)
             raise MemoryOperationError(f"Failed to query memories: {str(e)}")
         
-    def _extract_keywords(self, query: str) -> List[str]:
-        """Extract significant keywords from the query"""
-        # Tokenize and normalize
-        tokens = [t.lower() for t in query.split()]
+
+    async def query_by_timeframe(
+        self,
+        query: str,
+        window_id: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        top_k: int = 10
+    ) -> List[Tuple[MemoryResponse, float]]:
+        """Query memories within a specific timeframe."""
+        try:
+            # Create vector for semantic search
+            query_vector = await self.vector_operations.create_semantic_vector(query)
+            
+            # Convert timestamps to epoch seconds
+            start_timestamp = int(start_time.timestamp()) if start_time else None
+            end_timestamp = int(end_time.timestamp()) if end_time else None
+            
+            # Build filter
+            filter_dict = {"memory_type": "EPISODIC"}
+            if window_id:
+                filter_dict["window_id"] = window_id
+            
+            # Add timeframe to filter
+            if start_timestamp or end_timestamp:
+                filter_dict["created_at"] = {}
+                if start_timestamp:
+                    filter_dict["created_at"]["$gte"] = start_timestamp
+                if end_timestamp:
+                    filter_dict["created_at"]["$lte"] = end_timestamp
+            
+            # Execute query
+            results = await self.pinecone_service.query_memories(
+                query_vector=query_vector,
+                top_k=top_k,
+                filter=filter_dict,
+                include_metadata=True
+            )
+            
+            # Process results
+            processed_results = []
+            for memory_data, score in results:
+                try:
+                    memory_response = MemoryResponse(
+                        id=memory_data["id"],
+                        content=memory_data["metadata"]["content"],
+                        memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                        created_at=normalize_timestamp(memory_data["metadata"]["created_at"]),
+                        metadata=memory_data["metadata"],
+                        window_id=memory_data["metadata"].get("window_id")
+                    )
+                    processed_results.append((memory_response, score))
+                except Exception as e:
+                    logger.error(f"Error processing memory in timeframe query: {e}")
+                    continue
+                    
+            return processed_results
+            
+        except Exception as e:
+            logger.error(f"Error in query_by_timeframe: {e}")
+            return []
         
-        # Remove stopwords
-        stopwords = {
-            'a', 'an', 'the', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 
-            'about', 'like', 'of', 'is', 'are', 'was', 'were', 'be', 'been',
-            'being', 'have', 'has', 'had', 'do', 'does', 'did', 'but', 'and',
-            'or', 'if', 'then', 'else', 'when', 'what', 'how', 'where', 'why'
-        }
-        keywords = [t for t in tokens if t not in stopwords and len(t) > 2]
+    def parse_time_expression(
+        self, 
+        time_expr: str, 
+        base_time: Optional[datetime] = None
+    ) -> Tuple[Optional[datetime], Optional[datetime]]:
+        """
+        Parse natural language time expressions into start/end datetime objects.
         
-        logger.info(f"Extracted keywords from query: {keywords}")
-        return keywords
+        Args:
+            time_expr: Natural language time expression (e.g., "yesterday", "3 days ago")
+            base_time: Base time for relative expressions (defaults to now)
+            
+        Returns:
+            Tuple of (start_time, end_time) as datetime objects
+        """
+        base_time = base_time or datetime.now(timezone.utc)
+        
+        # Handle common time expressions
+        time_expr = time_expr.lower().strip()
+        
+        if "yesterday" in time_expr:
+            # Full day of yesterday
+            yesterday = base_time - timedelta(days=1)
+            start_time = datetime(yesterday.year, yesterday.month, yesterday.day, 0, 0, 0, tzinfo=timezone.utc)
+            end_time = datetime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59, tzinfo=timezone.utc)
+            return start_time, end_time
+            
+        elif "day" in time_expr and "ago" in time_expr:
+            # Parse "X days ago"
+            try:
+                days = int(''.join(filter(str.isdigit, time_expr)))
+                target_day = base_time - timedelta(days=days)
+                start_time = datetime(target_day.year, target_day.month, target_day.day, 0, 0, 0, tzinfo=timezone.utc)
+                end_time = datetime(target_day.year, target_day.month, target_day.day, 23, 59, 59, tzinfo=timezone.utc)
+                return start_time, end_time
+            except ValueError:
+                pass
+                
+        elif "week" in time_expr and "last" in time_expr:
+            # Last week (previous 7 days)
+            end_time = base_time - timedelta(days=1)
+            start_time = end_time - timedelta(days=6)
+            return start_time, end_time
+        
+        # Add more patterns as needed
+        
+        # Default to last 7 days if no recognized pattern
+        start_time = base_time - timedelta(days=7)
+        return start_time, base_time
+    
+
+    async def process_temporal_query(
+        self, 
+        query: str, 
+        window_id: Optional[str] = None
+    ) -> Dict[str, str]:
+        """Process queries about past conversations with temporal references."""
+        
+        # Define regex patterns for temporal expressions
+        temporal_patterns = [
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (\d+ days? ago)",
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday)",
+            r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week)",
+            r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
+            # Add more patterns as needed
+        ]
+        
+        # Check for temporal patterns
+        matched_expr = None
+        for pattern in temporal_patterns:
+            match = re.search(pattern, query, re.IGNORECASE)
+            if match:
+                matched_expr = match.group(1)
+                break
+        
+        if not matched_expr:
+            # No temporal expression found, return empty so normal processing continues
+            return {}
+        
+         # Parse the temporal expression
+        start_time, end_time = self.parse_time_expression(matched_expr)
+        
+        # Generate temporal context for the prompt template
+        temporal_context = f"Note: This query is specifically about conversations from {matched_expr}, between {start_time.strftime('%Y-%m-%d %H:%M')} and {end_time.strftime('%Y-%m-%d %H:%M')}."
+        
+        # Log the detected timeframe
+        logger.info(f"Temporal query detected: '{matched_expr}' - Timeframe: {start_time} to {end_time}")
+        
+        # Query memories in this timeframe
+        memories = await self.query_by_timeframe(
+            query=query,
+            window_id=window_id,
+            start_time=start_time,
+            end_time=end_time,
+            top_k=10
+        )
+        
+        if not memories:
+            return {"episodic": f"I don't recall discussing anything {matched_expr}."}
+        
+        # Format memories for the summarization agent
+        episodic_memories = [(m, score) for m, score in memories]
+        
+        # Use the existing memory summarization agent with modified prompt
+        summary = await self.memory_summarization_agent(
+            query=query,
+            semantic_memories=[],
+            episodic_memories=episodic_memories,
+            learned_memories=[],
+            time_expression=matched_expr,  # Pass the time expression to the agent
+            temporal_context=temporal_context  # Pass the temporal context to the agent
+        )
+        
+        return summary
+        
+    
     
     async def batch_query_memories(
         self, 
         query: str, 
         window_id: Optional[str] = None, 
         top_k_per_type: Union[int, Dict[MemoryType, int]] = 5,  # Accept either int or dict
-        enable_keyword_search: bool = True,
         request_metadata: Optional[RequestMetadata] = None
     ) -> Dict[MemoryType, List[Tuple[MemoryResponse, float]]]:
         """
         Query all memory types in a single batched operation.
         """
         logger.info(f"Starting batch memory query: '{query[:50]}...'")
+        
+        # First check if this is a temporal query
+        temporal_summaries = await self.process_temporal_query(query, window_id)
+        if temporal_summaries and "episodic" in temporal_summaries:
+            # If it's a temporal query and we got results, return them in the format expected by caller
+            logger.info("Processed as temporal query, returning specialized results")
+            # Create a dummy memory response with the summary
+            dummy_memory = MemoryResponse(
+                id="temporal_summary",
+                content=temporal_summaries["episodic"],
+                memory_type=MemoryType.EPISODIC,
+                created_at=datetime.now(timezone.utc).isoformat(),
+                metadata={"source": "temporal_query_summary"}
+            )
+            # Return in the expected format with a perfect score
+            return {MemoryType.EPISODIC: [(dummy_memory, 1.0)]}
         
         # Create embedding cache for this query
         embedding_cache = {}
@@ -636,7 +769,6 @@ class MemorySystem:
         query_vector = await get_cached_embedding(query)
         
         # Extract keywords once
-        keywords = self._extract_keywords(query) if enable_keyword_search else []
         
         # Create tasks for each memory type
         tasks = []
@@ -653,7 +785,6 @@ class MemorySystem:
                 top_k=top_k,  # Use the type-specific top_k
                 window_id=window_id,
                 memory_type=memory_type,
-                enable_keyword_search=enable_keyword_search,
                 request_metadata=request_metadata or RequestMetadata(
                     operation_type=OperationType.QUERY,
                     window_id=window_id
@@ -998,7 +1129,9 @@ class MemorySystem:
         query: str,
         semantic_memories: List[Tuple[MemoryResponse, float]],
         episodic_memories: List[Tuple[MemoryResponse, float]],
-        learned_memories: List[Tuple[MemoryResponse, float]]
+        learned_memories: List[Tuple[MemoryResponse, float]],
+        time_expression: Optional[str] = None,
+        temporal_context: Optional[str] = None  # Parameter is here
     ) -> Dict[str, str]:
         """
         Use an LLM to process retrieved memories into more human-like summaries.
@@ -1008,6 +1141,8 @@ class MemorySystem:
             semantic_memories: Semantic memories with scores
             episodic_memories: Episodic memories with scores
             learned_memories: Learned memories with scores
+            time_expression: Optional time expression from temporal query
+            temporal_context: Additional temporal context for the prompt
             
         Returns:
             Dictionary with summarized memories by type
@@ -1053,24 +1188,29 @@ class MemorySystem:
         **Output just the synthesized knowledge:**
         """
         
+        # Updated episodic prompt with time expression awareness and temporal context
         episodic_prompt = f"""
         You are an AI memory processor helping a conversational AI recall past conversations.
 
         **User Query:** "{query}"
+        {f"**Time Period Referenced:** {time_expression}" if time_expression else ""}
+        {temporal_context if temporal_context else ""}  # This is using the parameter now
 
         **Retrieved Conversation Fragments:**
         {episodic_content or "No relevant conversations found."}
 
         **Task:**
         - Summarize these past conversations like a human would recall them.
-        - Only mention timing when the conversation happened more than 1 hour ago.
+        {f"- Frame your summary specifically about conversations that happened {time_expression}." if time_expression else "- Only mention timing when the conversation happened more than 1 hour ago."}
         - For very recent conversations (less than an hour old), treat them as part of the current conversation flow.
-        - Keep it concise (max 100 words).
+        - Keep it concise (max 150 words).
         - Prioritize conversations that are most relevant to the current query.
-        - If no conversations are provided, respond with "No relevant conversation history available."
+        {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
+        - Be specific about the timing of these conversations when responding.
 
         **Output just the summarized memory:**
         """
+    
         
         learned_prompt = f"""
         You are an AI memory processor helping a conversational AI recall learned insights.
@@ -1267,12 +1407,21 @@ class MemorySystem:
             semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
             memory_id = f"mem_{uuid.uuid4().hex}"
             created_at = int(datetime.now(timezone.utc).timestamp())
+            
+            # Get current time for enhanced time metadata
+            current_time = datetime.now(timezone.utc)
+            
             metadata = {
                 "content": interaction_text,  # Store the COMBINED text
                 "memory_type": "EPISODIC",
                 "created_at": created_at, # Use consistent format here
                 "window_id": window_id,
-                "source": "user_interaction"  # Indicate the source of this memory
+                "source": "user_interaction",  # Indicate the source of this memory
+                # Enhanced time metadata
+                "hour_of_day": current_time.hour,
+                "day_of_week": current_time.strftime("%A"),
+                "date": current_time.strftime("%Y-%m-%d"),
+                "time": current_time.strftime("%H:%M:%S")
             }
 
             # Create the Memory object first
@@ -1298,11 +1447,7 @@ class MemorySystem:
 
             logger.info(f"Episodic memory stored successfully: {memory_id}")
 
-            # Add to keyword index if available
-            if hasattr(self, 'keyword_index') and getattr(self.settings, 'keyword_search_enabled', False):
-                # Add to keyword index
-                self.keyword_index.add_to_index(memory)
-                logger.info(f"Added memory {memory_id} to keyword index")
+           
 
             return memory
 
