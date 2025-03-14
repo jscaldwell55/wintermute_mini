@@ -1248,29 +1248,35 @@ class MemorySystem:
         
         # Updated episodic prompt with time expression awareness and temporal context
         episodic_prompt = f"""
-            You are an AI memory processor helping a conversational AI recall past conversations.
+    You are an AI memory processor helping a conversational AI recall past conversations.
 
-            **User Query:** "{query}"
-            {f"**Time Period Referenced:** {time_expression}" if time_expression else ""}
-            {temporal_context if temporal_context else ""}
+    **User Query:** "{query}"
+    {f"**Time Period Referenced:** {time_expression}" if time_expression else ""}
+    {temporal_context if temporal_context else ""}
 
-            **Retrieved Conversation Fragments:**
-            {episodic_content or "No relevant conversations found."}
+    **Retrieved Conversation Fragments:**
+    {episodic_content or "No relevant conversations found."}
 
-            **Task:**
-            - Summarize these past conversations like a human would recall them.
-            {f"- Frame your summary specifically about conversations that happened {time_expression}." if time_expression else "- Only mention timing when the conversation happened more than 1 hour ago."}
-            - For very recent conversations (less than an hour old), treat them as part of the current conversation flow.
-            - Keep it concise (max 150 words).
-            - Prioritize conversations that are most relevant to the current query.
-            {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
-            - Be specific about the timing of these conversations when responding.
-            - Use natural time expressions like "this morning," "earlier today," or "yesterday evening" when referring to conversations.
-            - Group related topics from the same time period together to sound more natural.
-            - If time information is provided for each memory (like "Monday morning" or "earlier afternoon"), incorporate these specific time references in your summary.
+    **Task:**
+    - Summarize these past conversations like a human would recall them.
+    {f"- Frame your summary specifically about conversations that happened {time_expression}." if time_expression else "- Only mention timing when the conversation happened more than 1 hour ago."}
+    - For very recent conversations (less than an hour old), treat them as part of the current conversation flow.
+    - Keep it concise (max 150 words).
+    - Prioritize conversations that are most relevant to the current query.
+    {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
+    - Be specific about the timing of these conversations when responding.
+    - Use natural time expressions like "this morning," "earlier today," or "yesterday evening" when referring to conversations.
+    - Group related topics from the same time period together to sound more natural.
+    - If time information is provided for each memory (like "Monday morning" or "earlier afternoon"), incorporate these specific time references in your summary.
 
-            **Output just the summarized memory:**
-            """
+    IMPORTANT:
+    - If the user explicitly requests an EXACT time or timestamp (e.g., "What time was it, exactly?" or "When exactly did we talk about X?"), 
+      provide the stored 'created_at_iso' from the memory metadata. 
+      Do not round or paraphrase timestamps in this case.
+
+    **Output just the summarized memory:**
+"""
+
     
         
         learned_prompt = f"""
