@@ -355,6 +355,7 @@ def get_settings() -> Settings:
 def get_consolidation_config() -> ConsolidationConfig:
     settings = get_settings()
     return ConsolidationConfig(
-        min_cluster_size=settings.min_cluster_size,
-        consolidation_interval_hours=settings.consolidation_interval_hours,
+        min_cluster_size=getattr(settings, 'min_cluster_size', ConsolidationConfig.min_cluster_size),
+        max_episodic_age_days=getattr(settings, 'max_episodic_age_days', ConsolidationConfig.max_episodic_age_days),
+        max_memories_per_consolidation=getattr(settings, 'max_memories_per_consolidation', ConsolidationConfig.max_memories_per_consolidation)
     )
