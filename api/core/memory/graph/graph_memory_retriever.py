@@ -3,6 +3,7 @@
 import logging
 from typing import List, Dict, Any, Optional, Tuple, Set
 import numpy as np
+import math
 from datetime import datetime, timezone, timedelta
 
 
@@ -11,6 +12,7 @@ from api.core.memory.graph.memory_graph import MemoryGraph
 from api.utils.pinecone_service import PineconeService
 from api.core.vector.vector_operations import VectorOperationsImpl
 from api.utils.utils import normalize_timestamp
+from api.utils.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class GraphMemoryRetriever:
         self.pinecone_service = pinecone_service
         self.vector_operations = vector_operations
         self.logger = logging.getLogger(__name__)
+        self.settings = get_settings()
         
         # Configuration
         self.max_graph_depth = 2  # Maximum hops in graph traversal
@@ -41,6 +44,56 @@ class GraphMemoryRetriever:
         # Weighting for different retrieval methods
         self.vector_weight = 0.7
         self.graph_weight = 0.3
+
+    def _calculate_bell_curve_recency(self, age_hours):
+        """
+        Calculate recency score using a bell curve pattern:
+        - Very recent memories (<1h) are heavily de-prioritized (0.2-0.4)
+        - Memories <24h old have gradually increasing priority (0.4-0.8)
+        - Peak priority is around 2-3 days old (0.8-1.0)
+        - Gradual decay for older memories (approaching 0.2 at 7 days)
+        
+        Args:
+            age_hours: Age of memory in hours
+            
+        Returns:
+            Recency score between 0 and 1
+        """
+        # Get settings parameters (or use defaults if not defined)
+        peak_hours = getattr(self.settings, 'episodic_peak_hours', 60)
+        very_recent_threshold = getattr(self.settings, 'episodic_very_recent_threshold', 1.0)
+        recent_threshold = getattr(self.settings, 'episodic_recent_threshold', 24.0)
+        steepness = getattr(self.settings, 'episodic_bell_curve_steepness', 2.5)
+        
+        # For very recent memories (<1h): start with a low score
+        if age_hours < very_recent_threshold:
+            # Map from 0.2 (at 0 hours) to 0.4 (at 1 hour)
+            return 0.2 + (0.2 * age_hours / very_recent_threshold)
+        
+        # For recent memories (1h-24h): gradual increase
+        elif age_hours < recent_threshold:
+            # Map from 0.4 (at 1 hour) to 0.8 (at 24 hours)
+            relative_position = (age_hours - very_recent_threshold) / (recent_threshold - very_recent_threshold)
+            return 0.4 + (0.4 * relative_position)
+        
+        # Bell curve peak and decay
+        else:
+            # Calculate distance from peak (in hours)
+            distance_from_peak = abs(age_hours - peak_hours)
+            
+            # Convert to a bell curve shape (Gaussian-inspired)
+            # Distance of 0 from peak = 1.0 score
+            # Maximum reasonable age for scoring is settings.episodic_max_age_days * 24
+            max_distance = getattr(self.settings, 'episodic_max_age_days', 7) * 24 - peak_hours
+            
+            # Normalized distance from peak (0-1)
+            normalized_distance = min(1.0, distance_from_peak / max_distance)
+            
+            # Apply bell curve formula (variant of Gaussian)
+            bell_value = math.exp(-(normalized_distance ** 2) * steepness)
+            
+            # Scale between 0.8 (peak) and 0.2 (oldest)
+            return 0.8 * bell_value + 0.2
 
     async def retrieve_memories(self, request: QueryRequest) -> QueryResponse:
         """
@@ -159,6 +212,43 @@ class GraphMemoryRetriever:
                 except Exception as e:
                     self.logger.error(f"Error processing memory result: {e}")
                     continue
+
+            # Apply bell curve scoring to memories
+            current_time = datetime.now(timezone.utc)
+            
+            for i, memory in enumerate(matches):
+                try:
+                    # Only apply bell curve to episodic memories
+                    if memory.memory_type == MemoryType.EPISODIC:
+                        # Get created_at timestamp
+                        created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                        
+                        # Calculate age in hours
+                        age_hours = (current_time - created_at).total_seconds() / (60*60)
+                        
+                        # Use bell curve recency scoring
+                        recency_score = self._calculate_bell_curve_recency(age_hours)
+                        
+                        # Adjust score with recency
+                        recency_weight = getattr(self.settings, 'episodic_recency_weight', 0.35)
+                        relevance_weight = 1 - recency_weight
+                        
+                        # Combine score components
+                        combined_score = (relevance_weight * scores[i]) + (recency_weight * recency_score)
+                        
+                        # Apply memory type weight
+                        memory_weight = getattr(self.settings, 'episodic_memory_weight', 0.40)
+                        adjusted_score = combined_score * memory_weight
+                        
+                        self.logger.info(f"Applied bell curve: Memory {memory.id} (EPISODIC): " 
+                                        f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, "
+                                        f"Original={scores[i]:.3f}, Adjusted={adjusted_score:.3f}")
+                        
+                        # Update score
+                        scores[i] = adjusted_score
+                except Exception as e:
+                    self.logger.error(f"Error applying bell curve to memory {memory.id}: {e}")
+                    continue
             
             return QueryResponse(
                 matches=matches,
@@ -245,6 +335,32 @@ class GraphMemoryRetriever:
                             metadata=memory_data.get("metadata", {}),
                             window_id=memory_data.get("window_id")
                         )
+                        
+                        # Apply bell curve scoring if this is an episodic memory
+                        if memory_data["memory_type"] == MemoryType.EPISODIC.value:
+                            current_time = datetime.now(timezone.utc)
+                            created_at = datetime.fromisoformat(created_at_str.rstrip('Z'))
+                            
+                            # Calculate age in hours
+                            age_hours = (current_time - created_at).total_seconds() / (60*60)
+                            
+                            # Use bell curve recency scoring
+                            recency_score = self._calculate_bell_curve_recency(age_hours)
+                            
+                            # Adjust score with recency
+                            recency_weight = getattr(self.settings, 'episodic_recency_weight', 0.35)
+                            relevance_weight = 1 - recency_weight
+                            
+                            # Combine score components
+                            combined_score = (relevance_weight * final_score) + (recency_weight * recency_score)
+                            
+                            # Apply memory type weight
+                            memory_weight = getattr(self.settings, 'episodic_memory_weight', 0.40)
+                            final_score = combined_score * memory_weight
+                            
+                            self.logger.info(f"Applied bell curve to associated memory {memory_data['id']}: " 
+                                            f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, "
+                                            f"Adjusted Score={final_score:.3f}")
                         
                         associated_memories.append(memory_response)
                         association_scores.append(float(final_score))

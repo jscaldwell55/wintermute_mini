@@ -854,6 +854,56 @@ class MemorySystem:
         
         return memory_scores
     
+    def _calculate_bell_curve_recency(self, age_hours):
+        """
+        Calculate recency score using a bell curve pattern:
+        - Very recent memories (<1h) are heavily de-prioritized (0.2-0.4)
+        - Memories <24h old have gradually increasing priority (0.4-0.8)
+        - Peak priority is around 2-3 days old (0.8-1.0)
+        - Gradual decay for older memories (approaching 0.2 at 7 days)
+        
+        Args:
+            age_hours: Age of memory in hours
+            
+        Returns:
+            Recency score between 0 and 1
+        """
+        # Get settings parameters (or use defaults if not defined)
+        peak_hours = getattr(self.settings, 'episodic_peak_hours', 60)
+        very_recent_threshold = getattr(self.settings, 'episodic_very_recent_threshold', 1.0)
+        recent_threshold = getattr(self.settings, 'episodic_recent_threshold', 24.0)
+        steepness = getattr(self.settings, 'episodic_bell_curve_steepness', 2.5)
+        
+        # For very recent memories (<1h): start with a low score
+        if age_hours < very_recent_threshold:
+            # Map from 0.2 (at 0 hours) to 0.4 (at 1 hour)
+            return 0.2 + (0.2 * age_hours / very_recent_threshold)
+        
+        # For recent memories (1h-24h): gradual increase
+        elif age_hours < recent_threshold:
+            # Map from 0.4 (at 1 hour) to 0.8 (at 24 hours)
+            relative_position = (age_hours - very_recent_threshold) / (recent_threshold - very_recent_threshold)
+            return 0.4 + (0.4 * relative_position)
+        
+        # Bell curve peak and decay
+        else:
+            # Calculate distance from peak (in hours)
+            distance_from_peak = abs(age_hours - peak_hours)
+            
+            # Convert to a bell curve shape (Gaussian-inspired)
+            # Distance of 0 from peak = 1.0 score
+            # Maximum reasonable age for scoring is settings.episodic_max_age_days * 24
+            max_distance = self.settings.episodic_max_age_days * 24 - peak_hours
+            
+            # Normalized distance from peak (0-1)
+            normalized_distance = min(1.0, distance_from_peak / max_distance)
+            
+            # Apply bell curve formula (variant of Gaussian)
+            bell_value = math.exp(-(normalized_distance ** 2) * steepness)
+            
+            # Scale between 0.8 (peak) and 0.2 (oldest)
+            return 0.8 * bell_value + 0.2
+    
     async def _query_memory_type(
         self, 
         request: QueryRequest,
