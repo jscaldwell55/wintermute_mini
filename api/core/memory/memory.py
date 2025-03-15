@@ -1690,8 +1690,10 @@ class MemorySystem:
 
                 # Get current time for enhanced time metadata
                 current_time = datetime.now(timezone.utc)
-                # Use isoformat with timespec='milliseconds' for more standard ISO format
-                current_time_iso = current_time.isoformat(timespec='milliseconds') + "Z" # <--- Modified ISO format generation
+
+                # Generate truly VALID ISO 8601 UTC timestamp string for created_at_iso
+                current_time_iso = current_time.strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z' 
+                current_time_iso = current_time_iso[:26] + 'Z' # Truncate to milliseconds and add 'Z'
 
                 # Add more granular time_of_day periods
                 hour = current_time.hour
