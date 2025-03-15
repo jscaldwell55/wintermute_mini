@@ -1674,93 +1674,90 @@ class MemorySystem:
             return "Just now"
 
     async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
-        """Stores a user interaction (query + response) as a new episodic memory."""
-        try:
-            logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
-            # Combine query and response for embedding. Correct format.
-            interaction_text = f"User: {query}\nAssistant: {response}"
+            """Stores a user interaction (query + response) as a new episodic memory."""
+            try:
+                logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
+                # Combine query and response for embedding. Correct format.
+                interaction_text = f"User: {query}\nAssistant: {response}"
 
-            # Check for duplicates *before* creating the memory object
-            if await self._check_recent_duplicate(interaction_text):
-                logger.warning("Duplicate interaction detected. Skipping storage.")
-                return None  # Or raise an exception, depending on desired behavior
+                # Check for duplicates *before* creating the memory object
+                if await self._check_recent_duplicate(interaction_text):
+                    logger.warning("Duplicate interaction detected. Skipping storage.")
+                    return None  # Or raise an exception, depending on desired behavior
 
-            semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
-            memory_id = f"mem_{uuid.uuid4().hex}"
-            
-            # Get current time for enhanced time metadata
-            current_time = datetime.now(timezone.utc)
-            current_time_iso = normalize_timestamp(current_time)  # Standardize timestamp format
-                
-            # Add more granular time_of_day periods
-            hour = current_time.hour
-            if 5 <= hour < 9:
-                time_of_day = "early morning"
-            elif 9 <= hour < 12:
-                time_of_day = "morning"
-            elif 12 <= hour < 14:
-                time_of_day = "noon"
-            elif 14 <= hour < 17:
-                time_of_day = "afternoon"
-            elif 17 <= hour < 21:
-                time_of_day = "evening"
-            else:
-                time_of_day = "night"
-            
-            # Create a standardized metadata dictionary with consistent timestamp formats
-            metadata = {
-                "content": interaction_text,
-                "memory_type": "EPISODIC",
-                "created_at": current_time_iso,  # Store ISO string as primary timestamp
-                "created_at_unix": int(current_time.timestamp()),  # Store Unix timestamp for range queries
-                "window_id": window_id,
-                "source": "user_interaction",
-                
-                # Enhanced time metadata (no duplicates)
-                "time_of_day": time_of_day,
-                "day_of_week": current_time.strftime("%A"),
-                "date_str": current_time.strftime("%Y-%m-%d"),
-                
-                # Boolean flags for efficient filtering
-                "is_morning": 5 <= hour < 12,
-                "is_afternoon": 12 <= hour < 17,
-                "is_evening": 17 <= hour < 24,
-                "is_today": True,  # Will be useful for "today" queries
-                
-                # Add hour for more specific filtering
-                "hour_of_day": current_time.hour,
-                
-                # Add exact timestamp for precise queries
-                "created_at_iso": current_time_iso,
-            }
-                
-            # Create the Memory object first
-            memory = Memory(
-                id=memory_id,
-                content=interaction_text,
-                memory_type=MemoryType.EPISODIC,
-                created_at=current_time_iso,  # Use ISO string consistently
-                metadata=metadata,
-                window_id=window_id,
-                semantic_vector=semantic_vector,
-            )
+                semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
+                memory_id = f"mem_{uuid.uuid4().hex}"
 
-            # Store in Pinecone
-            success = await self.pinecone_service.create_memory(
-                memory_id=memory.id,
-                vector=semantic_vector,
-                metadata=metadata
-            )
-            
-            if not success:
-                raise MemoryOperationError("Failed to store memory in vector database")
+                # Get current time for enhanced time metadata
+                current_time = datetime.now(timezone.utc)
+                current_time_iso = current_time.isoformat() + "Z" # Keep ISO string for metadata
 
-            logger.info(f"Episodic memory stored successfully: {memory_id}")
-            return memory
+                # Add more granular time_of_day periods
+                hour = current_time.hour
+                if 5 <= hour < 9:
+                    time_of_day = "early morning"
+                elif 9 <= hour < 12:
+                    time_of_day = "morning"
+                elif 12 <= hour < 14:
+                    time_of_day = "noon"
+                elif 14 <= hour < 17:
+                    time_of_day = "afternoon"
+                elif 17 <= hour < 21:
+                    time_of_day = "evening"
+                else:
+                    time_of_day = "night"
 
-        except Exception as e:
-            logger.error(f"Failed to store interaction: {e}", exc_info=True)
-            raise MemoryOperationError("store_interaction", str(e))
+                # Create a standardized metadata dictionary with consistent timestamp formats
+                metadata = {
+                    "content": interaction_text,
+                    "memory_type": "EPISODIC",
+                    "created_at_iso": current_time_iso, # ISO string in metadata
+                    "created_at_unix": int(current_time.timestamp()),  # Store Unix timestamp for range queries
+                    "window_id": window_id,
+                    "source": "user_interaction",
+
+                    # Enhanced time metadata (no duplicates)
+                    "time_of_day": time_of_day,
+                    "day_of_week": current_time.strftime("%A"),
+                    "date_str": current_time.strftime("%Y-%m-%d"),
+
+                    # Boolean flags for efficient filtering
+                    "is_morning": 5 <= hour < 12,
+                    "is_afternoon": 12 <= hour < 17,
+                    "is_evening": 17 <= hour < 24,
+                    "is_today": True,  # Will be useful for "today" queries
+
+                    # Add hour for more specific filtering
+                    "hour_of_day": current_time.hour,
+                }
+
+                # Create the Memory object first
+                memory = Memory(
+                    id=memory_id,
+                    content=interaction_text,
+                    memory_type=MemoryType.EPISODIC,
+                    created_at=current_time,  # Pass the datetime object here!
+                    metadata=metadata,
+                    window_id=window_id,
+                    semantic_vector=semantic_vector,
+                )
+
+                # Store in Pinecone
+                success = await self.pinecone_service.create_memory(
+                    memory_id=memory.id,
+                    vector=semantic_vector,
+                    metadata=metadata
+                )
+
+                if not success:
+                    raise MemoryOperationError("Failed to store memory in vector database")
+
+                logger.info(f"Episodic memory stored successfully: {memory_id}")
+                return memory
+
+            except Exception as e:
+                logger.error(f"Failed to store interaction: {e}", exc_info=True)
+                raise MemoryOperationError("store_interaction", str(e))
 
     async def add_interaction(
         self,
