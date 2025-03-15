@@ -19,8 +19,19 @@ class RedisGraphStore:
             # Try both environment variables since RedisCloud uses a different name
             redis_url = os.environ.get('REDISCLOUD_URL', os.environ.get('REDIS_URL'))
             
-            if not redis_url:
-                logger.warning("No Redis URL found. Graph persistence is disabled.")
+            # Log the URL (with masked password)
+            if redis_url:
+                # Mask the password in logs for security
+                masked_url = redis_url
+                if '@' in masked_url:
+                    prefix, suffix = masked_url.split('@', 1)
+                    if ':' in prefix and '//' in prefix:
+                        protocol_user = prefix.split(':', 1)[0]
+                        masked_url = f"{protocol_user}:****@{suffix}"
+                logger.info(f"Redis URL found: {masked_url}")
+            else:
+                logger.warning("❌ No REDISCLOUD_URL or REDIS_URL found in environment variables!")
+                logger.info(f"Available environment vars: {[k for k in os.environ.keys() if 'REDIS' in k]}")
                 return False
                 
             logger.info(f"Connecting to Redis...")
@@ -30,14 +41,23 @@ class RedisGraphStore:
                 encoding="utf-8"
             )
             
-            # Test connection
-            await self.redis.ping()
-            logger.info("Redis connection established successfully")
+            # Test connection with timeout
+            logger.info("Testing Redis connection with PING...")
+            ping_result = await asyncio.wait_for(self.redis.ping(), timeout=5.0)
+            logger.info(f"✅ Redis connection test successful: {ping_result}")
             self.initialized = True
             return True
             
+        except asyncio.TimeoutError:
+            logger.error("❌ Redis connection timeout - no response to PING")
+            self.initialized = False
+            return False
+        except redis.exceptions.ConnectionError as ce:
+            logger.error(f"❌ Redis connection error: {ce}")
+            self.initialized = False
+            return False
         except Exception as e:
-            logger.error(f"Failed to initialize Redis connection: {e}")
+            logger.error(f"❌ Failed to initialize Redis connection: {type(e).__name__}: {e}")
             self.initialized = False
             return False
     
@@ -68,6 +88,16 @@ class RedisGraphStore:
             # Keep track of all nodes
             await self.redis.sadd("all_nodes", source_id)
             await self.redis.sadd("all_nodes", target_id)
+            
+            return True
+            
+        # Log the first 5 successful stores to confirm it's working
+            if not hasattr(self, '_relationship_count'):
+                self._relationship_count = 0
+            
+            self._relationship_count += 1
+            if self._relationship_count <= 5:
+                logger.info(f"✅ Successfully stored relationship #{self._relationship_count} in Redis: {source_id} --[{rel_type}]--> {target_id}")
             
             return True
             

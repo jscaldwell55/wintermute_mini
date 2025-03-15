@@ -772,6 +772,46 @@ class MemorySystem:
             # No temporal expression found, return empty so normal processing continues
             return {}
         
+         # After detecting the temporal pattern:
+        if matched_expr:
+            # Parse the temporal expression
+            start_time, end_time = self.parse_time_expression(matched_expr)
+            
+            # Log the detected timeframe
+            logger.info(f"Temporal query detected: '{matched_expr}' - Timeframe: {start_time} to {end_time}")
+            
+            # Create a more specific filter based on the time period
+            filter_dict = {"memory_type": "EPISODIC"}
+            
+            # Use the richer metadata for precise filtering
+            if "this morning" in matched_expr:
+                # Use boolean flag for morning + today's date
+                filter_dict["is_morning"] = True
+                filter_dict["date_str"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                
+            elif "today" in matched_expr:
+                # Use today's date string
+                filter_dict["date_str"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                
+            else:
+                # Convert timestamps to Unix format for range queries
+                start_timestamp = int(start_time.timestamp())
+                end_timestamp = int(end_time.timestamp())
+
+                  # Use Unix timestamp for filtering
+            filter_dict["created_at_unix"] = {
+                "$gte": start_timestamp,
+                "$lte": end_timestamp
+            }
+            
+            # Query memories with the more specific filter
+            memories = await self.query_by_timeframe_enhanced(
+                query=query,
+                window_id=window_id,
+                filter_dict=filter_dict,
+                top_k=10
+            )
+        
          # Parse the temporal expression
         start_time, end_time = self.parse_time_expression(matched_expr)
         # Add buffer to the time window (e.g., ±3 hours)
@@ -813,7 +853,70 @@ class MemorySystem:
         )
         
         return summary
-        
+    
+    async def query_by_timeframe_enhanced(
+        self,
+        query: str,
+        window_id: Optional[str] = None,
+        filter_dict: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
+    ) -> List[Tuple[MemoryResponse, float]]:
+        """Enhanced timeframe query with precise filtering."""
+        try:
+            # Create vector for semantic search
+            query_vector = await self.vector_operations.create_semantic_vector(query)
+            
+            # Start with the provided filter or default to episodic memories
+            filter_dict = filter_dict or {"memory_type": "EPISODIC"}
+            
+            # Add window_id if provided
+            if window_id:
+                filter_dict["window_id"] = window_id
+            
+            # Execute query with the specific filter
+            results = await self.pinecone_service.query_memories(
+                query_vector=query_vector,
+                top_k=top_k * 2,  # Request more to account for post-filtering
+                filter=filter_dict,
+                include_metadata=True
+            )
+            
+            # Log the filter and results count
+            logger.info(f"Temporal query with filter: {filter_dict}, returned {len(results)} results")
+            
+            # Process results
+            processed_results = []
+            
+            # Override the standard scoring for temporal queries
+            # For temporal queries, time match is MORE important than semantic similarity
+            for memory_data, score in results:
+                try:
+                    # Create MemoryResponse
+                    memory_response = MemoryResponse(
+                        id=memory_data["id"],
+                        content=memory_data["metadata"]["content"],
+                        memory_type=MemoryType(memory_data["metadata"]["memory_type"]),
+                        created_at=normalize_timestamp(memory_data["metadata"]["created_at"]),
+                        metadata=memory_data["metadata"],
+                        window_id=memory_data["metadata"].get("window_id")
+                    )
+                    
+                    # For temporal queries, boost score to ensure these memories are prioritized
+                    adjusted_score = score * 1.5  # Significant boost for temporal matches
+                    processed_results.append((memory_response, adjusted_score))
+                    
+                except Exception as e:
+                    logger.error(f"Error processing memory in timeframe query: {e}")
+                    continue
+            
+            # Sort by adjusted score and limit to top_k
+            processed_results.sort(key=lambda x: x[1], reverse=True)
+            return processed_results[:top_k]
+                
+        except Exception as e:
+            logger.error(f"Error in query_by_timeframe_enhanced: {e}")
+            return []
+            
     
     
     async def batch_query_memories(
@@ -936,9 +1039,6 @@ class MemorySystem:
         return memory_scores
     
     def _calculate_bell_curve_recency(self, age_hours):
-        """
-        Calculate recency score using a bell curve pattern with special handling for temporal queries.
-        """
         # Get settings parameters (or use defaults if not defined)
         peak_hours = getattr(self.settings, 'episodic_peak_hours', 60)
         very_recent_threshold = getattr(self.settings, 'episodic_very_recent_threshold', 1.0)
@@ -946,30 +1046,36 @@ class MemorySystem:
         steepness = getattr(self.settings, 'episodic_bell_curve_steepness', 2.5)
         
         # Check if this is a temporal query (looking for a specific time period)
-        # We need to save the query in an instance variable first
         query = getattr(self, 'current_query', '').lower()
         
-        # Special handling for time-specific queries
-        if query and ('this morning' in query or 'today' in query or 'earlier today' in query):
-            # For temporal queries, boost recent memories (different from standard bell curve)
-            if age_hours < 24:  # Within last 24 hours
-                return 0.9  # High priority for recent memories
-            else:
-                return 0.5  # Medium priority for older memories
+        # More specific temporal query handling (binary approach for better filtering)
+        if query:
+            # Extract time period from query
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            
+            # Get memory timestamp data for comparison
+            memory_date = getattr(self, 'current_memory_date', None)
+            memory_time_of_day = getattr(self, 'current_memory_time_of_day', None)
+            
+            # Apply strict binary scoring for temporal queries
+            if 'this morning' in query and memory_date == today_str and memory_time_of_day == 'morning':
+                return 1.0  # Perfect match for "this morning" query
+            elif 'today' in query and memory_date == today_str:
+                return 1.0  # Perfect match for "today" query
+            elif ('yesterday' in query and 
+                memory_date == (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")):
+                return 1.0  # Perfect match for "yesterday" query
+            elif any(x in query for x in ['this morning', 'today', 'yesterday', 'last week']):
+                return 0.2  # Significant penalty for non-matching memories in temporal queries
         
-        # Standard bell curve logic for non-temporal queries
-        # For very recent memories (<1h): start with a low score
+        # Standard bell curve logic for non-temporal queries remains the same
         if age_hours < very_recent_threshold:
-            # Map from 0.2 (at 0 hours) to 0.4 (at 1 hour)
             return 0.2 + (0.2 * age_hours / very_recent_threshold)
-        
-        # For recent memories (1h-24h): gradual increase
         elif age_hours < recent_threshold:
-            # Map from 0.4 (at 1 hour) to 0.8 (at 24 hours)
             relative_position = (age_hours - very_recent_threshold) / (recent_threshold - very_recent_threshold)
             return 0.4 + (0.4 * relative_position)
-        
-        # Bell curve peak and decay
+            
+            # Bell curve peak and decay
         else:
             # Calculate distance from peak (in hours)
             distance_from_peak = abs(age_hours - peak_hours)
@@ -1584,8 +1690,8 @@ class MemorySystem:
             
             # Get current time for enhanced time metadata
             current_time = datetime.now(timezone.utc)
-            
-             
+            current_time_iso = normalize_timestamp(current_time)  # Standardize timestamp format
+                
             # Add more granular time_of_day periods
             hour = current_time.hour
             if 5 <= hour < 9:
@@ -1601,39 +1707,39 @@ class MemorySystem:
             else:
                 time_of_day = "night"
             
+            # Create a standardized metadata dictionary with consistent timestamp formats
             metadata = {
-                    "content": interaction_text,
-                    "memory_type": "EPISODIC",
-                    "created_at": int(current_time.timestamp()),
-                    "window_id": window_id,
-                    "source": "user_interaction",
-                    # Enhanced time metadata
-                    "time_of_day": time_of_day,
-                    "day_of_week": current_time.strftime("%A"),
-                    "date_str": current_time.strftime("%Y-%m-%d"),
-                    # Add ISO format timestamp for exact time queries
-                    "created_at_iso": current_time.isoformat() + 'Z',
-                    # Add reference date for date-based queries
-                    "reference_date": current_time.strftime("%Y-%m-%d"),
-                    "time_of_day": time_of_day,
-                    "day_of_week": current_time.strftime("%A"),
-                    "date_str": current_time.strftime("%Y-%m-%d"),
-                    "created_at_iso": current_time.isoformat() + 'Z',
-                    # Add hour for more specific filtering
-                    "hour_of_day": current_time.hour,
-                    # Add normalized time periods for common queries
-                    "is_morning": 5 <= hour < 12,
-                    "is_afternoon": 12 <= hour < 17,
-                    "is_evening": 17 <= hour < 24
-                }
+                "content": interaction_text,
+                "memory_type": "EPISODIC",
+                "created_at": current_time_iso,  # Store ISO string as primary timestamp
+                "created_at_unix": int(current_time.timestamp()),  # Store Unix timestamp for range queries
+                "window_id": window_id,
+                "source": "user_interaction",
                 
-
+                # Enhanced time metadata (no duplicates)
+                "time_of_day": time_of_day,
+                "day_of_week": current_time.strftime("%A"),
+                "date_str": current_time.strftime("%Y-%m-%d"),
+                
+                # Boolean flags for efficient filtering
+                "is_morning": 5 <= hour < 12,
+                "is_afternoon": 12 <= hour < 17,
+                "is_evening": 17 <= hour < 24,
+                "is_today": True,  # Will be useful for "today" queries
+                
+                # Add hour for more specific filtering
+                "hour_of_day": current_time.hour,
+                
+                # Add exact timestamp for precise queries
+                "created_at_iso": current_time_iso,
+            }
+                
             # Create the Memory object first
             memory = Memory(
                 id=memory_id,
                 content=interaction_text,
                 memory_type=MemoryType.EPISODIC,
-                created_at=current_time,  # Use datetime object per your model
+                created_at=current_time_iso,  # Use ISO string consistently
                 metadata=metadata,
                 window_id=window_id,
                 semantic_vector=semantic_vector,

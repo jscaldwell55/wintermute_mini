@@ -222,62 +222,113 @@ class PineconeService(MemoryService):
         filter: Optional[Dict[str, Any]] = None,
         include_metadata: bool = True
     ) -> List[Tuple[Dict[str, Any], float]]:
-        """Queries the Pinecone index, parsing created_at in metadata."""
+        """Queries the Pinecone index, normalizing timestamp formats in filters."""
         try:
             logger.info(f"Querying Pinecone with filter: {filter}, include_metadata: {include_metadata}")
-             # Convert any datetime objects in filter to timestamps
-            if filter and "created_at" in filter:
-                if isinstance(filter["created_at"], dict):
-                    for op, val in filter["created_at"].items():
+            
+            # Normalize timestamp formats in filter
+            normalized_filter = None
+            if filter:
+                normalized_filter = filter.copy()
+                
+                # Handle created_at filters specifically
+                if "created_at" in normalized_filter:
+                    # If created_at is a dictionary (range query)
+                    if isinstance(normalized_filter["created_at"], dict):
+                        # Process each operator in the range query
+                        unix_ranges = {}
+                        for op, val in normalized_filter["created_at"].items():
+                            if isinstance(val, datetime):
+                                unix_ranges[op] = int(val.timestamp())
+                            elif isinstance(val, str):
+                                dt = datetime.fromisoformat(normalize_timestamp(val).rstrip('Z'))
+                                unix_ranges[op] = int(dt.timestamp())
+                            else:
+                                # Already a number (likely a timestamp)
+                                unix_ranges[op] = val
+                        
+                        # Replace with created_at_unix for better filtering
+                        normalized_filter["created_at_unix"] = unix_ranges
+                        del normalized_filter["created_at"]
+                    else:
+                        # Single value created_at (exact match)
+                        val = normalized_filter["created_at"]
                         if isinstance(val, datetime):
-                            filter["created_at"][op] = int(val.timestamp())
-                            logger.info(f"Converted datetime to timestamp: {val} -> {filter['created_at'][op]}")
+                            normalized_filter["created_at_unix"] = int(val.timestamp())
+                        elif isinstance(val, str):
+                            dt = datetime.fromisoformat(normalize_timestamp(val).rstrip('Z'))
+                            normalized_filter["created_at_unix"] = int(dt.timestamp())
+                        
+                        # Remove original created_at after converting
+                        del normalized_filter["created_at"]
+            
+            # Use normalized filter or original if no normalization was needed
+            query_filter = normalized_filter if normalized_filter is not None else filter
+            
+            # Log the normalized filter for debugging
+            if normalized_filter != filter:
+                logger.info(f"Normalized filter: {query_filter}")
+            
+            # Execute the query
             results = self.index.query(
                 vector=query_vector,
                 top_k=top_k,
                 include_values=True,
                 include_metadata=include_metadata,
-                filter=filter
+                filter=query_filter
             )
-
+            
+            # Process results
             logger.info(f"Pinecone query returned {len(results.get('matches', []))} matches")
-            # And if you need the detailed payload for debugging:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Raw Pinecone results: {str(results)[:200]}")
+                
             memories_with_scores = []
-
+            
             for result in results['matches']:
                 metadata = result['metadata']
+                
+                # Process created_at timestamp
                 created_at_raw = metadata.get("created_at")
-            
-                # Handle different timestamp formats with better error handling
-                try:
-                    if isinstance(created_at_raw, (int, float)):
-                        # If timestamp is numeric (Unix timestamp), convert to datetime
-                        created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
-                    elif isinstance(created_at_raw, str):
-                        # If timestamp is string, normalize and convert
-                        normalized = created_at_raw.replace('Z', '').replace('+00:00', '')
-                        created_at = datetime.fromisoformat(normalized + '+00:00')
-                    else:
-                        logger.warning(f"Memory {result['id']}: Unexpected created_at format: {type(created_at_raw)}")
-                        created_at = datetime.now(timezone.utc)  # Fallback
-                except Exception as e:
-                    logger.warning(f"Error processing timestamp for memory {result['id']}: {e}")
-                    created_at = datetime.now(timezone.utc)  # Fallback on any error
-            
-                # Update metadata with processed datetime
-                metadata['created_at'] = created_at
-                metadata['created_at'] = created_at
-            
+                created_at_iso = metadata.get("created_at_iso")
+                
+                # Try ISO format first if available
+                if created_at_iso:
+                    try:
+                        created_at = datetime.fromisoformat(normalize_timestamp(created_at_iso))
+                        metadata['created_at'] = created_at
+                    except Exception as e:
+                        logger.warning(f"Error parsing created_at_iso for memory {result['id']}: {e}")
+                
+                # Fall back to created_at
+                elif created_at_raw:
+                    try:
+                        if isinstance(created_at_raw, (int, float)):
+                            # If timestamp is numeric (Unix timestamp), convert to datetime
+                            created_at = datetime.fromtimestamp(created_at_raw, tz=timezone.utc)
+                        elif isinstance(created_at_raw, str):
+                            # If timestamp is string, normalize and convert
+                            created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                        else:
+                            logger.warning(f"Memory {result['id']}: Unexpected created_at format: {type(created_at_raw)}")
+                            created_at = datetime.now(timezone.utc)  # Fallback
+                            
+                        metadata['created_at'] = created_at
+                    except Exception as e:
+                        logger.warning(f"Error processing timestamp for memory {result['id']}: {e}")
+                        metadata['created_at'] = datetime.now(timezone.utc)  # Fallback
+                
+                # Create memory data
                 memory_data = {
                     'id': result['id'],
-                    'metadata': metadata,  # Use the updated metadata
+                    'metadata': metadata,
                     'vector': result.get('values', [0.0] * self.embedding_dimension),
                     'content': metadata.get('content', ''),
                     'memory_type': metadata.get('memory_type', 'EPISODIC')
                 }
+                
                 memories_with_scores.append((memory_data, result['score']))
+                
             return memories_with_scores
 
         except Exception as e:
