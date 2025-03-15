@@ -36,16 +36,24 @@ class MemoryGraph:
     
     async def initialize(self):
         """Initialize the memory graph and load from Redis if available."""
-        # Initialize Redis store
-        redis_initialized = await self.redis_store.initialize()
-        
-        if redis_initialized:
-            # Load graph from Redis
-            await self.load_from_redis()
+        try:
+            # Initialize Redis store
+            redis_initialized = await self.redis_store.initialize()
             
-        self._initialized = True
-        self.logger.info(f"Memory graph initialization complete. Redis initialized: {redis_initialized}")
-        return True
+            if redis_initialized:
+                # Load graph from Redis
+                await self.load_from_redis()
+                logger.info("✅ Successfully loaded graph structure from Redis")
+            else:
+                logger.warning("⚠️ Redis initialization failed - will operate without persistence")
+                
+            self._initialized = True
+            self.logger.info(f"Memory graph initialization complete. Redis initialized: {redis_initialized}")
+            return True
+        except Exception as e:
+            logger.error(f"Error initializing memory graph: {e}")
+            self._initialized = True  # Still mark as initialized to allow operation without Redis
+            return False
     
     async def load_from_redis(self):
         """Load graph structure from Redis."""

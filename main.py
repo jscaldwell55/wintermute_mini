@@ -172,7 +172,8 @@ class SystemComponents:
                 )
 
                 self.memory_graph = graph_components["memory_graph"]
-                logger.info("✅ Memory graph initialized")
+                await self.memory_graph.initialize()
+                logger.info("✅ Memory graph and Redis store initialized")
 
                 self.memory_system = MemorySystem(
                     pinecone_service=self.pinecone_service,
@@ -1418,8 +1419,30 @@ async def startup_event():
     logger = logging.getLogger(__name__)
     logger.info("Starting up Wintermute application")
     import os
-   
-
+    
+    # Ensure Redis is properly initialized
+    if hasattr(components, 'memory_graph') and components.memory_graph:
+        redis_initialized = await components.memory_graph.redis_store.initialize()
+        logger.info(f"Redis initialization on startup: {redis_initialized}")
+        
+        if not redis_initialized:
+            # Log available Redis environment variables for debugging
+            redis_vars = {k: v[:5] + '...' for k, v in os.environ.items() if 'REDIS' in k}
+            logger.warning(f"Available Redis environment variables: {redis_vars}")
+            
+            # Try both environment variables
+            redis_url = os.environ.get('REDISCLOUD_URL', os.environ.get('REDIS_URL'))
+            if redis_url:
+                masked_url = redis_url
+                if '@' in masked_url:
+                    prefix, suffix = masked_url.split('@', 1)
+                    if ':' in prefix and '//' in prefix:
+                        protocol_user = prefix.split(':', 1)[0]
+                        masked_url = f"{protocol_user}:****@{suffix}"
+                logger.info(f"Found Redis URL: {masked_url}")
+            else:
+                logger.warning("No REDISCLOUD_URL or REDIS_URL found in environment variables!")
+    
     logger.info("Wintermute startup complete")
     
 
