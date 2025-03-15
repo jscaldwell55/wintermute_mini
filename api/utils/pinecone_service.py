@@ -270,7 +270,7 @@ class PineconeService(MemoryService):
             logger.error(f"Failed to delete memory from Pinecone: {e}")
             raise PineconeError(f"Failed to delete memory: {e}") from e
 
-        async def query_memories(
+    async def query_memories(
                 self,
                 query_vector: List[float],
                 top_k: int = 10,
