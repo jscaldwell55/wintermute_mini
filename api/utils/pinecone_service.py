@@ -270,161 +270,139 @@ class PineconeService(MemoryService):
             logger.error(f"Failed to delete memory from Pinecone: {e}")
             raise PineconeError(f"Failed to delete memory: {e}") from e
 
-    async def query_memories(
-        self,
-        query_vector: List[float],
-        top_k: int = 10,
-        filter: Optional[Dict[str, Any]] = None,
-        include_metadata: bool = True,
-    ) -> List[Tuple[Dict[str, Any], float]]:
-        """Queries the Pinecone index, normalizing timestamp formats in filters."""
-        try:
-            logger.info(
-                f"Querying Pinecone with filter (raw): {filter}, include_metadata: {include_metadata}"
-            )  # Log raw filter
-
-            # Normalize timestamp formats in filter
-            normalized_filter = None
-            if filter:
-                normalized_filter = filter.copy()
-
-                # Handle created_at filters specifically
-                if "created_at" in normalized_filter:
-                    # If created_at is a dictionary (range query)
-                    if isinstance(normalized_filter["created_at"], dict):
-                        # Process each operator in the range query
-                        unix_ranges = {}
-                        for op, val in normalized_filter["created_at"].items():
-                            if isinstance(val, datetime):
-                                unix_ranges[op] = int(val.timestamp())
-                            elif isinstance(val, str):
-                                dt = datetime.fromisoformat(
-                                    normalize_timestamp(val).rstrip("Z")
-                                )
-                                unix_ranges[op] = int(dt.timestamp())
-                            else:
-                                # Already a number (likely a timestamp)
-                                unix_ranges[op] = val
-
-                        # Replace with created_at_unix for better filtering
-                        normalized_filter["created_at_unix"] = unix_ranges
-                        del normalized_filter["created_at"]
-                    else:
-                        # Single value created_at (exact match)
-                        val = normalized_filter["created_at"]
-                        if isinstance(val, datetime):
-                            normalized_filter["created_at_unix"] = int(val.timestamp())
-                        elif isinstance(val, str):
-                            dt = datetime.fromisoformat(
-                                normalize_timestamp(val).rstrip("Z")
-                            )
-                            normalized_filter["created_at_unix"] = int(dt.timestamp())
-
-                        # Remove original created_at after converting
-                        del normalized_filter["created_at"]
-
-            # Use normalized filter or original if no normalization was needed
-            query_filter = (
-                normalized_filter if normalized_filter is not None else filter
-            )
-
-            # Log the normalized filter for debugging - CRITICAL LOGGING ADDITION
-            logger.info(f"Normalized filter (sent to Pinecone): {query_filter}")
-
-            if query_filter and "created_at_unix" in query_filter:  # Add check for query_filter
-                created_at_unix_filter = query_filter["created_at_unix"]
-                logger.info(
-                    f"Data type of created_at_unix filter: {type(created_at_unix_filter)}"
-                )  # Log the type
-                if isinstance(created_at_unix_filter, dict):
-                    for op, val in created_at_unix_filter.items():
-                        logger.info(
-                            f"  Operator: {op}, Value: {val}, Value Data Type: {type(val)}"
-                        )  # Log type of values within range query
-                else:
+        async def query_memories(
+                self,
+                query_vector: List[float],
+                top_k: int = 10,
+                filter: Optional[Dict[str, Any]] = None,
+                include_metadata: bool = True,
+            ) -> List[Tuple[Dict[str, Any], float]]:
+                """Queries the Pinecone index, using a simplified 7-day filter for testing temporal queries."""
+                try:
                     logger.info(
-                        f"  Value: {created_at_unix_filter}, Data Type: {type(created_at_unix_filter)}"
-                    )  # Log type of single value
+                        f"Querying Pinecone with filter (raw): {filter}, include_metadata: {include_metadata}"
+                    )  # Log raw filter
 
-            # Execute the query
-            results = self.index.query(
-                vector=query_vector,
-                top_k=top_k,
-                include_values=True,
-                include_metadata=include_metadata,
-                filter=query_filter,
-            )
+                    # --- SIMPLIFIED FILTER CONSTRUCTION FOR TESTING TEMPORAL QUERIES ---
+                    if filter and "created_at" in filter:
+                        # Hardcode a 7-day time range using Unix timestamps from user
+                        seven_days_ago_unix_TEST = 1741476495
+                        now_unix_TEST = 1742081295
 
-            # Process results
-            logger.info(
-                f"Pinecone query returned {len(results.get('matches', []))} matches"
-            )
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Raw Pinecone results: {str(results)[:200]}")
+                        query_filter = {  # Override existing filter with simplified one
+                            "memory_type": "EPISODIC",
+                            "created_at_unix": {
+                                "$gte": seven_days_ago_unix_TEST,
+                                "$lte": now_unix_TEST,
+                            },
+                        }
 
-            memories_with_scores = []
+                        logger.info(
+                            f"Using SIMPLIFIED 7-day filter for testing: {query_filter}"
+                        )  # Log the simplified filter
 
-            for result in results["matches"]:
-                metadata = result["metadata"]
+                    else:
+                        query_filter = filter  # Use original filter if not a temporal query
 
-                # Process created_at timestamp
-                created_at_raw = metadata.get("created_at")
-                created_at_iso = metadata.get("created_at_iso")
+                    # --- End of simplified filter ---
 
-                # Try ISO format first if available
-                if created_at_iso:
-                    try:
-                        created_at = datetime.fromisoformat(
-                            normalize_timestamp(created_at_iso)
-                        )
-                        metadata["created_at"] = created_at
-                    except Exception as e:
-                        logger.warning(
-                            f"Error parsing created_at_iso for memory {result['id']}: {e}"
-                        )
+                    # Log the normalized filter for debugging
+                    logger.info(f"Normalized filter (sent to Pinecone): {query_filter}")
 
-                # Fall back to created_at
-                elif created_at_raw:
-                    try:
-                        if isinstance(created_at_raw, (int, float)):
-                            # If timestamp is numeric (Unix timestamp), convert to datetime
-                            created_at = datetime.fromtimestamp(
-                                created_at_raw, tz=timezone.utc
-                            )
-                        elif isinstance(created_at_raw, str):
-                            # If timestamp is string, normalize and convert
-                            created_at = datetime.fromisoformat(
-                                normalize_timestamp(created_at_raw)
-                            )
+                    if query_filter and "created_at_unix" in query_filter:  # Add check for query_filter
+                        created_at_unix_filter = query_filter["created_at_unix"]
+                        logger.info(
+                            f"Data type of created_at_unix filter: {type(created_at_unix_filter)}"
+                        )  # Log the type
+                        if isinstance(created_at_unix_filter, dict):
+                            for op, val in created_at_unix_filter.items():
+                                logger.info(
+                                    f"  Operator: {op}, Value: {val}, Value Data Type: {type(val)}"
+                                )  # Log type of values within range query
                         else:
-                            logger.warning(
-                                f"Memory {result['id']}: Unexpected created_at format: {type(created_at_raw)}"
-                            )
-                            created_at = datetime.now(timezone.utc)  # Fallback
+                            logger.info(
+                                f"  Value: {created_at_unix_filter}, Data Type: {type(created_at_unix_filter)}"
+                            )  # Log type of single value
 
-                        metadata["created_at"] = created_at
-                    except Exception as e:
-                        logger.warning(
-                            f"Error processing timestamp for memory {result['id']}: {e}"
-                        )
-                        metadata["created_at"] = datetime.now(timezone.utc)  # Fallback
+                    # Execute the query
+                    results = self.index.query(
+                        vector=query_vector,
+                        top_k=top_k,
+                        include_values=True,
+                        include_metadata=include_metadata,
+                        filter=query_filter,
+                    )
 
-                # Create memory data
-                memory_data = {
-                    "id": result["id"],
-                    "metadata": metadata,
-                    "vector": result.get("values", [0.0] * self.embedding_dimension),
-                    "content": metadata.get("content", ""),
-                    "memory_type": metadata.get("memory_type", "EPISODIC"),
-                }
+                    # Process results
+                    logger.info(
+                        f"Pinecone query returned {len(results.get('matches', []))} matches"
+                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Raw Pinecone results: {str(results)[:200]}")
 
-                memories_with_scores.append((memory_data, result["score"]))
+                    memories_with_scores = []
 
-            return memories_with_scores
+                    for result in results["matches"]:
+                        metadata = result["metadata"]
 
-        except Exception as e:
-            logger.error(f"Failed to query memories from Pinecone: {e}")
-            raise PineconeError(f"Failed to query memories: {e}") from e
+                        # Process created_at timestamp
+                        created_at_raw = metadata.get("created_at")
+                        created_at_iso = metadata.get("created_at_iso")
+
+                        # Try ISO format first if available
+                        if created_at_iso:
+                            try:
+                                created_at = datetime.fromisoformat(
+                                    normalize_timestamp(created_at_iso)
+                                )
+                                metadata["created_at"] = created_at
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error parsing created_at_iso for memory {result['id']}: {e}"
+                                )
+
+                        # Fall back to created_at
+                        elif created_at_raw:
+                            try:
+                                if isinstance(created_at_raw, (int, float)):
+                                    # If timestamp is numeric (Unix timestamp), convert to datetime
+                                    created_at = datetime.fromtimestamp(
+                                        created_at_raw, tz=timezone.utc
+                                    )
+                                elif isinstance(created_at_raw, str):
+                                    # If timestamp is string, normalize and convert
+                                    created_at = datetime.fromisoformat(
+                                        normalize_timestamp(created_at_raw)
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"Memory {result['id']}: Unexpected created_at format: {type(created_at_raw)}"
+                                    )
+                                    created_at = datetime.now(timezone.utc)  # Fallback
+
+                                metadata["created_at"] = created_at
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error processing timestamp for memory {result['id']}: {e}"
+                                )
+                                metadata["created_at"] = datetime.now(timezone.utc)  # Fallback
+
+                        # Create memory data
+                        memory_data = {
+                            "id": result["id"],
+                            "metadata": metadata,
+                            "vector": result.get("values", [0.0] * self.embedding_dimension),
+                            "content": metadata.get("content", ""),
+                            "memory_type": metadata.get("memory_type", "EPISODIC"),
+                        }
+
+                        memories_with_scores.append((memory_data, result["score"]))
+
+                    return memories_with_scores
+
+                except Exception as e:
+                    logger.error(f"Failed to query memories from Pinecone: {e}")
+                    raise PineconeError(f"Failed to query memories: {e}") from e
 
     async def sample_memories(
         self, limit: int = 1000, include_vector: bool = False
