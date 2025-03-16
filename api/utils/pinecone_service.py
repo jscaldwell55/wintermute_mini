@@ -346,6 +346,11 @@ class PineconeService(MemoryService):
 
             # Log the normalized filter for debugging
             logger.info(f"Normalized filter (sent to Pinecone): {query_filter}")
+            logger.info(f"Filter being sent to Pinecone QUERY: {query_filter}") # Log the FILTER!
+            if query_filter and "created_at_unix" in query_filter and isinstance(query_filter["created_at_unix"], dict):
+                for op, ts in query_filter["created_at_unix"].items():
+                    logger.info(f"  {op.upper()} timestamp (Unix): {ts}") # Log the timestamp range
+
 
             if query_filter and "created_at_unix" in query_filter:  # Add check for query_filter
                 created_at_unix_filter = query_filter["created_at_unix"]
@@ -391,7 +396,7 @@ class PineconeService(MemoryService):
                 if created_at_iso:
                     try:
                         created_at = datetime.fromisoformat(
-                            normalize_timestamp(created_at_iso)
+                            created_at_iso # Removed normalize_timestamp here
                         )
                         metadata["created_at"] = created_at
                     except Exception as e:
@@ -408,9 +413,9 @@ class PineconeService(MemoryService):
                                 created_at_raw, tz=timezone.utc
                             )
                         elif isinstance(created_at_raw, str):
-                            # If timestamp is string, normalize and convert
+                            # If timestamp is string, convert directly (expecting ISO now)
                             created_at = datetime.fromisoformat(
-                                normalize_timestamp(created_at_raw)
+                                created_at_raw # Removed normalize_timestamp here
                             )
                         else:
                             logger.warning(
@@ -435,6 +440,21 @@ class PineconeService(MemoryService):
                 }
 
                 memories_with_scores.append((memory_data, result["score"]))
+
+            if not memories_with_scores: # If NO matches returned, try to fetch some episodic memories for timestamp inspection
+                logger.warning("No matches returned. Attempting to fetch a few episodic memories for timestamp inspection...")
+                try:
+                    # Fetch a few episodic memory IDs (replace with actual IDs if you know some)
+                    sample_memory_ids = ["mem_3af60f6237b64650bd0236ea2248507e", "mem_e94c36f3694a409691bd6166a1c1b736", "mem_ef70a9c068ee43228b551e9ce52871c0"] # Replace with actual IDs, using IDs from your initial logs
+                    sample_fetch_response = self.index.fetch(ids=sample_memory_ids)
+                    if sample_fetch_response and sample_fetch_response.vectors:
+                        for mem_id, vec_data in sample_fetch_response.vectors.items():
+                            if vec_data.metadata.get("memory_type") == "EPISODIC":
+                                created_at_unix_val = vec_data.metadata.get("created_at_unix")
+                                logger.info(f"  Sample EPISODIC memory ID: {mem_id}, created_at_unix: {created_at_unix_val}") # Log sample memory timestamps
+                except Exception as e_fetch_sample:
+                    logger.warning(f"Error fetching sample memories for timestamp inspection: {e_fetch_sample}")
+
 
             return memories_with_scores
 
