@@ -1537,14 +1537,16 @@ class MemorySystem:
         - Prioritize conversations that are most relevant to the current query.
         {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
         - Be specific about the timing of these conversations when responding.
-        - **Use natural time expressions like "this morning," "this afternoon," "yesterday evening," "at 3 PM yesterday," etc., when referring to conversations.**  <--- **NEW INSTRUCTION - Request AM/PM or specific times**
-        - Group related topics from the same time period together to sound more natural.
-        - If time information is provided for each memory (like "Monday morning" or "earlier afternoon"), incorporate these specific time references in your summary.
+        - Use natural time expressions like "this morning," "this afternoon," "yesterday evening," etc., when referring to conversations.
 
         IMPORTANT:
-        - If the user explicitly requests an EXACT time or timestamp (e.g., "What time was it, exactly?" or "When exactly did we talk about X?"),
-          provide the stored 'created_at_iso' from the memory metadata.
-          Do not round or paraphrase timestamps in this case.
+        - **If the user explicitly asks for an EXACT time (e.g., "What time was it, exactly?" or "When exactly did we talk about X?" or "What TIME of day was it?"):**
+          - **Extract the 'created_at_iso' timestamp from the memory metadata.**
+          - **Format this timestamp as a human-readable time, including AM/PM (e.g., "8:17 PM yesterday", "10:30 AM this morning").**
+          - **Include this formatted time in your summary response.**
+          - **Prioritize providing the exact time in your response if the user's query indicates they are seeking this level of detail.**
+
+        - If the user does *not* explicitly ask for an exact time, use more general time references (like "this morning," "yesterday," "last week").
 
         **Output just the summarized memory:**
 """
@@ -1709,14 +1711,35 @@ class MemorySystem:
         return selected
 
     def _format_time_ago(self, timestamp: datetime) -> str:
-        """Format a timestamp as a human-readable time ago string."""
-        now = datetime.now(timezone.utc)
-        diff = now - timestamp
+            """Format a timestamp as a human-readable time ago string, potentially including AM/PM for recent times."""
+            now = datetime.now(timezone.utc)
+            diff = now - timestamp
 
-        if diff.total_seconds() < 1800:  # 30 minutes in seconds
-            return None  # Return None for very recent memories
-        
-        # Format based on how long ago
+            if diff.total_seconds() < 1800:  # 30 minutes - Keep returning None for very recent
+                return None
+            
+            # For memories within the last few hours, consider showing AM/PM time
+            if diff.total_seconds() < (6 * 3600): # Within 6 hours
+                formatted_time = timestamp.strftime("%I:%M %p").lstrip('0') # e.g., "3:45 PM" (no leading zero for hour)
+                return f"at {formatted_time} ({self._time_ago_string(diff)})" # e.g., "at 3:45 PM (2 hours ago)"
+
+            # Existing logic for days, months, etc. (unchanged)
+            if diff.days > 30:
+                months = diff.days // 30
+                return f"{months} months ago"
+            elif diff.days > 0:
+                return f"{diff.days} days ago"
+            elif diff.seconds >= 3600:
+                hours = diff.seconds // 3600
+                return f"{hours} hours ago"
+            elif diff.seconds >= 60:
+                minutes = diff.seconds // 60
+                return f"{minutes} minutes ago"
+            else:
+                return "Just now"
+    def _time_ago_string(self, time_difference: timedelta) -> str: # Helper for just the "X time units ago" part
+        """Helper function to format just the 'time ago' part of the string."""
+        diff = time_difference
         if diff.days > 30:
             months = diff.days // 30
             return f"{months} months ago"
