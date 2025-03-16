@@ -1390,50 +1390,50 @@ class MemorySystem:
         episodic_content_list = []
 
         for mem, _score in episodic_memories:
-            # === Step A: Build a human-friendly "time_context" as before ===
-            time_context = ""
-            if hasattr(mem, 'metadata') and mem.metadata:
-                time_of_day = mem.metadata.get('time_of_day', '')
-                day_of_week = mem.metadata.get('day_of_week', '')
-                date_str = mem.metadata.get('date_str', '')
+                        # === Step A: Build a human-friendly "time_context" ===
+                        time_context = ""
+                        if hasattr(mem, 'metadata') and mem.metadata:
+                            time_of_day = mem.metadata.get('time_of_day', '')
+                            day_of_week = mem.metadata.get('day_of_week', '')
+                            date_str = mem.metadata.get('date_str', '')
 
-                # If the metadata says "Wednesday morning" or "Monday evening", etc.
-                if day_of_week and time_of_day:
-                    # Check if it's "today"
-                    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    if date_str == today_str:
-                        # e.g. "earlier morning"
-                        time_context = f"earlier {time_of_day}"
-                    else:
-                        time_context = f"{day_of_week} {time_of_day}"
-                elif time_of_day:
-                    time_context = f"the {time_of_day}"
+                            # If the metadata says "Wednesday morning" or "Monday evening", etc.
+                            if day_of_week and time_of_day:
+                                # Check if it's "today"
+                                today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                                if date_str == today_str:
+                                    # e.g. "earlier morning"
+                                    time_context = f"earlier {time_of_day}"
+                                else:
+                                    time_context = f"{day_of_week} {time_of_day}"
+                            elif time_of_day:
+                                time_context = f"the {time_of_day}"
 
-            # If we still don't have a time_context, fall back to time_ago or "recently"
-            if not time_context:
-                if mem.time_ago:
-                    time_context = mem.time_ago
-                elif hasattr(mem, 'created_at'):
-                    # Convert the created_at (ISO string) to datetime
-                    created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
-                    time_context = self._format_time_ago(created_at_dt) or "recently"
+                        # If we still don't have a time_context, fall back to time_ago or "recently"
+                        if not time_context:
+                            if mem.time_ago:
+                                time_context = mem.time_ago
+                            elif hasattr(mem, 'created_at'):
+                                # Convert the created_at (ISO string) to datetime
+                                created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
+                                time_context = self._format_time_ago(created_at_dt) or "recently"
 
-            # === Step B: Build the memory content snippet ===
-            content = mem.content
-            if len(content) > 300:
-                content = content[:300] + "..."
+                        # === Step B: Build the memory content snippet ===
+                        content = mem.content
+                        if len(content) > 300:
+                            content = content[:300] + "..."
 
-            # === Step C: If user wants EXACT time, show created_at_iso ===
-            iso_time = mem.metadata.get("created_at_iso")
-            
-            if is_exact_time_requested and iso_time:
-                # Example: "- (earlier morning, exact time: 2025-03-14T10:40:36Z) ..."
-                fragment = f"- ({time_context}, exact time: {iso_time}) {content}"
-            else:
-                # Fallback to original approach
-                fragment = f"- ({time_context}) {content}"
+                        # === Step C: If user wants EXACT time, show created_at_iso ===
+                        iso_time = mem.metadata.get("created_at_iso")
 
-            episodic_content_list.append(fragment)      
+                        if is_exact_time_requested and iso_time:
+                            # Example: "- (earlier morning, exact time: 2025-03-14T10:40:36Z) ..."
+                            fragment = f"- ({time_context}, exact time: {iso_time}) {content}"
+                        else:
+                            # Fallback to original approach
+                            fragment = f"- ({time_context}) {content}"
+
+                        episodic_content_list.append(fragment)  
         
         episodic_content = "\n".join(episodic_content_list) if episodic_content_list else "No relevant conversations found."
         
@@ -1479,13 +1479,13 @@ class MemorySystem:
         - Prioritize conversations that are most relevant to the current query.
         {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
         - Be specific about the timing of these conversations when responding.
-        - Use natural time expressions like "this morning," "earlier today," or "yesterday evening" when referring to conversations.
+        - **Use natural time expressions like "this morning," "this afternoon," "yesterday evening," "at 3 PM yesterday," etc., when referring to conversations.**  <--- **NEW INSTRUCTION - Request AM/PM or specific times**
         - Group related topics from the same time period together to sound more natural.
         - If time information is provided for each memory (like "Monday morning" or "earlier afternoon"), incorporate these specific time references in your summary.
 
         IMPORTANT:
-        - If the user explicitly requests an EXACT time or timestamp (e.g., "What time was it, exactly?" or "When exactly did we talk about X?"), 
-          provide the stored 'created_at_iso' from the memory metadata. 
+        - If the user explicitly requests an EXACT time or timestamp (e.g., "What time was it, exactly?" or "When exactly did we talk about X?"),
+          provide the stored 'created_at_iso' from the memory metadata.
           Do not round or paraphrase timestamps in this case.
 
         **Output just the summarized memory:**
