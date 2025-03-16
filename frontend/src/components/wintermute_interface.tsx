@@ -119,11 +119,42 @@ const WintermuteInterface: React.FC = () => {
         ) : (
           interactions.map((interaction) => (
             <div key={interaction.id} className="mb-6 last:mb-2">
-              <div className={`font-bold mb-1 ${interaction.sender === 'user' ? 'text-blue-400' : 'text-emerald-400'}`}>
-                {interaction.sender === 'user' ? 'You:' : 'Wintermute:'}
-              </div>
-              <div className={`pl-3 border-l-2 ${interaction.sender === 'user' ? 'border-blue-400 text-gray-300' : 'border-emerald-400 text-gray-300 whitespace-pre-wrap'}`}>
-                {interaction.sender === 'user' ? interaction.query : interaction.response}
+              {/* Message container with distinct styling based on sender */}
+              <div className={`rounded-lg p-3 ${
+                interaction.sender === 'user' 
+                  ? 'bg-blue-900/30 border border-blue-500' 
+                  : 'bg-emerald-900/30 border border-emerald-500'
+              }`}>
+                {/* Sender label */}
+                <div className={`font-bold mb-2 flex items-center ${
+                  interaction.sender === 'user' ? 'text-blue-400' : 'text-emerald-400'
+                }`}>
+                  {/* Add icon for sender */}
+                  <span className={`inline-block mr-2 ${
+                    interaction.sender === 'user' ? 'text-blue-400' : 'text-emerald-400'
+                  }`}>
+                    {interaction.sender === 'user' 
+                      ? '👤' 
+                      : '🤖'}
+                  </span>
+                  {interaction.sender === 'user' ? 'You:' : 'Wintermute:'}
+                </div>
+                
+                {/* Message content with improved styling */}
+                <div className={`ml-6 ${
+                  interaction.sender === 'user' 
+                    ? 'text-gray-200' 
+                    : 'text-gray-200 whitespace-pre-wrap'
+                }`}>
+                  {interaction.sender === 'user' 
+                    ? interaction.query 
+                    : interaction.isProcessing 
+                      ? 'Processing...' 
+                      : interaction.response || 
+                        (interaction.error 
+                          ? `Error: ${interaction.error.message}` 
+                          : 'No response')}
+                </div>
               </div>
             </div>
           ))
@@ -153,7 +184,7 @@ const WintermuteInterface: React.FC = () => {
         <button
           type="submit"
           disabled={loading || !query.trim()}
-          className="w-full px-6 py-2 bg-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full px-6 py-2 bg-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600 transition-colors"
         >
           {loading ? 'Processing...' : 'Send Query'}
         </button>
