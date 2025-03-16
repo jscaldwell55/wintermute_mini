@@ -1438,7 +1438,7 @@ class MemorySystem:
         logger.info(f"Processing memories with summarization agent for query: {query[:50]}...")
 
         # Format semantic memories
-        semantic_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
+        semantic_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300
                                     else f"- {mem.content}" for mem, _ in semantic_memories])
 
         # Check if the user is explicitly asking for exact time
@@ -1446,11 +1446,11 @@ class MemorySystem:
         is_exact_time_requested = ("what time" in lower_query) or ("when exactly" in lower_query)
 
         # === NEW: Detect Very Recent Episodic Memories ===
-        immediate_previous_turn_memory = None  
-        slightly_recent_episodic_memories = []  
+        immediate_previous_turn_memory = None
+        slightly_recent_episodic_memories = []
         older_episodic_memories = []
-        recent_threshold_seconds_immediate = 60  
-        recent_threshold_seconds_slightly_recent = 300 
+        recent_threshold_seconds_immediate = 60
+        recent_threshold_seconds_slightly_recent = 300
 
         current_time = datetime.now(timezone.utc)
 
@@ -1461,12 +1461,12 @@ class MemorySystem:
             try:
                 created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
                 age_seconds = (current_time - created_at_dt).total_seconds()
-                if age_seconds <= recent_threshold_seconds_immediate and not immediate_previous_turn_memory: 
-                    immediate_previous_turn_memory = (mem, score) 
+                if age_seconds <= recent_threshold_seconds_immediate and not immediate_previous_turn_memory:
+                    immediate_previous_turn_memory = (mem, score)
                 elif age_seconds <= recent_threshold_seconds_slightly_recent:
-                    slightly_recent_episodic_memories.append((mem, score)) 
+                    slightly_recent_episodic_memories.append((mem, score))
                 else:
-                    older_episodic_memories.append((mem, score)) 
+                    older_episodic_memories.append((mem, score))
             except ValueError as e:
                 logger.warning(f"Error parsing created_at for recent memory check: {e}")
                 older_episodic_memories.append((mem, score))
@@ -1476,7 +1476,7 @@ class MemorySystem:
 
         # Format older episodic memories for summarization prompt
         episodic_content_list = []
-        for mem, _score in older_episodic_memories: # Use older_episodic_memories here
+        for mem, _score in older_episodic_memories:  # Use older_episodic_memories here
             # === Step A: Build a human-friendly "time_context" ===
             time_context = ""
             if hasattr(mem, 'metadata') and mem.metadata:
@@ -1507,20 +1507,19 @@ class MemorySystem:
 
             # === Step C: If user wants EXACT time, show created_at_iso ===
             iso_time = mem.metadata.get("created_at_iso")
-            
+
             if is_exact_time_requested and iso_time:
                 fragment = f"- ({time_context}, exact time: {iso_time}) {content}"
             else:
                 fragment = f"- ({time_context}) {content}"
 
-            episodic_content_list.append(fragment)      
-        
+            episodic_content_list.append(fragment)
+
         episodic_content = "\n".join(episodic_content_list) if episodic_content_list else "No relevant conversations found."
-        
-        learned_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300 
+
+        learned_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300
                                     else f"- {mem.content}" for mem, _ in learned_memories])
 
-        # Define prompts HERE - ENSURED DEFINED BEFORE VARIABLE USAGE
         semantic_prompt = f"""
         You are an AI memory processor helping a conversational AI recall knowledge.
         
@@ -1539,7 +1538,7 @@ class MemorySystem:
         
         **Output just the synthesized knowledge:**
         """
-        
+
         learned_prompt = f"""
         You are an AI memory processor helping a conversational AI recall learned insights.
         
@@ -1568,18 +1567,18 @@ class MemorySystem:
         **Retrieved Conversation Fragments:**
 
         {
-            "- **Just now, in our previous turn:** " + (immediate_previous_turn_memory[0].content[:300] + "...")  # Highlight VERY recent memory DIRECTLY
-            if immediate_previous_turn_memory else "" # Conditionally include if very_recent_episodic_memories is not empty
+            "- **Just now, in our previous turn:** " + (immediate_previous_turn_memory[0].content[:300] + "...")
+            if immediate_previous_turn_memory else ""
         }
 
-        { # Handle SLIGHTLY RECENT memories (if any, AFTER immediate memory) - use time_ago or "recently" - CORRECTED LINE BELOW
-            "\\n**Recent Turns (in the last few minutes):**\\n" + 
-            "\\n".join([f"- ({mem.time_ago or 'recently'}): " + mem.content[:200] + "..." for mem, score in slightly_recent_episodic_memories]) # Corrected tuple unpacking: mem, score
+        {
+            "\\n**Recent Turns (in the last few minutes):**\\n" +
+            "\\n".join([f"- ({mem.time_ago or 'recently'}): " + mem.content[:200] + "..." for mem, score in slightly_recent_episodic_memories])
             if slightly_recent_episodic_memories else ""
         }
 
-        {episodic_content if episodic_content or (not immediate_previous_turn_memory and not slightly_recent_episodic_memories) else "No relevant conversation history available beyond recent turns."} 
-        { "" if (immediate_previous_turn_memory or slightly_recent_episodic_memories) else episodic_content if not episodic_content else ""} # Conditional "No relevant history" message
+        {episodic_content if episodic_content or (not immediate_previous_turn_memory and not slightly_recent_episodic_memories) else "No relevant conversation history available beyond recent turns."}
+        { "" if (immediate_previous_turn_memory or slightly_recent_episodic_memories) else episodic_content if not episodic_content else ""}
 
 
         **Task:**
@@ -1598,27 +1597,27 @@ class MemorySystem:
 
         **Output just the summarized memory:**
 """
-        
+
         semantic_summary_task = asyncio.create_task(
             self.llm_service.generate_gpt_response_async(semantic_prompt, temperature=0.7)
         ) if semantic_content else None
         episodic_summary_task = asyncio.create_task(
             self.llm_service.generate_gpt_response_async(episodic_prompt, temperature=0.7)
-        ) if episodic_content or immediate_previous_turn_memory or slightly_recent_episodic_memories else None # Corrected conditional
+        ) if episodic_content or immediate_previous_turn_memory or slightly_recent_episodic_memories else None
         learned_summary_task = asyncio.create_task(
             self.llm_service.generate_gpt_response_async(learned_prompt, temperature=0.7)
         ) if learned_content else None
 
+        tasks_to_gather = [task for task in [semantic_summary_task, episodic_summary_task, learned_summary_task] if task is not None]
+
         summaries = {}
-        
-        # Wait for tasks and collect results
         results = await asyncio.gather(
-            semantic_summary_task, episodic_summary_task, learned_summary_task, 
-            return_exceptions=True # Handle exceptions gracefully
+            *tasks_to_gather,
+            return_exceptions=True
         )
-        
+
         task_map = {"semantic": semantic_summary_task, "episodic": episodic_summary_task, "learned": learned_summary_task}
-        
+
         for memory_type, task, result in zip(task_map.keys(), task_map.values(), results):
             if isinstance(result, Exception):
                 logger.error(f"Summarization task for {memory_type} failed: {result}")
