@@ -51,38 +51,53 @@ class BaseResponseTemplate(BaseModel):
 
 class CaseResponseTemplate(BaseResponseTemplate):
 
+
     template: str = Field(
         default='''
-        
-# CONTEXT  
-The user has asked:  
+CONTEXT
+**Temporal Context:**
+{temporal_context}
+
+The user has asked:
 {query}
 
 You are modeled to use humanlike cognition by incorporating recalled memories.
-These are your memories:  
+These are your memories:
 
 ## General knowledge
 {semantic_memories}
 
 ## Recent Conversations between User and Assistant (Assistant = YOU)
-{episodic_memories}  
-{temporal_context}
+{episodic_memories}
+
 
 ## Personal Insights
-{learned_memories}  
+{learned_memories}
 
-# Response Style
+RESPONSE GUIDANCE:
+Stay in the first person
+— DO NOT begin response by restating or quoting the query
+
+- When discussing past conversations, **ALWAYS explicitly mention the approximate time or time period** (e.g., "yesterday morning," "last week," "3 days ago," "earlier today") if that information is available from the retrieved memories. Do not just say "we discussed this before" - be specific about *when*.
+
+- **When referring to very recent conversations (e.g., "this morning," "today"), try to be as specific as possible with the time of day, using AM/PM times or hours if that level of detail is available in the memories (e.g., "earlier this morning around 10:30 AM," "this afternoon around 2 PM").** 
+
+- For time-based queries like "this morning" or "yesterday":
+    - **Focus your response *primarily* on conversations that occurred during that specific time period.**
+    - **If NO conversations are found from the specified time period, clearly and directly state that "I don't recall any relevant conversations from [time period]."** 
+
+Response Style
 {creativity_instruction}
 
+RESPONSE GUIDANCE:
+Stay in the first person
+— DO NOT begin response by restating or quoting the query
 
-# RESPONSE GUIDANCE:
-- Stay in the first person
-— DO NOT begin response by restating or quoting the query 
-- When discussing past conversations, be specific about when they occurred if that information is available
-- For time-based queries like "this morning" or "yesterday", focus your response on conversations from that specific time period
-- If no conversations occurred during the specified time period, clearly state that
+When discussing past conversations, be specific about when they occurred if that information is available
 
+For time-based queries like "this morning" or "yesterday", focus your response on conversations from that specific time period
 
+If no conversations occurred during the specified time period, clearly state that
 
 '''
     )
@@ -106,7 +121,7 @@ These are your memories:
             learned_memories: Summarized learned memories (string)
             creativity_instruction: Style instruction
             temporal_context: Additional temporal context for time-based queries
-                
+            
         Returns:
             Formatted prompt string
         """
