@@ -673,72 +673,123 @@ class MemorySystem:
             return []
         
     def parse_time_expression(
-        self, 
-        time_expr: str, 
-        base_time: Optional[datetime] = None
-    ) -> Tuple[Optional[datetime], Optional[datetime]]:
-        
-        base_time = base_time or datetime.now(timezone.utc)
-        time_expr = time_expr.lower().strip()
-        
-        # Handle "this morning"
-        if "this morning" in time_expr:
-            today = base_time.replace(hour=0, minute=0, second=0, microsecond=0)
-            morning_start = today.replace(hour=5)  # 5 AM
-            morning_end = today.replace(hour=12)   # 12 PM
-            return morning_start, morning_end
+            self, 
+            time_expr: str, 
+            base_time: Optional[datetime] = None
+        ) -> Tuple[Optional[datetime], Optional[datetime]]:
+            """
+            Parse natural language time expressions, including specific times, into start/end datetime objects.
+            """
+            base_time = base_time or datetime.now(timezone.utc)
+            time_expr = time_expr.lower().strip()
             
-        # Handle "today"
-        elif "today" in time_expr:
-            today = base_time.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_time = base_time  # Current time
-            return today, end_time
-        """
-        Parse natural language time expressions into start/end datetime objects.
-        
-        Args:
-            time_expr: Natural language time expression (e.g., "yesterday", "3 days ago")
-            base_time: Base time for relative expressions (defaults to now)
-            
-        Returns:
-            Tuple of (start_time, end_time) as datetime objects
-        """
-        base_time = base_time or datetime.now(timezone.utc)
-        
-        # Handle common time expressions
-        time_expr = time_expr.lower().strip()
-        
-        if "yesterday" in time_expr:
-            # Full day of yesterday
-            yesterday = base_time - timedelta(days=1)
-            start_time = datetime(yesterday.year, yesterday.month, yesterday.day, 0, 0, 0, tzinfo=timezone.utc)
-            end_time = datetime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59, tzinfo=timezone.utc)
-            return start_time, end_time
-            
-        elif "day" in time_expr and "ago" in time_expr:
-            # Parse "X days ago"
-            try:
-                days = int(''.join(filter(str.isdigit, time_expr)))
-                target_day = base_time - timedelta(days=days)
-                start_time = datetime(target_day.year, target_day.month, target_day.day, 0, 0, 0, tzinfo=timezone.utc)
-                end_time = datetime(target_day.year, target_day.month, target_day.day, 23, 59, 59, tzinfo=timezone.utc)
+            if "this morning" in time_expr:
+                start_time = base_time.replace(hour=6, minute=0, second=0, microsecond=0)
+                end_time = base_time.replace(hour=12, minute=0, second=0, microsecond=0)
                 return start_time, end_time
-            except ValueError:
-                pass
-                
-        elif "week" in time_expr and "last" in time_expr:
-            # Last week (previous 7 days)
-            end_time = base_time - timedelta(days=1)
-            start_time = end_time - timedelta(days=6)
-            return start_time, end_time
-        
-        # Add more patterns as needed
-        
-        # Default to last 7 days if no recognized pattern
-        start_time = base_time - timedelta(days=7)
-        return start_time, base_time
-    
+            elif "today" in time_expr:
+                start_time = base_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                end_time = base_time.replace(hour=23, minute=59, second=59, microsecond=999999)
+                return start_time, end_time
+            elif "yesterday" in time_expr:
+                yesterday = base_time - timedelta(days=1)
+                start_time = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+                end_time = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+                return start_time, end_time
+            elif "day" in time_expr and "ago" in time_expr:
+                days_ago = int(re.search(r"(\d+)", time_expr).group(1))
+                target_date = base_time - timedelta(days=days_ago)
+                start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                end_time = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                return start_time, end_time
+            elif "week" in time_expr and "last" in time_expr:
+                end_time = base_time - timedelta(days=1)
+                start_time = end_time - timedelta(days=6)
+                return start_time, end_time
+            # --- NEW: Handling Time-Specific Expressions ---
+            elif "yesterday" in time_expr and any(tod in time_expr for tod in ["morning", "afternoon", "evening", "night"]):
+                time_of_day = [tod for tod in ["morning", "afternoon", "evening", "night"] if tod in time_expr][0]
+                yesterday = base_time - timedelta(days=1)
+                start_time, end_time = self._get_day_part_times(yesterday, time_of_day)
+                return start_time, end_time
+            elif "last week" in time_expr and any(tod in time_expr for tod in ["morning", "afternoon", "evening", "night"]):
+                time_of_day = [tod for tod in ["morning", "afternoon", "evening", "night"] if tod in time_expr][0]
+                end_time = base_time - timedelta(days=1) # End of last week (yesterday)
+                start_time = end_time - timedelta(days=6) # Start of last week
+                # Adjust start/end times to be for the entire week, then refine to time_of_day
+                start_time_day_part, end_time_day_part = self._get_day_part_times(start_time, time_of_day)
+                return start_time_day_part, end_time_day_part
+            elif "on" in time_expr and any(day in time_expr for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]) and any(tod in time_expr for tod in ["morning", "afternoon", "evening", "night"]):
+                day_of_week_str = [day for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] if day in time_expr][0]
+                time_of_day = [tod for tod in ["morning", "afternoon", "evening", "night"] if tod in time_expr][0]
+                target_day = self._get_past_weekday_date(base_time, day_of_week_str) # Function to get date of last Monday, Tuesday, etc.
+                start_time, end_time = self._get_day_part_times(target_day, time_of_day)
+                return start_time, end_time
+            elif "at" in time_expr or "around" in time_expr or "about" in time_expr:
+                time_match = re.search(r"(\d{1,2})[:.](\d{2})\s*(am|pm)", time_expr)
+                if time_match:
+                    hour = int(time_match.group(1))
+                    minute = int(time_match.group(2))
+                    ampm = time_match.group(3).lower()
 
+                    if ampm == "pm" and hour != 12:
+                        hour += 12
+                    elif ampm == "am" and hour == 12:
+                        hour = 0  # Midnight
+
+                    target_time = base_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    # If "yesterday" is mentioned, adjust to yesterday
+                    if "yesterday" in time_expr:
+                        target_time = target_time - timedelta(days=1)
+                    
+                    # For "at" - very narrow time window (±15 mins)
+                    if "at" in time_expr:
+                        start_time = target_time - timedelta(minutes=15)
+                        end_time = target_time + timedelta(minutes=15)
+                    # For "around" or "about" - wider time window (±1 hour)
+                    else:
+                        start_time = target_time - timedelta(hours=1)
+                        end_time = target_time + timedelta(hours=1)
+                        
+                    return start_time, end_time
+            
+            # --- Default fallback (last 7 days) if no pattern matched ---
+            start_time = base_time - timedelta(days=7)
+            return start_time, base_time
+
+    def _get_day_part_times(self, date: datetime, time_of_day: str) -> Tuple[datetime, datetime]:
+            """Helper to get start/end datetimes for parts of day (morning, afternoon, etc.)."""
+            if time_of_day == "morning":
+                start_time = date.replace(hour=5, minute=0, second=0, microsecond=0)  # 5 AM
+                end_time = date.replace(hour=12, minute=0, second=0, microsecond=0)  # 12 PM
+            elif time_of_day == "afternoon":
+                start_time = date.replace(hour=12, minute=0, second=0, microsecond=0)  # 12 PM
+                end_time = date.replace(hour=17, minute=0, second=0, microsecond=0)  # 5 PM
+            elif time_of_day == "evening":
+                start_time = date.replace(hour=17, minute=0, second=0, microsecond=0)  # 5 PM
+                end_time = date.replace(hour=21, minute=0, second=0, microsecond=0)  # 9 PM
+            elif time_of_day == "night":
+                start_time = date.replace(hour=21, minute=0, second=0, microsecond=0)  # 9 PM
+                end_time = date.replace(hour=5, minute=0, second=0, microsecond=0)  # 5 AM (next day)
+                if end_time < start_time: # Night crosses midnight
+                    end_time = end_time + timedelta(days=1)
+            else:
+                # Default to full day if time_of_day is not recognized
+                start_time = datetime(date.year, date.month, date.day, 0, 0, 0, tzinfo=timezone.utc)
+                end_time = datetime(date.year, date.month, date.day, 23, 59, 59, tzinfo=timezone.utc)
+        
+            return start_time, end_time
+            
+    def _get_past_weekday_date(self, base_time: datetime, weekday_name: str) -> datetime:
+            """Helper to get the datetime for the most recent past weekday (e.g., last Monday)."""
+            weekday_map = {
+                "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, 
+                "friday": 4, "saturday": 5, "sunday": 6
+            }
+            weekday_num = weekday_map[weekday_name]
+            days_diff = (base_time.weekday() - weekday_num) % 7
+            target_date = base_time - timedelta(days=days_diff)
+            return target_date.replace(hour=0, minute=0, second=0, microsecond=0) # Set time to midnight
     async def process_temporal_query(
         self, 
         query: str, 
@@ -748,17 +799,24 @@ class MemorySystem:
         
         # Define regex patterns for temporal expressions
         temporal_patterns = [
-    r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (\d+ days? ago)",
-    r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday)",
-    r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week)",
-    r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
-    r"(?:what|about|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
-    # Add new patterns for morning/today references:
-    r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (this morning)",
-    r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (today)",
-    r"(?:what) (?:have we discussed|did we discuss) (today|this morning)",
-    r"(?:what) (?:happened|occurred|took place) (this morning|today)"
-]
+        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (\d+ days? ago)",
+        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday)",
+        r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week)",
+        r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
+        r"(?:what|about|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
+        # Existing patterns for morning/today references:
+        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (this morning)",
+        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (today)",
+        r"(?:what) (?:have we discussed|did we discuss) (today|this morning)",
+        r"(?:what) (?:happened|occurred|took place) (this morning|today)",
+
+        # New patterns to capture specific times (hour, AM/PM):
+        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday) (morning|afternoon|evening|night)", # Yesterday + time of day
+        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week) (morning|afternoon|evening|night)",  # Last week + time of day
+        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (on) (monday|tuesday|wednesday|thursday|friday|saturday|sunday) (morning|afternoon|evening|night)", # On day of week + time of day
+        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (at) (\d{1,2}[:.]\d{2}) *(am|pm)(?: yesterday)?", # "at 3 PM yesterday" or "at 3:30pm"
+        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (around|about) (\d{1,2}[:.]\d{2}) *(am|pm)(?: yesterday)?" # "around 3:30pm yesterday"
+    ]
         
         # Check for temporal patterns
         matched_expr = None
