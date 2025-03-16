@@ -1572,9 +1572,9 @@ class MemorySystem:
             if immediate_previous_turn_memory else "" # Conditionally include if very_recent_episodic_memories is not empty
         }
 
-        { # Handle SLIGHTLY RECENT memories (if any, AFTER immediate memory) - use time_ago or "recently"
+        { # Handle SLIGHTLY RECENT memories (if any, AFTER immediate memory) - use time_ago or "recently" - CORRECTED LINE BELOW
             "\\n**Recent Turns (in the last few minutes):**\\n" + 
-            "\\n".join([f"- ({mem.time_ago or 'recently'}): " + mem[0].content[:200] + "..." for mem in slightly_recent_episodic_memories]) 
+            "\\n".join([f"- ({mem.time_ago or 'recently'}): " + mem.content[:200] + "..." for mem, score in slightly_recent_episodic_memories]) # Corrected tuple unpacking: mem, score
             if slightly_recent_episodic_memories else ""
         }
 

@@ -61,7 +61,7 @@ CONTEXT
 The user has asked:
 {query}
 
-You are modeled to use humanlike cognition by incorporating recalled memories.
+You are modeled to use humanlike cognition by incorporating recalled memories and temporal associations.
 These are your memories:
 
 ## General knowledge
