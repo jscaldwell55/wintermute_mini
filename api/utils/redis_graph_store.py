@@ -89,9 +89,7 @@ class RedisGraphStore:
             await self.redis.sadd("all_nodes", source_id)
             await self.redis.sadd("all_nodes", target_id)
             
-            return True
-            
-        # Log the first 5 successful stores to confirm it's working
+            # Log the first 5 successful stores to confirm it's working
             if not hasattr(self, '_relationship_count'):
                 self._relationship_count = 0
             
