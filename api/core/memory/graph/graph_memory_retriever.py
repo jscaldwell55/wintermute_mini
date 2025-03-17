@@ -549,7 +549,8 @@ class GraphMemoryRetriever:
     async def repair_missing_nodes(self, memory_ids):
         """Add missing nodes to the graph from Pinecone."""
         for memory_id in memory_ids:
-            if not self.memory_graph.has_node(memory_id):
+            # Check if node exists in the graph.nodes collection instead of using has_node()
+            if memory_id not in self.memory_graph.graph.nodes:
                 # Fetch from Pinecone
                 memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
                 if memory_data:
