@@ -357,15 +357,50 @@ class PineconeService(MemoryService):
                 logger.info(
                     f"Data type of created_at_unix filter: {type(created_at_unix_filter)}"
                 )  # Log the type
+                
+                # Check if this is a temporal query (looking for when something was discussed)
+                is_temporal_query = False
+                if hasattr(self, 'current_query') and self.current_query:
+                    is_temporal_query = any(term in self.current_query.lower() 
+                                        for term in ["when did we", "when have we", "what time", "how long ago"])
+                
+                # Handle range queries (most common for temporal filters)
                 if isinstance(created_at_unix_filter, dict):
+                    # Log original values before any modifications
+                    logger.info(f"Original created_at_unix filter: {created_at_unix_filter}")
+                    
                     for op, val in created_at_unix_filter.items():
                         logger.info(
                             f"  Operator: {op}, Value: {val}, Value Data Type: {type(val)}"
                         )  # Log type of values within range query
+                        
+                        # For temporal queries, expand the time range to improve recall
+                        if is_temporal_query and op == "$gte":
+                            # Widen the time window by moving back the start time (24-48 hours)
+                            original_val = val
+                            adjusted_val = original_val - (24 * 3600)  # 24 hours earlier
+                            created_at_unix_filter[op] = adjusted_val
+                            logger.info(
+                                f"  ADJUSTED for temporal query: {op} value from {original_val} to {adjusted_val} "
+                                f"(-24h to improve memory recall)"
+                            )
                 else:
                     logger.info(
                         f"  Value: {created_at_unix_filter}, Data Type: {type(created_at_unix_filter)}"
                     )  # Log type of single value
+                    
+                    # If it's a single value (exact match) and temporal query, convert to a range
+                    if is_temporal_query:
+                        exact_val = created_at_unix_filter
+                        # Convert to a range query extending 48 hours before and after the timestamp
+                        query_filter["created_at_unix"] = {
+                            "$gte": exact_val - (48 * 3600),
+                            "$lte": exact_val + (48 * 3600)
+                        }
+                        logger.info(
+                            f"  Converted exact timestamp {exact_val} to range query for temporal query: "
+                            f"{query_filter['created_at_unix']}"
+                        )
 
             # Execute the query
             results = self.index.query(

@@ -907,7 +907,8 @@ class MemorySystem:
             episodic_memories=episodic_memories,
             learned_memories=[],
             time_expression=matched_expr,  # Pass the time expression to the agent
-            temporal_context=temporal_context  # Pass the temporal context to the agent
+            temporal_context=temporal_context,
+            window_id=window_id  # Pass the temporal context to the agent
         )
         
         return summary
@@ -1096,12 +1097,21 @@ class MemorySystem:
         
         return memory_scores
     
-    def _calculate_bell_curve_recency(self, age_hours):
-        # Get settings parameters (or use defaults if not defined)
-        peak_hours = getattr(self.settings, 'episodic_peak_hours', 36)
-        very_recent_threshold = getattr(self.settings, 'episodic_very_recent_threshold', 1.0)
-        recent_threshold = getattr(self.settings, 'episodic_recent_threshold', 24.0)
-        steepness = getattr(self.settings, 'episodic_bell_curve_steepness', 2.5)
+    def _calculate_bell_curve_recency(self, age_hours, is_temporal_query=False):
+        """Calculate recency score with special handling for temporal queries."""
+        # For temporal queries, use a broader bell curve
+        if is_temporal_query:
+            # Use different parameters optimized for finding past discussions
+            peak_hours = getattr(self.settings, 'temporal_query_peak_hours', 72)
+            steepness = getattr(self.settings, 'temporal_query_steepness', 1.5)  # Less steep
+            very_recent_threshold = getattr(self.settings, 'temporal_very_recent_threshold', 2.0)
+            recent_threshold = getattr(self.settings, 'temporal_recent_threshold', 36.0)
+        else:
+            # Regular parameters
+            peak_hours = getattr(self.settings, 'episodic_peak_hours', 36)
+            steepness = getattr(self.settings, 'episodic_bell_curve_steepness', 2.5)
+            very_recent_threshold = getattr(self.settings, 'episodic_very_recent_threshold', 1.0)
+            recent_threshold = getattr(self.settings, 'episodic_recent_threshold', 24.0)
         
         # Check if this is a temporal query (looking for a specific time period)
         query = getattr(self, 'current_query', '').lower()
@@ -1133,13 +1143,13 @@ class MemorySystem:
             relative_position = (age_hours - very_recent_threshold) / (recent_threshold - very_recent_threshold)
             return 0.4 + (0.4 * relative_position)
             
-            # Bell curve peak and decay
+        # Bell curve peak and decay
         else:
             # Calculate distance from peak (in hours)
             distance_from_peak = abs(age_hours - peak_hours)
             
             # Convert to a bell curve shape (Gaussian-inspired)
-            max_distance = self.settings.episodic_max_age_days * 24 - peak_hours
+            max_distance = getattr(self.settings, 'episodic_max_age_days', 7) * 24 - peak_hours
             
             # Normalized distance from peak (0-1)
             normalized_distance = min(1.0, distance_from_peak / max_distance)
@@ -1633,6 +1643,13 @@ class MemorySystem:
 
         return summaries
     
+    async def handle_temporal_query(self, query, window_id=None):
+        """Dedicated handler for temporal queries."""
+        # Detect temporal expressions with enhanced regex
+        temporal_patterns = [
+            r"(?:when|what time|how long ago) (?:did|have) (?:we|you|I) (?:talk|discuss|mention|say) (?:about)? (.+)"
+        ]
+    
     def _format_memory_time_context(self, memory: MemoryResponse) -> str:
         """Helper function to format time context for a memory, reused from memory_summarization_agent."""
         time_context = ""
@@ -1904,11 +1921,12 @@ class MemorySystem:
                 metadata = {
                     "content": interaction_text,
                     "memory_type": "EPISODIC",
-                    "created_at_iso": current_time_iso, # ISO string in metadata
+                    "created_at_iso": current_time_iso,  # ISO string in metadata
                     "created_at_unix": int(current_time.timestamp()),  # Store Unix timestamp for range queries
+                    "created_at": current_time_iso,  # Maintain backward compatibility with old code expecting "created_at"
                     "window_id": window_id,
                     "source": "user_interaction",
-
+   
                     # Enhanced time metadata (no duplicates)
                     "time_of_day": time_of_day,
                     "day_of_week": current_time.strftime("%A"),

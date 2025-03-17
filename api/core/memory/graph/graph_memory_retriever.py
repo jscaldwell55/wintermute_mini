@@ -289,6 +289,11 @@ class GraphMemoryRetriever:
         """
         if not entry_point_memories:
             return [], []
+        
+        missing_nodes = [memory.id for memory in entry_point_memories 
+                    if not self.memory_graph.has_node(memory.id)]
+        if missing_nodes:
+            await self.repair_missing_nodes(missing_nodes)
             
         associated_memories = []
         association_scores = []
@@ -540,3 +545,14 @@ class GraphMemoryRetriever:
                 paths.append(path_segment)
         
         return paths
+    
+    async def repair_missing_nodes(self, memory_ids):
+        """Add missing nodes to the graph from Pinecone."""
+        for memory_id in memory_ids:
+            if not self.memory_graph.has_node(memory_id):
+                # Fetch from Pinecone
+                memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
+                if memory_data:
+                    # Add to graph
+                    self.memory_graph.add_memory_node(memory_data)
+                    logger.info(f"Repaired missing node: {memory_id}")
