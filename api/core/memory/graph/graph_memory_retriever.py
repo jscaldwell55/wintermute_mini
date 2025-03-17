@@ -548,12 +548,31 @@ class GraphMemoryRetriever:
     
     async def repair_missing_nodes(self, memory_ids):
         """Add missing nodes to the graph from Pinecone."""
+        from api.core.memory.models import Memory, MemoryType  # Import here to avoid circular imports
+        
         for memory_id in memory_ids:
-            # Check if node exists in the graph.nodes collection instead of using has_node()
+            # Check if node exists in the graph.nodes collection
             if memory_id not in self.memory_graph.graph.nodes:
                 # Fetch from Pinecone
                 memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
                 if memory_data:
-                    # Add to graph
-                    self.memory_graph.add_memory_node(memory_data)
-                    logger.info(f"Repaired missing node: {memory_id}")
+                    try:
+                        # Convert dictionary to Memory object
+                        memory = Memory(
+                            id=memory_data["id"],
+                            content=memory_data["metadata"].get("content", ""),
+                            memory_type=MemoryType(memory_data["metadata"].get("memory_type", "EPISODIC")),
+                            created_at=memory_data["metadata"].get("created_at"),
+                            metadata=memory_data.get("metadata", {}),
+                            window_id=memory_data["metadata"].get("window_id"),
+                            semantic_vector=memory_data.get("vector")
+                        )
+                        
+                        # Add to graph
+                        self.memory_graph.add_memory_node(memory)
+                        logger.info(f"Repaired missing node: {memory_id}")
+                    except Exception as e:
+                        logger.error(f"Error converting memory data to Memory object: {e}")
+                        # As a fallback, add the node directly to the graph
+                        self.memory_graph.graph.add_node(memory_id, **memory_data.get("metadata", {}))
+                        logger.info(f"Added node {memory_id} directly to graph as fallback")
