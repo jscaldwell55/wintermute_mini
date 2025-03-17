@@ -583,6 +583,11 @@ class PineconeService(MemoryService):
             updated_metadata = memory_data["metadata"].copy()
             updated_metadata.update(metadata_updates)
             
+            # Convert any datetime objects to ISO strings for Pinecone
+            for key, value in updated_metadata.items():
+                if isinstance(value, datetime):
+                    updated_metadata[key] = value.isoformat() + "Z"
+            
             # Re-upsert the memory with the updated metadata
             self.index.upsert(vectors=[(
                 memory_id, 
