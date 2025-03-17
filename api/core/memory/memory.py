@@ -673,8 +673,8 @@ class MemorySystem:
             return []
         
     def parse_time_expression(
-            self, 
-            time_expr: str, 
+            self,
+            time_expr: str,
             base_time: Optional[datetime] = None
         ) -> Tuple[Optional[datetime], Optional[datetime]]:
             """
@@ -682,7 +682,7 @@ class MemorySystem:
             """
             base_time = base_time or datetime.now(timezone.utc)
             time_expr = time_expr.lower().strip()
-            
+
             if "this morning" in time_expr:
                 start_time = base_time.replace(hour=6, minute=0, second=0, microsecond=0)
                 end_time = base_time.replace(hour=12, minute=0, second=0, microsecond=0)
@@ -693,8 +693,12 @@ class MemorySystem:
                 return start_time, end_time
             elif "yesterday" in time_expr:
                 yesterday = base_time - timedelta(days=1)
-                start_time = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-                end_time = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+                start_time = yesterday.replace(hour=0 - 3, minute=0, second=0, microsecond=0) # Start 3 hours EARLIER than midnight
+                end_time = yesterday.replace(hour=23 + 3, minute=59, second=59, microsecond=999999) # End 3 hours LATER than midnight
+
+                # Ensure start_time is not before the beginning of the day, and end_time not after end of day
+                start_time = max(start_time, yesterday.replace(hour=0, minute=0, second=0, microsecond=0))
+                end_time = min(end_time, yesterday.replace(hour=23, minute=59, second=59, microsecond=999999))
                 return start_time, end_time
             elif "day" in time_expr and "ago" in time_expr:
                 days_ago = int(re.search(r"(\d+)", time_expr).group(1))
@@ -741,7 +745,7 @@ class MemorySystem:
                     # If "yesterday" is mentioned, adjust to yesterday
                     if "yesterday" in time_expr:
                         target_time = target_time - timedelta(days=1)
-                    
+
                     # For "at" - very narrow time window (±15 mins)
                     if "at" in time_expr:
                         start_time = target_time - timedelta(minutes=15)
@@ -750,9 +754,9 @@ class MemorySystem:
                     else:
                         start_time = target_time - timedelta(hours=1)
                         end_time = target_time + timedelta(hours=1)
-                        
+
                     return start_time, end_time
-            
+
             # --- Default fallback (last 7 days) if no pattern matched ---
             start_time = base_time - timedelta(days=7)
             return start_time, base_time
@@ -1098,7 +1102,7 @@ class MemorySystem:
     
     def _calculate_bell_curve_recency(self, age_hours):
         # Get settings parameters (or use defaults if not defined)
-        peak_hours = getattr(self.settings, 'episodic_peak_hours', 60)
+        peak_hours = getattr(self.settings, 'episodic_peak_hours', 36)
         very_recent_threshold = getattr(self.settings, 'episodic_very_recent_threshold', 1.0)
         recent_threshold = getattr(self.settings, 'episodic_recent_threshold', 24.0)
         steepness = getattr(self.settings, 'episodic_bell_curve_steepness', 2.5)
