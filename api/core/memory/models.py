@@ -80,7 +80,7 @@ class MemoryResponse(BaseModel):
     id: str
     content: str
     memory_type: MemoryType
-    created_at: str  # Keep as string in the *response*
+    created_at: datetime
     metadata: Dict[str, Any]
     window_id: Optional[str] = None
     semantic_vector: Optional[List[float]] = None
