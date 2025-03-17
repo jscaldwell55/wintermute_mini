@@ -101,16 +101,75 @@ class PineconeService(MemoryService):
             self.initialized = False
             raise PineconeError(f"Failed to initialize Pinecone: {e}")
 
-        async def create_memory(
-            self, memory_id: str, vector: List[float], metadata: Dict[str, Any]
-        ) -> bool:
-            """Creates a memory in Pinecone with standardized timestamp handling."""
-            try:
-                if self.index is None:
-                    logger.error("❌ Pinecone index is not initialized. Cannot create memory.")
-                    raise PineconeError("Pinecone index is not initialized.")
+    async def create_memory(
+        self, memory_id: str, vector: List[float], metadata: Dict[str, Any]
+    ) -> bool:
+        """Creates a memory in Pinecone with standardized timestamp handling."""
+        try:
+            if self.index is None:
+                logger.error("❌ Pinecone index is not initialized. Cannot create memory.")
+                raise PineconeError("Pinecone index is not initialized.")
 
-                # Ensure consistent timestamp format in all new memories
+            # Ensure consistent timestamp format in all new memories
+            cleaned_metadata = {}
+            for key, value in metadata.items():
+                if value is None:  # skip None values
+                    continue
+                elif key == "created_at" and isinstance(value, str):
+                    # Always store created_at as ISO string for readability
+                    cleaned_metadata["created_at"] = value
+
+                    # Ensure we always have created_at_unix for filtering
+                    if "created_at_unix" not in metadata:
+                        # Parse the ISO string and convert to unix timestamp
+                        dt = datetime.fromisoformat(normalize_timestamp(value))
+                        cleaned_metadata["created_at_unix"] = int(dt.timestamp())
+                elif key == "created_at" and isinstance(value, datetime):
+                    # Convert datetime to ISO string and store unix timestamp
+                    cleaned_metadata["created_at"] = value.isoformat() + "Z"
+                    cleaned_metadata["created_at_unix"] = int(value.timestamp())
+                elif isinstance(value, (str, int, float, bool, list)):
+                    cleaned_metadata[key] = value
+                elif isinstance(value, datetime):
+                    cleaned_metadata[key] = value.isoformat() + "Z"
+
+                    # If this is some other datetime field, also store a unix version
+                    if key.endswith("_at") and not key.endswith("_unix"):
+                        unix_key = f"{key}_unix"
+                        cleaned_metadata[unix_key] = int(value.timestamp())
+                else:
+                    cleaned_metadata[key] = str(value)
+
+            # This is now properly outside the loop
+            # Ensure created_at_unix is always present
+            if "created_at_unix" not in cleaned_metadata and "created_at" in cleaned_metadata:
+                try:
+                    dt = datetime.fromisoformat(normalize_timestamp(cleaned_metadata["created_at"]))
+                    cleaned_metadata["created_at_unix"] = int(dt.timestamp())
+                except Exception as e:
+                    logger.warning(f"Failed to create created_at_unix from created_at: {e}")
+                    # Fallback to current time
+                    cleaned_metadata["created_at_unix"] = int(time.time())
+
+            logger.info(
+                f"📝 Creating memory in Pinecone: {memory_id}, metadata keys: {list(cleaned_metadata.keys())}"
+            )  # Log metadata keys
+            self.index.upsert(vectors=[(memory_id, vector, cleaned_metadata)])
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to create memory: {e}")
+            raise PineconeError(f"Failed to create memory: {e}") from e
+
+    async def batch_upsert_memories(
+        self, vectors: List[Tuple[str, List[float], Dict[str, Any]]]
+    ) -> None:
+        """Upserts a batch of memories to Pinecone with standardized timestamp handling."""
+        try:
+            if self.index is None:
+                raise PineconeError("Pinecone index is not initialized.")
+
+            batch_vectors_cleaned = []
+            for memory_id, vector, metadata in vectors:
                 cleaned_metadata = {}
                 for key, value in metadata.items():
                     if value is None:  # skip None values
@@ -140,91 +199,32 @@ class PineconeService(MemoryService):
                     else:
                         cleaned_metadata[key] = str(value)
 
+                # This is now properly outside the inner loop
                 # Ensure created_at_unix is always present
                 if "created_at_unix" not in cleaned_metadata and "created_at" in cleaned_metadata:
                     try:
                         dt = datetime.fromisoformat(normalize_timestamp(cleaned_metadata["created_at"]))
                         cleaned_metadata["created_at_unix"] = int(dt.timestamp())
                     except Exception as e:
-                        logger.warning(f"Failed to create created_at_unix from created_at: {e}")
+                        logger.warning(f"Failed to create created_at_unix from created_at for memory {memory_id}: {e}")
                         # Fallback to current time
                         cleaned_metadata["created_at_unix"] = int(time.time())
 
+                batch_vectors_cleaned.append((memory_id, vector, cleaned_metadata))
 
-                logger.info(
-                    f"📝 Creating memory in Pinecone: {memory_id}, metadata keys: {list(cleaned_metadata.keys())}"
-                )  # Log metadata keys
-                self.index.upsert(vectors=[(memory_id, vector, cleaned_metadata)])
-                return True
-            except Exception as e:
-                logger.error(f"❌ Failed to create memory: {e}")
-                raise PineconeError(f"Failed to create memory: {e}") from e
+            # Log batch information
+            logger.info(f"📝 Upserting batch of {len(batch_vectors_cleaned)} memories to Pinecone.")
 
-        async def batch_upsert_memories(
-            self, vectors: List[Tuple[str, List[float], Dict[str, Any]]]
-        ) -> None:
-            """Upserts a batch of memories to Pinecone with standardized timestamp handling."""
-            try:
-                if self.index is None:
-                    raise PineconeError("Pinecone index is not initialized.")
+            # Handle batch size limits (typically 100 for Pinecone)
+            batch_size = 100
+            for i in range(0, len(batch_vectors_cleaned), batch_size):
+                batch_chunk = batch_vectors_cleaned[i:i + batch_size]
+                self.index.upsert(vectors=batch_chunk)
+                logger.info(f"✅ Batch chunk {i//batch_size + 1} upsert successful ({len(batch_chunk)} vectors).")
 
-                batch_vectors_cleaned = []
-                for memory_id, vector, metadata in vectors:
-                    cleaned_metadata = {}
-                    for key, value in metadata.items():
-                        if value is None:  # skip None values
-                            continue
-                        elif key == "created_at" and isinstance(value, str):
-                            # Always store created_at as ISO string for readability
-                            cleaned_metadata["created_at"] = value
-
-                            # Ensure we always have created_at_unix for filtering
-                            if "created_at_unix" not in metadata:
-                                # Parse the ISO string and convert to unix timestamp
-                                dt = datetime.fromisoformat(normalize_timestamp(value))
-                                cleaned_metadata["created_at_unix"] = int(dt.timestamp())
-                        elif key == "created_at" and isinstance(value, datetime):
-                            # Convert datetime to ISO string and store unix timestamp
-                            cleaned_metadata["created_at"] = value.isoformat() + "Z"
-                            cleaned_metadata["created_at_unix"] = int(value.timestamp())
-                        elif isinstance(value, (str, int, float, bool, list)):
-                            cleaned_metadata[key] = value
-                        elif isinstance(value, datetime):
-                            cleaned_metadata[key] = value.isoformat() + "Z"
-
-                            # If this is some other datetime field, also store a unix version
-                            if key.endswith("_at") and not key.endswith("_unix"):
-                                unix_key = f"{key}_unix"
-                                cleaned_metadata[unix_key] = int(value.timestamp())
-                        else:
-                            cleaned_metadata[key] = str(value)
-
-                    # Ensure created_at_unix is always present
-                    if "created_at_unix" not in cleaned_metadata and "created_at" in cleaned_metadata:
-                        try:
-                            dt = datetime.fromisoformat(normalize_timestamp(cleaned_metadata["created_at"]))
-                            cleaned_metadata["created_at_unix"] = int(dt.timestamp())
-                        except Exception as e:
-                            logger.warning(f"Failed to create created_at_unix from created_at for memory {memory_id}: {e}")
-                            # Fallback to current time
-                            cleaned_metadata["created_at_unix"] = int(time.time())
-
-                    batch_vectors_cleaned.append((memory_id, vector, cleaned_metadata))
-
-                # Log batch information
-                logger.info(f"📝 Upserting batch of {len(batch_vectors_cleaned)} memories to Pinecone.")
-
-                # Handle batch size limits (typically 100 for Pinecone)
-                batch_size = 100
-                for i in range(0, len(batch_vectors_cleaned), batch_size):
-                    batch_chunk = batch_vectors_cleaned[i:i + batch_size]
-                    self.index.upsert(vectors=batch_chunk)
-                    logger.info(f"✅ Batch chunk {i//batch_size + 1} upsert successful ({len(batch_chunk)} vectors).")
-
-
-            except Exception as e:
-                logger.error(f"❌ Failed to batch upsert memories: {e}")
-                raise PineconeError(f"Failed to batch upsert memories: {e}") from e
+        except Exception as e:
+            logger.error(f"❌ Failed to batch upsert memories: {e}")
+            raise PineconeError(f"Failed to batch upsert memories: {e}") from e
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
         """Fetches a memory from Pinecone by its ID, parsing created_at."""
@@ -257,7 +257,7 @@ class PineconeService(MemoryService):
                         # Fix double timezone indicator: either remove Z or +00:00
                         if created_at_raw.endswith('Z') and '+00:00' in created_at_raw:
                             created_at_raw = created_at_raw.replace('+00:00Z', 'Z')
-                        
+
                         # Now parse the fixed timestamp
                         created_at = datetime.fromisoformat(
                             normalize_timestamp(created_at_raw)
@@ -335,6 +335,8 @@ class PineconeService(MemoryService):
     ) -> List[Tuple[Dict[str, Any], float]]:
         """Queries the Pinecone index with DYNAMIC filter logic restored and enhanced logging."""
         try:
+            # Always include metadata in this implementation
+            include_metadata = True
             logger.info(
                 f"Querying Pinecone with filter (raw): {filter}, include_metadata: {include_metadata}"
             )  # Log raw filter
@@ -413,29 +415,29 @@ class PineconeService(MemoryService):
                 logger.info(
                     f"Data type of created_at_unix filter: {type(created_at_unix_filter)}"
                 )  # Log the type
-                
+
                 # Check if this is a temporal query (looking for when something was discussed)
                 is_temporal_query = False
                 if hasattr(self, 'current_query') and self.current_query:
-                    is_temporal_query = any(term in self.current_query.lower() 
+                    is_temporal_query = any(term in self.current_query.lower()
                                         for term in ["when did we", "when have we", "what time", "how long ago"])
-                
+
                 # Handle range queries (most common for temporal filters)
                 if isinstance(created_at_unix_filter, dict):
                     # Log original values before any modifications
                     logger.info(f"Original created_at_unix filter: {created_at_unix_filter}")
-                    
+
                     for op, val in created_at_unix_filter.items():
                         logger.info(
                             f"  Operator: {op}, Value: {val}, Value Data Type: {type(val)}"
                         )  # Log type of values within range query
-                        
+
                         # Within the query_memories method, when handling created_at_unix filters
                         if is_temporal_query and op == "$gte":
                             # Check if it's a "when did we discuss X" type query
-                            is_topic_history_query = any(pattern in self.current_query.lower() 
+                            is_topic_history_query = any(pattern in self.current_query.lower()
                                                     for pattern in ["when did we discuss", "when did we talk about", "when have we"])
-                            
+
                             # For "when did we discuss X" queries, use a much wider time window (7 days)
                             if is_topic_history_query:
                                 # Widen the time window by moving back the start time to 7 days earlier
@@ -446,7 +448,7 @@ class PineconeService(MemoryService):
                                     f"  ADJUSTED for topic history query: {op} value from {original_val} to {adjusted_val} "
                                     f"(-7 days to improve historical memory recall)"
                                 )
-                            else:  
+                            else:
                                 # For other temporal queries, use the existing 24-hour extension
                                 original_val = val
                                 adjusted_val = original_val - (24 * 3600)  # 24 hours earlier
@@ -454,12 +456,12 @@ class PineconeService(MemoryService):
                                 logger.info(
                                     f"  ADJUSTED for temporal query: {op} value from {original_val} to {adjusted_val} "
                                     f"(-24h to improve memory recall)"
-                            )
+                                )
                 else:
                     logger.info(
                         f"  Value: {created_at_unix_filter}, Data Type: {type(created_at_unix_filter)}"
                     )  # Log type of single value
-                    
+
                     # If it's a single value (exact match) and temporal query, convert to a range
                     if is_temporal_query:
                         exact_val = created_at_unix_filter
@@ -610,7 +612,6 @@ class PineconeService(MemoryService):
                         top_k=per_type_limit,
                         filter={"memory_type": memory_type},
                         include_metadata=True,
-                        include_vector=include_vector,
                     )
 
                     logger.info(f"Retrieved {len(results)} {memory_type} memories")
