@@ -790,33 +790,29 @@ class MemorySystem:
             days_diff = (base_time.weekday() - weekday_num) % 7
             target_date = base_time - timedelta(days=days_diff)
             return target_date.replace(hour=0, minute=0, second=0, microsecond=0) # Set time to midnight
-    async def process_temporal_query(
-        self, 
-        query: str, 
-        window_id: Optional[str] = None
-    ) -> Dict[str, str]:
+    
+    async def process_temporal_query(self, query: str, window_id: Optional[str] = None) -> Dict[str, str]:
         """Process queries about past conversations with temporal references."""
         
         # Define regex patterns for temporal expressions
         temporal_patterns = [
-        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (\d+ days? ago)",
-        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday)",
-        r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week)",
-        r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
-        r"(?:what|about|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
-        # Existing patterns for morning/today references:
-        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (this morning)",
-        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (today)",
-        r"(?:what) (?:have we discussed|did we discuss) (today|this morning)",
-        r"(?:what) (?:happened|occurred|took place) (this morning|today)",
-
-        # New patterns to capture specific times (hour, AM/PM):
-        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday) (morning|afternoon|evening|night)", # Yesterday + time of day
-        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week) (morning|afternoon|evening|night)",  # Last week + time of day
-        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (on) (monday|tuesday|wednesday|thursday|friday|saturday|sunday) (morning|afternoon|evening|night)", # On day of week + time of day
-        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (at) (\d{1,2}[:.]\d{2}) *(am|pm)(?: yesterday)?", # "at 3 PM yesterday" or "at 3:30pm"
-        r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (around|about) (\d{1,2}[:.]\d{2}) *(am|pm)(?: yesterday)?" # "around 3:30pm yesterday"
-    ]
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (\d+ days? ago)",
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday)",
+            r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week)",
+            r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
+            r"(?:what|about|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
+            # Patterns for morning/today references:
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (this morning)",
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (today)",
+            r"(?:what) (?:have we discussed|did we discuss) (today|this morning)",
+            r"(?:what) (?:happened|occurred|took place) (this morning|today)",
+            # Patterns for specific times
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (yesterday) (morning|afternoon|evening|night)",
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (last week) (morning|afternoon|evening|night)",
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (on) (monday|tuesday|wednesday|thursday|friday|saturday|sunday) (morning|afternoon|evening|night)",
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (at) (\d{1,2}[:.]\d{2}) *(am|pm)(?: yesterday)?",
+            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat) (?:about)? (around|about) (\d{1,2}[:.]\d{2}) *(am|pm)(?: yesterday)?"
+        ]
         
         # Check for temporal patterns
         matched_expr = None
@@ -830,69 +826,61 @@ class MemorySystem:
             # No temporal expression found, return empty so normal processing continues
             return {}
         
-         # After detecting the temporal pattern:
-        if matched_expr:
-            # Parse the temporal expression
-            start_time, end_time = self.parse_time_expression(matched_expr)
-            
-            # Log the detected timeframe
-            logger.info(f"Temporal query detected: '{matched_expr}' - Timeframe: {start_time} to {end_time}")
-            
-            # Create a more specific filter based on the time period
-            filter_dict = {"memory_type": "EPISODIC"}
-            
-            # Use the richer metadata for precise filtering
-            if "this morning" in matched_expr:
-                # Use boolean flag for morning + today's date
-                filter_dict["is_morning"] = True
-                filter_dict["date_str"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                
-            elif "today" in matched_expr:
-                # Use today's date string
-                filter_dict["date_str"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                
-            else:
-                # Convert timestamps to Unix format for range queries
-                start_timestamp = int(start_time.timestamp())
-                end_timestamp = int(end_time.timestamp())
-
-                  # Use Unix timestamp for filtering
-            filter_dict["created_at_unix"] = {
-                "$gte": start_timestamp,
-                "$lte": end_timestamp
-            }
-            
-            # Query memories with the more specific filter
-            memories = await self.query_by_timeframe_enhanced(
-                query=query,
-                window_id=window_id,
-                filter_dict=filter_dict,
-                top_k=10
-            )
-        
-         # Parse the temporal expression
+        # Parse the temporal expression - do this only ONCE
         start_time, end_time = self.parse_time_expression(matched_expr)
+        
         # Add buffer to the time window (e.g., ±3 hours)
         buffer = timedelta(hours=3)  
         start_time = start_time - buffer
         end_time = end_time + buffer
-
+        
+        # Initialize timestamps for unix filtering 
+        start_timestamp = int(start_time.timestamp())
+        end_timestamp = int(end_time.timestamp())
+        
         logger.info(f"Temporal query detected: '{matched_expr}' - Timeframe with buffer: {start_time} to {end_time}")
         
         # Generate temporal context for the prompt template
         temporal_context = f"Note: This query is specifically about conversations from {matched_expr}, between {start_time.strftime('%Y-%m-%d %H:%M')} and {end_time.strftime('%Y-%m-%d %H:%M')}."
         
-        # Log the detected timeframe
-        logger.info(f"Temporal query detected: '{matched_expr}' - Timeframe: {start_time} to {end_time}")
+        # Create a more specific filter based on the time period
+        filter_dict = {"memory_type": "EPISODIC"}
         
-        # Query memories in this timeframe
-        memories = await self.query_by_timeframe(
+        # Use the richer metadata for precise filtering
+        if "this morning" in matched_expr:
+            # Use boolean flag for morning + today's date
+            filter_dict["is_morning"] = True
+            filter_dict["date_str"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            
+        elif "today" in matched_expr:
+            # Use today's date string
+            filter_dict["date_str"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            
+        else:
+            # Use Unix timestamp for filtering (timestamps are now defined above)
+            filter_dict["created_at_unix"] = {
+                "$gte": start_timestamp,
+                "$lte": end_timestamp
+            }
+        
+        # Query memories with the enhanced filter first
+        memories = await self.query_by_timeframe_enhanced(
             query=query,
             window_id=window_id,
-            start_time=start_time,
-            end_time=end_time,
+            filter_dict=filter_dict,
             top_k=10
         )
+        
+        # If no results, fall back to the standard timeframe query
+        if not memories:
+            logger.info(f"No memories found with enhanced filter, trying standard timeframe query")
+            memories = await self.query_by_timeframe(
+                query=query,
+                window_id=window_id,
+                start_time=start_time,
+                end_time=end_time,
+                top_k=10
+            )
         
         if not memories:
             return {"episodic": f"I don't recall discussing anything {matched_expr}."}
@@ -907,8 +895,8 @@ class MemorySystem:
             episodic_memories=episodic_memories,
             learned_memories=[],
             time_expression=matched_expr,  # Pass the time expression to the agent
-            temporal_context=temporal_context,
-            window_id=window_id  # Pass the temporal context to the agent
+            temporal_context=temporal_context,  # Pass the temporal context to the agent
+            window_id=window_id
         )
         
         return summary
