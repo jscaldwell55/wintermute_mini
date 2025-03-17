@@ -549,6 +549,7 @@ class GraphMemoryRetriever:
     async def repair_missing_nodes(self, memory_ids):
         """Add missing nodes to the graph from Pinecone."""
         from api.core.memory.models import Memory, MemoryType  # Import here to avoid circular imports
+        from datetime import datetime, timezone
         
         for memory_id in memory_ids:
             # Check if node exists in the graph.nodes collection
@@ -557,22 +558,40 @@ class GraphMemoryRetriever:
                 memory_data = await self.pinecone_service.get_memory_by_id(memory_id)
                 if memory_data:
                     try:
-                        # Convert dictionary to Memory object
+                        # Get created_at value, with fallbacks
+                        created_at = None
+                        metadata = memory_data.get("metadata", {})
+                        
+                        # Try different timestamp fields in order of preference
+                        if "created_at_iso" in metadata:
+                            created_at = metadata["created_at_iso"]
+                        elif "created_at" in metadata:
+                            created_at = metadata["created_at"]
+                        elif "created_at_unix" in metadata:
+                            # Convert Unix timestamp to ISO string
+                            unix_ts = metadata["created_at_unix"]
+                            created_at = datetime.fromtimestamp(unix_ts, tz=timezone.utc).isoformat() + "Z"
+                        else:
+                            # Use current time as fallback
+                            created_at = datetime.now(timezone.utc).isoformat() + "Z"
+                        
+                        # Create Memory object with proper created_at
                         memory = Memory(
                             id=memory_data["id"],
-                            content=memory_data["metadata"].get("content", ""),
-                            memory_type=MemoryType(memory_data["metadata"].get("memory_type", "EPISODIC")),
-                            created_at=memory_data["metadata"].get("created_at"),
-                            metadata=memory_data.get("metadata", {}),
-                            window_id=memory_data["metadata"].get("window_id"),
+                            content=metadata.get("content", ""),
+                            memory_type=MemoryType(metadata.get("memory_type", "EPISODIC")),
+                            created_at=created_at,  # Now this should be valid
+                            metadata=metadata,
+                            window_id=metadata.get("window_id"),
                             semantic_vector=memory_data.get("vector")
                         )
                         
                         # Add to graph
                         self.memory_graph.add_memory_node(memory)
                         logger.info(f"Repaired missing node: {memory_id}")
+                        
                     except Exception as e:
                         logger.error(f"Error converting memory data to Memory object: {e}")
-                        # As a fallback, add the node directly to the graph
+                        # As a fallback, add the node directly to graph
                         self.memory_graph.graph.add_node(memory_id, **memory_data.get("metadata", {}))
                         logger.info(f"Added node {memory_id} directly to graph as fallback")
