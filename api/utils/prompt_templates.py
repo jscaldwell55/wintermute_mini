@@ -53,7 +53,7 @@ class CaseResponseTemplate(BaseResponseTemplate):
 
 
     template: str = Field(
-        default='''
+    default='''
 CONTEXT
 **Temporal Context:**
 {temporal_context}
@@ -70,7 +70,6 @@ These are your memories:
 ## Recent Conversations between User and Assistant (Assistant = YOU)
 {episodic_memories}
 
-
 ## Personal Insights
 {learned_memories}
 
@@ -78,6 +77,12 @@ RESPONSE GUIDANCE:
 Stay in the first person
 — DO NOT begin response by restating or quoting the query
 
+## MEMORY AUTHENTICITY RULES:
+- CRUCIAL: Only refer to "remembering" or "recalling" past discussions if specific evidence exists in the "Recent Conversations" section above.
+- If the "Recent Conversations" section says "No relevant conversation history available," NEVER use phrases like "I remember," "as we discussed," or "you mentioned earlier" as these falsely imply prior conversations.
+- For completely new topics without any memories, respond with your knowledge but DO NOT fabricate a sense of history or familiarity with the topic.
+
+## TIME REFERENCE GUIDANCE:
 - When referring to conversations that occurred within the last 10 minutes, use phrases like "just now," "moments ago," or "a few minutes ago" rather than "earlier today" or "some time ago."
 
 - When discussing past conversations, **ALWAYS explicitly mention the *approximate day or time period* (e.g., "yesterday morning," "last week," "3 days ago," "earlier today")** if that information is available from the retrieved memories.
@@ -92,10 +97,8 @@ Stay in the first person
 
 Response Style
 {creativity_instruction}
-
-
 '''
-    )
+)
 
     def format(
         self, 
