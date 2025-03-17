@@ -1054,7 +1054,7 @@ async def query_memory(
     
     # Set temperature value early to avoid unbound variable error
     # Use a fixed temperature without random variation
-    base_temp = 2.0  # Fixed base temperature at maximum safe value
+    base_temp = 1.5  # Fixed base temperature at maximum safe value
     temperature = min(2.0, base_temp)  # Ensure we never exceed OpenAI's limit
     
     try:
@@ -1233,7 +1233,7 @@ async def query_memory(
         )
 
         # Use a fixed temperature without random variation
-        base_temp = 2.0  # Fixed base temperature at maximum safe value
+        base_temp = 1.5  # Fixed base temperature at maximum safe value
         temperature = min(2.0, base_temp)  # Ensure we never exceed OpenAI's limit
         logger.info(f"[{trace_id}] Using temperature: {temperature} (fixed value)")
         
