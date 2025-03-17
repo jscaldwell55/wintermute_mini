@@ -203,18 +203,27 @@ class PineconeService(MemoryService):
                     vector_data.values if hasattr(vector_data, "values") else []
                 )
 
-                # Use normalize_timestamp here
+                # Fix timestamp parsing - handle both +00:00Z and other formats robustly
                 created_at_raw = metadata.get("created_at")
                 if isinstance(created_at_raw, str):
-                    created_at = datetime.fromisoformat(
-                        normalize_timestamp(created_at_raw)
-                    )
-                    metadata["created_at"] = created_at
+                    try:
+                        # Fix double timezone indicator: either remove Z or +00:00
+                        if created_at_raw.endswith('Z') and '+00:00' in created_at_raw:
+                            created_at_raw = created_at_raw.replace('+00:00Z', 'Z')
+                        
+                        # Now parse the fixed timestamp
+                        created_at = datetime.fromisoformat(
+                            normalize_timestamp(created_at_raw)
+                        )
+                        metadata["created_at"] = created_at
+                    except ValueError as e:
+                        logger.warning(f"Error parsing timestamp '{created_at_raw}': {e}, using current time")
+                        metadata["created_at"] = datetime.now(timezone.utc)
 
                 return {
                     "id": memory_id,
                     "vector": vector_values,
-                    "metadata": metadata,  # Return metadata with parsed datetime
+                    "metadata": metadata,
                 }
             # Fall back to dictionary-style access (old SDK)
             elif (
