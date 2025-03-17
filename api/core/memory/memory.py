@@ -1036,7 +1036,18 @@ class MemorySystem:
 
         for i, (memory, score) in enumerate(memory_scores):
             # Calculate age in days - ensure timestamp is compatible
-            age_in_days = (now - datetime.fromisoformat(memory.created_at.rstrip('Z'))).days
+            if isinstance(memory.created_at, str):
+                # Handle string format
+                created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+            else:
+                # Already a datetime object
+                created_at = memory.created_at
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+            
+            age_in_days = (now - created_at).days
 
             # Apply gentler exponential decay based on age
             time_weight = math.exp(-decay_factor * age_in_days)
