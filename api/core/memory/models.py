@@ -76,6 +76,7 @@ class ErrorDetail(BaseModel):
     operation_type: Optional[OperationType] = None
     details: Optional[Dict[str, Any]] = None
 
+
 class MemoryResponse(BaseModel):
     id: str
     content: str
@@ -85,9 +86,33 @@ class MemoryResponse(BaseModel):
     window_id: Optional[str] = None
     semantic_vector: Optional[List[float]] = None
     trace_id: Optional[str] = None
-    error: Optional[ErrorDetail] = None #allow for errors
+    error: Optional[ErrorDetail] = None
     score: Optional[float] = None
-    time_ago: Optional[str] = None  # Human-readable time representation 
+    time_ago: Optional[str] = None
+    
+    # Add this validator to handle malformed timestamps
+    @field_validator('created_at', mode='before')
+    def parse_timestamp(cls, value):
+        if isinstance(value, datetime):
+            return value
+            
+        if isinstance(value, str):
+            # Handle the problem case: +00:00Z suffix
+            if "+00:00Z" in value:
+                value = value.replace("+00:00Z", "+00:00")
+            elif value.endswith('Z') and '+' in value:
+                value = value[:-1]  # Remove the 'Z' at the end
+                
+            try:
+                from dateutil import parser
+                return parser.parse(value)
+            except Exception as e:
+                import logging
+                logging.warning(f"Failed to parse timestamp: {value}, error: {e}")
+                from datetime import datetime, timezone
+                return datetime.now(timezone.utc)
+                
+        return value
 
     @classmethod
     def from_memory(cls, memory: Memory) -> 'MemoryResponse':

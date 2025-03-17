@@ -131,7 +131,7 @@ class PineconeService(MemoryService):
                 elif isinstance(value, (str, int, float, bool, list)):
                     cleaned_metadata[key] = value
                 elif isinstance(value, datetime):
-                    cleaned_metadata[key] = value.isoformat() + "Z"
+                    cleaned_metadata[key] = value.isoformat()
 
                     # If this is some other datetime field, also store a unix version
                     if key.endswith("_at") and not key.endswith("_unix"):
