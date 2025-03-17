@@ -462,7 +462,7 @@ class MemorySystem:
 
                     # Convert string timestamp to datetime if needed
                     if isinstance(created_at_raw, str):
-                        created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                        created_at = normalize_timestamp(created_at_raw)
                     else:
                         created_at = created_at_raw
 
@@ -522,7 +522,7 @@ class MemorySystem:
                         # Extract creation timestamp
                         created_at_raw = memory_data["metadata"].get("created_at")
                         if isinstance(created_at_raw, str):
-                            created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                            created_at = normalize_timestamp(created_at_raw)
                         else:
                             created_at = created_at_raw
 
@@ -1203,7 +1203,7 @@ class MemorySystem:
 
                     # Convert timestamp to datetime
                     if isinstance(created_at_raw, str):
-                        created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                        created_at = normalize_timestamp(created_at_raw)
                     else:
                         created_at = created_at_raw
 
@@ -1255,7 +1255,7 @@ class MemorySystem:
                         # Extract creation timestamp
                         created_at_raw = memory_data["metadata"].get("created_at")
                         if isinstance(created_at_raw, str):
-                            created_at = datetime.fromisoformat(normalize_timestamp(created_at_raw))
+                            created_at = normalize_timestamp(created_at_raw)
                         else:
                             created_at = created_at_raw
 
