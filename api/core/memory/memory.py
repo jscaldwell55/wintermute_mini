@@ -93,7 +93,7 @@ class MemorySystem:
 
                     metadata = {
                         "content": req.content,
-                        "created_at": datetime.now(timezone.utc).isoformat() + "Z",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
                         "memory_type": req.memory_type.value,
                         **(req.metadata or {}),  # Use .get() for optional fields
                     }

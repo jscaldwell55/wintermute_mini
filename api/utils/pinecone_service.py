@@ -116,17 +116,17 @@ class PineconeService(MemoryService):
                 if value is None:  # skip None values
                     continue
                 elif key == "created_at" and isinstance(value, str):
-                    # Always store created_at as ISO string for readability
-                    cleaned_metadata["created_at"] = value
-
+                    # Use the normalize_timestamp function which returns a datetime
+                    dt = normalize_timestamp(value)
+                    # Store as ISO string WITHOUT the Z
+                    cleaned_metadata["created_at"] = dt.isoformat()
+                    
                     # Ensure we always have created_at_unix for filtering
                     if "created_at_unix" not in metadata:
-                        # Parse the ISO string and convert to unix timestamp
-                        dt = datetime.fromisoformat(normalize_timestamp(value))
                         cleaned_metadata["created_at_unix"] = int(dt.timestamp())
                 elif key == "created_at" and isinstance(value, datetime):
-                    # Convert datetime to ISO string and store unix timestamp
-                    cleaned_metadata["created_at"] = value.isoformat() + "Z"
+                    # Convert datetime to ISO string WITHOUT adding Z
+                    cleaned_metadata["created_at"] = value.isoformat()
                     cleaned_metadata["created_at_unix"] = int(value.timestamp())
                 elif isinstance(value, (str, int, float, bool, list)):
                     cleaned_metadata[key] = value
@@ -175,22 +175,23 @@ class PineconeService(MemoryService):
                     if value is None:  # skip None values
                         continue
                     elif key == "created_at" and isinstance(value, str):
-                        # Always store created_at as ISO string for readability
-                        cleaned_metadata["created_at"] = value
-
+                        # Use the normalize_timestamp function which now returns a datetime
+                        dt = normalize_timestamp(value)
+                        # Store as ISO string WITHOUT the Z (important!)
+                        cleaned_metadata["created_at"] = dt.isoformat()
+                        
                         # Ensure we always have created_at_unix for filtering
                         if "created_at_unix" not in metadata:
-                            # Parse the ISO string and convert to unix timestamp
-                            dt = datetime.fromisoformat(normalize_timestamp(value))
                             cleaned_metadata["created_at_unix"] = int(dt.timestamp())
                     elif key == "created_at" and isinstance(value, datetime):
-                        # Convert datetime to ISO string and store unix timestamp
-                        cleaned_metadata["created_at"] = value.isoformat() + "Z"
+                        # Convert datetime to ISO string WITHOUT adding Z
+                        cleaned_metadata["created_at"] = value.isoformat()
                         cleaned_metadata["created_at_unix"] = int(value.timestamp())
                     elif isinstance(value, (str, int, float, bool, list)):
                         cleaned_metadata[key] = value
                     elif isinstance(value, datetime):
-                        cleaned_metadata[key] = value.isoformat() + "Z"
+                        # Store all datetime values consistently WITHOUT Z
+                        cleaned_metadata[key] = value.isoformat()
 
                         # If this is some other datetime field, also store a unix version
                         if key.endswith("_at") and not key.endswith("_unix"):
