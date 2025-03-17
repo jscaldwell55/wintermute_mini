@@ -1475,9 +1475,23 @@ class MemorySystem:
 
             for mem, _score in episodic_memories:
                 try:
-     
                     if mem.metadata.get("is_very_recent", False):
-                        created_at = datetime.fromisoformat(mem.metadata.get("created_at_iso", "").rstrip('Z'))
+                        created_at_value = mem.metadata.get("created_at_iso", "")
+                        
+                        # Handle different types for created_at_value
+                        if isinstance(created_at_value, str):
+                            created_at = datetime.fromisoformat(created_at_value.rstrip('Z'))
+                        elif isinstance(created_at_value, datetime):
+                            created_at = created_at_value
+                        else:
+                            # Default to current time if we can't parse
+                            created_at = datetime.now(timezone.utc)
+                        
+                        # Ensure timezone information
+                        if created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=timezone.utc)
+                            
+                        # Check if it's still "very recent"
                         if datetime.now(timezone.utc) - created_at > timedelta(minutes=10):
                             mem.metadata["is_very_recent"] = False
                             # Optionally update in database 
@@ -1706,13 +1720,17 @@ class MemorySystem:
             today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             
             # Parse the timestamp
-            created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
-            now = datetime.now(timezone.utc)
-            minutes_ago = (now - created_at_dt).total_seconds() / 60
             if isinstance(memory.created_at, str):
                 created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
             else:
                 created_at_dt = memory.created_at
+
+            # Ensure timezone information
+            if created_at_dt.tzinfo is None:
+                created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+
+            now = datetime.now(timezone.utc)
+            minutes_ago = (now - created_at_dt).total_seconds() / 60
 
             # Modified time_context formatting
             if created_at_dt + timedelta(minutes=10) > now:
@@ -1736,8 +1754,7 @@ class MemorySystem:
         """Retrieves the single most recent episodic memory for the current window."""
         try:
             # Remove window_id check
-
-
+            
             query_request = QueryRequest(
                 prompt="previous turn context", # Dummy prompt - we are sorting by time, not semantic relevance
                 top_k=1, # Only need the most recent one
@@ -1746,7 +1763,21 @@ class MemorySystem:
                 request_metadata=RequestMetadata(operation_type=OperationType.QUERY)
             )
             query_response = await self._query_memory_type(request=query_request) # Use _query_memory_type for efficiency
+            
             if query_response.matches:
+                # If we need to process the matches here, ensure proper datetime handling
+                for mem in query_response.matches:
+                    if hasattr(mem, 'created_at'):
+                        # Ensure proper format of created_at if we need to use it
+                        if isinstance(mem.created_at, str):
+                            mem.created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
+                        else:
+                            mem.created_at_dt = mem.created_at
+                        
+                        # Ensure timezone info
+                        if mem.created_at_dt.tzinfo is None:
+                            mem.created_at_dt = mem.created_at_dt.replace(tzinfo=timezone.utc)
+                
                 return query_response.matches[:1] # Return as a list (consistent with other memory vars)
             else:
                 return None # No previous turn memory found

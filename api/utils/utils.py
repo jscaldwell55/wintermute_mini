@@ -17,15 +17,14 @@ def normalize_timestamp(timestamp_value):
         return datetime.fromtimestamp(timestamp_value, tz=timezone.utc)
     
     elif isinstance(timestamp_value, str):
-        # Store original for logging
-        original_timestamp_str = timestamp_value
-        
         # Fix the most common issue: having both +00:00 and Z
         if '+00:00Z' in timestamp_value:
             timestamp_value = timestamp_value.replace('+00:00Z', '+00:00')
+        elif timestamp_value.endswith('Z') and '+' in timestamp_value:
+            timestamp_value = timestamp_value[:-1]  # Remove the Z
         
         try:
-            # Use dateutil.parser for robust parsing
+            # Use dateutil.parser for more robust parsing
             dt = parser.parse(timestamp_value)
             
             # Ensure timezone is UTC if not specified
@@ -34,7 +33,7 @@ def normalize_timestamp(timestamp_value):
                 
             return dt
         except Exception as e:
-            logger.warning(f"Failed to parse timestamp '{original_timestamp_str}': {e}. Using current time.")
+            logger.warning(f"Failed to parse timestamp '{timestamp_value}': {e}. Using current time.")
             return datetime.now(timezone.utc)
     
     elif isinstance(timestamp_value, datetime):
@@ -45,5 +44,5 @@ def normalize_timestamp(timestamp_value):
     
     else:
         # Invalid format, log and return current time
-        logger.error(f"Unsupported timestamp format: {type(timestamp_value)}. Using current time.")
+        logger.warning(f"Unsupported timestamp format: {type(timestamp_value)}. Using current time.")
         return datetime.now(timezone.utc)

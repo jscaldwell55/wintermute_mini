@@ -97,6 +97,9 @@ class MemoryResponse(BaseModel):
         from dateutil import parser
         
         if isinstance(value, datetime):
+            # Already a datetime, just ensure it has timezone
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
             return value
             
         if isinstance(value, str):
@@ -107,14 +110,17 @@ class MemoryResponse(BaseModel):
                 value = value[:-1]  # Remove the 'Z' at the end
                 
             try:
-                return parser.parse(value)
+                dt = parser.parse(value)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
             except Exception as e:
                 import logging
                 logging.warning(f"Failed to parse timestamp: {value}, error: {e}")
                 return datetime.now(timezone.utc)
                 
         return value
-
+    
     @classmethod
     def from_memory(cls, memory: Memory) -> 'MemoryResponse':
         """Create MemoryResponse from Memory object"""

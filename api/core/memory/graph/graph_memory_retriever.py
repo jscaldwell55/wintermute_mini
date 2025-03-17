@@ -234,7 +234,6 @@ class GraphMemoryRetriever:
                 try:
                     # Only apply bell curve to episodic memories
                     if memory.memory_type == MemoryType.EPISODIC:
-                        # Get created_at timestamp
                         # Calculate age in hours
                         if isinstance(memory.created_at, str):
                             created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))

@@ -278,8 +278,12 @@ class PineconeService(MemoryService):
                 # Use normalize_timestamp here
                 created_at_raw = metadata.get("created_at")
                 if isinstance(created_at_raw, str):
-                    created_at = normalize_timestamp(created_at_raw) # Updated line: Use normalize_timestamp directly
-                    metadata["created_at"] = created_at
+                    try:
+                        created_at = normalize_timestamp(created_at_raw)  # This now returns a datetime
+                        metadata["created_at"] = created_at
+                    except ValueError as e:
+                        logger.warning(f"Error parsing timestamp '{created_at_raw}': {e}, using current time")
+                        metadata["created_at"] = datetime.now(timezone.utc)
 
                 return {
                     "id": memory_id,
