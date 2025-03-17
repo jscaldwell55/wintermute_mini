@@ -1709,6 +1709,10 @@ class MemorySystem:
             created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
             now = datetime.now(timezone.utc)
             minutes_ago = (now - created_at_dt).total_seconds() / 60
+            if isinstance(memory.created_at, str):
+                created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+            else:
+                created_at_dt = memory.created_at
 
             # Modified time_context formatting
             if created_at_dt + timedelta(minutes=10) > now:

@@ -153,18 +153,20 @@ class GraphMemoryRetriever:
         """Helper method to ensure timestamp is in proper string format"""
         if timestamp_value is None:
             # Default to current time if missing
-            return datetime.now(timezone.utc).isoformat() + "Z"
+            return datetime.now(timezone.utc).isoformat() 
         
         if isinstance(timestamp_value, datetime):
-            return timestamp_value.isoformat() + "Z"
+            return timestamp_value.isoformat() 
         
         if isinstance(timestamp_value, (int, float)):
             # If it's a Unix timestamp
             dt = datetime.fromtimestamp(timestamp_value, timezone.utc)
-            return dt.isoformat() + "Z"
+            return dt.isoformat() 
         
         # Already a string, normalize it
-        return normalize_timestamp(timestamp_value)
+        if isinstance(timestamp_value, str):
+            return normalize_timestamp(timestamp_value)
+        return str(timestamp_value)
     
     async def _retrieve_vector_memories(self, request: QueryRequest) -> QueryResponse:
         is_time_query = any(x in request.prompt.lower() for x in ["this morning", "today", "yesterday", "last week"])
@@ -233,9 +235,15 @@ class GraphMemoryRetriever:
                     # Only apply bell curve to episodic memories
                     if memory.memory_type == MemoryType.EPISODIC:
                         # Get created_at timestamp
-                        created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
-                        
                         # Calculate age in hours
+                        if isinstance(memory.created_at, str):
+                            created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                            if created_at.tzinfo is None:
+                                created_at = created_at.replace(tzinfo=timezone.utc)
+                        else:
+                            created_at = memory.created_at
+                            if created_at.tzinfo is None:
+                                created_at = created_at.replace(tzinfo=timezone.utc)
                         age_hours = (current_time - created_at).total_seconds() / (60*60)
                         
                         # Use bell curve recency scoring
@@ -400,7 +408,14 @@ class GraphMemoryRetriever:
                         memory_type_str = memory_data.get("metadata", {}).get("memory_type", "UNKNOWN")
                         if memory_type_str == "EPISODIC":
                             current_time = datetime.now(timezone.utc)
-                            created_at = datetime.fromisoformat(created_at_str.rstrip('Z'))
+                            if isinstance(created_at_str, str):
+                                created_at = datetime.fromisoformat(created_at_str.rstrip('Z'))
+                                if created_at.tzinfo is None:
+                                    created_at = created_at.replace(tzinfo=timezone.utc)
+                            else:
+                                created_at = created_at_str
+                                if created_at.tzinfo is None:
+                                    created_at = created_at.replace(tzinfo=timezone.utc)
 
                             # Calculate age in hours
                             age_hours = (current_time - created_at).total_seconds() / (60*60)
