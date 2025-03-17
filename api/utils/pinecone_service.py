@@ -201,7 +201,6 @@ class PineconeService(MemoryService):
                         cleaned_metadata[key] = str(value)
 
                 # This is now properly outside the inner loop
-                # Ensure created_at_unix is always present
                 if "created_at_unix" not in cleaned_metadata and "created_at" in cleaned_metadata:
                     try:
                         dt = datetime.fromisoformat(normalize_timestamp(cleaned_metadata["created_at"]))
@@ -279,7 +278,16 @@ class PineconeService(MemoryService):
                 created_at_raw = metadata.get("created_at")
                 if isinstance(created_at_raw, str):
                     try:
-                        created_at = normalize_timestamp(created_at_raw)  # This now returns a datetime
+                        # Check what normalize_timestamp returns
+                        normalized_value = normalize_timestamp(created_at_raw)
+                        
+                        # Handle based on return type
+                        if isinstance(normalized_value, str):
+                            created_at = datetime.fromisoformat(normalized_value.rstrip("Z"))
+                        else:
+                            # Already a datetime object
+                            created_at = normalized_value
+                            
                         metadata["created_at"] = created_at
                     except ValueError as e:
                         logger.warning(f"Error parsing timestamp '{created_at_raw}': {e}, using current time")
@@ -343,52 +351,62 @@ class PineconeService(MemoryService):
                 normalized_filter = filter.copy()
 
                 # Handle created_at filters specifically
-                if "created_at" in normalized_filter:
-                    logger.info("Original filter had 'created_at', normalizing...") # Log when normalization is triggered
-                    # If created_at is a dictionary (range query)
-                    if isinstance(normalized_filter["created_at"], dict):
-                        logger.info("  created_at is a dict (range query)") # Log range query detection
-                        unix_ranges = {}
-                        for op, val in normalized_filter["created_at"].items():
-                            if isinstance(val, datetime):
-                                unix_ranges[op] = int(val.timestamp())
-                                logger.info(f"  Operator: {op}, Datetime Value: {val}, Converted Unix Timestamp: {unix_ranges[op]}") # Log datetime conversion
-                            elif isinstance(val, str):
-                                dt = datetime.fromisoformat(
-                                    normalize_timestamp(val).rstrip("Z")
-                                )
-                                unix_ranges[op] = int(dt.timestamp())
-                                logger.info(f"  Operator: {op}, String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {unix_ranges[op]}") # Log string conversion and normalization
-                            else:
-                                # Already a number (likely a timestamp)
-                                unix_ranges[op] = val
-                                logger.info(f"  Operator: {op}, Numeric Value (assumed timestamp): {val}") # Log numeric value assumption
-
-                        # Replace with created_at_unix for better filtering
-                        normalized_filter["created_at_unix"] = unix_ranges
-                        del normalized_filter["created_at"]
-                    else:
-                        # Single value created_at (exact match - unlikely in temporal queries, but handling just in case)
-                        logger.info("  created_at is NOT a dict (single value - exact match?)") # Log single value case
-                        val = normalized_filter["created_at"]
+            if "created_at" in normalized_filter:
+                logger.info("Original filter had 'created_at', normalizing...")  # Log when normalization is triggered
+                # If created_at is a dictionary (range query)
+                if isinstance(normalized_filter["created_at"], dict):
+                    logger.info("  created_at is a dict (range query)")  # Log range query detection
+                    unix_ranges = {}
+                    for op, val in normalized_filter["created_at"].items():
                         if isinstance(val, datetime):
-                            normalized_filter["created_at_unix"] = int(val.timestamp())
-                            logger.info(f"  Datetime Value: {val}, Converted Unix Timestamp: {normalized_filter['created_at_unix']}") # Log datetime conversion
+                            unix_ranges[op] = int(val.timestamp())
+                            logger.info(f"  Operator: {op}, Datetime Value: {val}, Converted Unix Timestamp: {unix_ranges[op]}")  # Log datetime conversion
                         elif isinstance(val, str):
-                            dt = datetime.fromisoformat(
-                                normalize_timestamp(val).rstrip("Z")
-                            )
-                            normalized_filter["created_at_unix"] = int(dt.timestamp())
-                            logger.info(f"  Operator: {op}, String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {normalized_filter['created_at_unix']}") # Log string conversion and normalization
+                            # Properly handle normalize_timestamp return value
+                            normalized_value = normalize_timestamp(val)
+                            if isinstance(normalized_value, str):
+                                dt = datetime.fromisoformat(normalized_value.rstrip("Z"))
+                            else:
+                                # Already a datetime object
+                                dt = normalized_value
+                            
+                            unix_ranges[op] = int(dt.timestamp())
+                            logger.info(f"  Operator: {op}, String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {unix_ranges[op]}")  # Log string conversion and normalization
                         else:
                             # Already a number (likely a timestamp)
-                            normalized_filter["created_at_unix"] = val
-                            logger.info(f"  Numeric Value (assumed timestamp): {val}") # Log numeric value assumption
+                            unix_ranges[op] = val
+                            logger.info(f"  Operator: {op}, Numeric Value (assumed timestamp): {val}")  # Log numeric value assumption
 
-                        # Remove original created_at after converting
-                        del normalized_filter["created_at"]
+                    # Replace with created_at_unix for better filtering
+                    normalized_filter["created_at_unix"] = unix_ranges
+                    del normalized_filter["created_at"]
+                else:
+                    # Single value created_at (exact match - unlikely in temporal queries, but handling just in case)
+                    logger.info("  created_at is NOT a dict (single value - exact match?)")  # Log single value case
+                    val = normalized_filter["created_at"]
+                    if isinstance(val, datetime):
+                        normalized_filter["created_at_unix"] = int(val.timestamp())
+                        logger.info(f"  Datetime Value: {val}, Converted Unix Timestamp: {normalized_filter['created_at_unix']}")  # Log datetime conversion
+                    elif isinstance(val, str):
+                        # Properly handle normalize_timestamp return value
+                        normalized_value = normalize_timestamp(val)
+                        if isinstance(normalized_value, str):
+                            dt = datetime.fromisoformat(normalized_value.rstrip("Z"))
+                        else:
+                            # Already a datetime object
+                            dt = normalized_value
+                            
+                        normalized_filter["created_at_unix"] = int(dt.timestamp())
+                        logger.info(f"  String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {normalized_filter['created_at_unix']}")  # Log string conversion and normalization
+                    else:
+                        # Already a number (likely a timestamp)
+                        normalized_filter["created_at_unix"] = val
+                        logger.info(f"  Numeric Value (assumed timestamp): {val}")  # Log numeric value assumption
+
+                    # Remove original created_at after converting
+                    del normalized_filter["created_at"]
             else:
-                logger.info("No filter or no 'created_at' in filter - no normalization needed.") # Log no normalization case
+                logger.info("No filter or no 'created_at' in filter - no normalization needed.")  # Log no normalization case
 
 
             # Use normalized filter or original if no normalization was needed
