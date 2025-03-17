@@ -278,7 +278,8 @@ class GraphMemoryRetriever:
         request: QueryRequest
     ) -> Tuple[List[MemoryResponse], List[float]]:
         """
-        Retrieve associated memories through graph traversal using Dijkstra's algorithm.
+        Retrieve associated memories through graph traversal using Dijkstra's algorithm,
+        prioritizing temporal relationships for time-related queries.
         """
         if not entry_point_memories:
             return [], []
@@ -296,6 +297,11 @@ class GraphMemoryRetriever:
         for memory in entry_point_memories:
             visited_ids.add(memory.id)
 
+        # **Temporal Query Detection Logic (Phase 1 Enhancement):**
+        is_temporal_query = any(x in request.prompt.lower() for x in ["when", "yesterday", "last week", "this morning", "today", "past"]) # Add more keywords as needed
+        self.logger.info(f"Is temporal query: {is_temporal_query} for query: {request.prompt[:50]}...")
+
+
         # For each entry point memory, find associated memories using Dijkstra's
         for i, memory in enumerate(entry_point_memories):
             try:
@@ -304,10 +310,11 @@ class GraphMemoryRetriever:
                 if i > 0:  # Only discount if not the top result
                     entry_point_score = 0.9  # Slightly discount if not top result
 
-                # Use Dijkstra's pathfinding to get best paths
+                # Use Dijkstra's pathfinding to get best paths, pass the temporal query flag
                 best_paths = self.memory_graph.find_best_paths(
                     memory.id,
-                    max_depth=self.max_graph_depth
+                    max_depth=self.max_graph_depth,
+                    is_temporal_query=is_temporal_query # Pass the flag here
                 )
 
                 for connected_id, path_cost, path_node_ids in best_paths[:self.max_memories_per_hop]: # Limit results

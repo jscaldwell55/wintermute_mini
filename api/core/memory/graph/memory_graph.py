@@ -412,11 +412,10 @@ class MemoryGraph:
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return []
         
-    def find_best_paths(self, source_id: str, max_depth: int = 2) -> List[Tuple[str, float, List[str]]]: # Return paths and costs
+    def find_best_paths(self, source_id: str, max_depth: int = 2, is_temporal_query: bool = False) -> List[Tuple[str, float, List[str]]]: # Add is_temporal_query parameter
         """
-        Find best paths (using Dijkstra's) from a source memory to other memories within max_depth.
-
-        Returns a list of tuples: (target_memory_id, path_cost, path_node_ids)
+        Find best paths (using Dijkstra's) from a source memory to other memories within max_depth,
+        optionally prioritizing temporal_sequence relationships for temporal queries.
         """
         if not self.graph.has_node(source_id):
             self.logger.warning(f"Source memory node {source_id} not found in graph")
@@ -437,8 +436,15 @@ class MemoryGraph:
                     if neighbor_id not in visited_nodes:
                         edge_data = self.graph.edges[current_node_id, neighbor_id]
                         edge_weight = edge_data.get('weight', 1.0) # Use edge weight as cost
+                        edge_cost = (1 / edge_weight if edge_weight > 0 else float('inf'))
 
-                        new_cost = current_cost + (1 / edge_weight if edge_weight > 0 else float('inf')) # Invert weight for "cost" - higher weight = lower cost
+                        # **Phase 1 Enhancement - Prioritize Temporal Edges for Temporal Queries:**
+                        if is_temporal_query and edge_data.get('type') == "temporal_sequence":
+                            temporal_cost_factor = 0.5  # Reduce cost for temporal edges (adjust factor as needed)
+                            edge_cost *= temporal_cost_factor
+
+
+                        new_cost = current_cost + edge_cost
                         new_path = list(current_path) # Create copy to avoid modifying original path
                         new_path.append(neighbor_id)
 
