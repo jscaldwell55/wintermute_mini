@@ -1510,7 +1510,15 @@ class MemorySystem:
                     relevance_boost = 1.0 + (similarity_to_query * 0.5)  # Boost up to 50% based on similarity
 
                     # Apply recency weighting (existing bell curve or time-based decay)
-                    created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
+                    if isinstance(mem.created_at, str):
+                        created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
+                    else:
+                        created_at_dt = mem.created_at  # Already a datetime object
+
+                    # Ensure it has timezone info
+                    if created_at_dt.tzinfo is None:
+                        created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+
                     age_hours = (datetime.now(timezone.utc) - created_at_dt).total_seconds() / 3600
                     recency_score = self._calculate_bell_curve_recency(age_hours)
                     recency_weight = getattr(self.settings, 'episodic_recency_weight', 0.35)
@@ -1746,7 +1754,17 @@ class MemorySystem:
             if memory.time_ago:
                 time_context = memory.time_ago
             elif hasattr(memory, 'created_at'):
-                created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                # Check if created_at is a string or datetime
+                if isinstance(memory.created_at, str):
+                    created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                else:
+                    # Already a datetime object
+                    created_at_dt = memory.created_at
+                    
+                # Ensure timezone info
+                if created_at_dt.tzinfo is None:
+                    created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+                    
                 time_context = self._format_time_ago(created_at_dt) or "recently"
         return time_context
 
@@ -1765,22 +1783,26 @@ class MemorySystem:
             query_response = await self._query_memory_type(request=query_request) # Use _query_memory_type for efficiency
             
             if query_response.matches:
-                # If we need to process the matches here, ensure proper datetime handling
+                # Don't modify the objects, just return them as is
+                # If we need to process timestamps, do it without adding new attributes
                 for mem in query_response.matches:
                     if hasattr(mem, 'created_at'):
-                        # Ensure proper format of created_at if we need to use it
+                        # Process the timestamp locally without modifying the object
                         if isinstance(mem.created_at, str):
-                            mem.created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
+                            local_created_at = datetime.fromisoformat(mem.created_at.rstrip('Z'))
                         else:
-                            mem.created_at_dt = mem.created_at
+                            local_created_at = mem.created_at
                         
                         # Ensure timezone info
-                        if mem.created_at_dt.tzinfo is None:
-                            mem.created_at_dt = mem.created_at_dt.replace(tzinfo=timezone.utc)
+                        if local_created_at.tzinfo is None:
+                            local_created_at = local_created_at.replace(tzinfo=timezone.utc)
+                        
+                        # Use local_created_at for any calculations here
+                        # But don't add it back to the mem object
                 
-                return query_response.matches[:1] # Return as a list (consistent with other memory vars)
+                return query_response.matches[:1]  # Return as a list (consistent with other memory vars)
             else:
-                return None # No previous turn memory found
+                return None  # No previous turn memory found
 
         except Exception as e:
             logger.error(f"Error retrieving immediate previous turn memory: {e}")
@@ -1911,7 +1933,17 @@ class MemorySystem:
                 if hasattr(memory, 'time_ago') and memory.time_ago:
                     time_ago = memory.time_ago
                 else:
-                    created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                    # Check the type of memory.created_at
+                    if isinstance(memory.created_at, str):
+                        created_at = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                    else:
+                        # Already a datetime object
+                        created_at = memory.created_at
+                        
+                    # Ensure timezone information
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                        
                     time_ago = self._format_time_ago(created_at)
                 formatted = f"{time_ago}: {formatted}"
 
