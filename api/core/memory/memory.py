@@ -1447,6 +1447,12 @@ class MemorySystem:
     ) -> Dict[str, str]:
         """Use an LLM to process retrieved memories into human-like summaries for all memory types."""
         logger.info(f"Processing memories with summarization agent for query: {query[:50]}...")
+        # Log detailed information about each episodic memory to diagnose issues
+        logger.info(f"Number of episodic memories received: {len(episodic_memories)}")
+        for i, (mem, score) in enumerate(episodic_memories):
+            # Log a snippet of content for debugging
+            content_snippet = mem.content[:100] + "..." if len(mem.content) > 100 else mem.content
+            logger.info(f"Memory content snippet: {content_snippet}")
 
         # Format semantic memories (no changes)
         semantic_content = "\n".join([
@@ -1463,8 +1469,17 @@ class MemorySystem:
         # === Enhanced Episodic Memory Formatting for Contextual Relevance ===
         episodic_content_list = []
         if episodic_memories:
+            # Log detailed information about each episodic memory to diagnose issues
+            logger.info(f"Number of episodic memories received: {len(episodic_memories)}")
+            for i, (mem, score) in enumerate(episodic_memories):
+                # Look for mentions related to the query
+                query_topic = query.lower().replace("when did we discuss ", "").replace("when did we talk about ", "").replace("?", "").strip()
+                contains_topic = query_topic in mem.content.lower() if query_topic else False
+                logger.info(f"Episodic memory {i+1}/{len(episodic_memories)}: " 
+                        f"ID={mem.id}, Score={score:.3f}, Contains '{query_topic}'={contains_topic}")
+            
             # Get embedding of the CURRENT QUERY for relevance scoring
-            query_vector = await self.vector_operations.create_semantic_vector(query)  # <--- Embedding of CURRENT QUERY
+            query_vector = await self.vector_operations.create_semantic_vector(query)
 
             for mem, _score in episodic_memories:
                 try:
@@ -1472,40 +1487,60 @@ class MemorySystem:
                     memory_vector = mem.semantic_vector  # Assuming semantic_vector is populated
                     if memory_vector:
                         similarity_to_query = self.vector_operations.cosine_similarity(query_vector, memory_vector)
+                        # Log similarity for debugging
+                        logger.info(f"Memory {mem.id} similarity to query: {similarity_to_query:.4f}")
                     else:
                         similarity_to_query = 0.0  # Default if no vector
 
                     # Apply a dynamic relevance boost based on similarity to query
                     relevance_boost = 1.0 + (similarity_to_query * 0.5)  # Boost up to 50% based on similarity
 
-                    # Apply recency weighting (existing bell curve or time-based decay) - keep your existing logic
+                    # Apply recency weighting (existing bell curve or time-based decay)
                     created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
                     age_hours = (datetime.now(timezone.utc) - created_at_dt).total_seconds() / 3600
-                    recency_score = self._calculate_bell_curve_recency(age_hours)  # Or your original recency method
+                    recency_score = self._calculate_bell_curve_recency(age_hours)
                     recency_weight = getattr(self.settings, 'episodic_recency_weight', 0.35)
                     final_score = (relevance_boost * _score * (1 - recency_weight)) + (recency_score * recency_weight)
 
-                    # Format time context and content snippet (existing code - no change needed)
-                    time_context = self._format_memory_time_context(mem)  # Helper function to format time context
+                    # Enhanced time context formatting with additional metadata
+                    time_context = self._format_memory_time_context(mem)
                     content = mem.content[:300] + "..." if len(mem.content) > 300 else mem.content
+                    
+                    # Add more detail to help with temporal references
                     iso_time = mem.metadata.get("created_at_iso")
-                    fragment = f"- ({time_context}" + (f", exact time: {iso_time})" if ("what time" in query.lower() or "when exactly" in query.lower()) and iso_time else ")") + f" {content}"
+                    date_str = mem.metadata.get("date_str", "")
+                    day_of_week = mem.metadata.get("day_of_week", "")
+                    
+                    # Format with enhanced temporal information
+                    fragment = f"- ({time_context}"
+                    if "what time" in query.lower() or "when exactly" in query.lower():
+                        fragment += f", exact time: {iso_time}"
+                    if "when did we" in query.lower() and date_str:
+                        fragment += f", date: {date_str} ({day_of_week})"
+                    fragment += f") {content}"
 
                     episodic_content_list.append((fragment, final_score))  # Store fragment AND final score
+                    
+                    # Log the fragment and score for debugging
+                    logger.info(f"Memory fragment (score={final_score:.3f}): {fragment[:100]}...")
 
                 except Exception as e:
                     logger.warning(f"Error processing episodic memory for summarization: {e}")
                     continue
 
             # Sort episodic fragments by final score (descending) for contextual relevance
-            episodic_content_list.sort(key=lambda x: x[1], reverse=True)  # Sort by final score
+            episodic_content_list.sort(key=lambda x: x[1], reverse=True)
 
-            # Format top fragments into string for prompt (take top N, e.g., top 5, or based on token budget)
+            # Format top fragments into string for prompt
             top_fragments = [fragment for fragment, _score in episodic_content_list[:5]] # Take top 5 fragments
             episodic_content = "\n".join(top_fragments) if top_fragments else "No relevant conversation history available."
+            
+            # Log the final formatted content for the prompt
+            logger.info(f"Final episodic content for prompt (length={len(episodic_content)}): {episodic_content[:200]}...")
 
         else:
             episodic_content = "No relevant conversation history available."
+            logger.warning("No episodic memories received for summarization")
         # === End Enhanced Episodic Memory Formatting ===
 
         # --- Retrieve immediate previous turn and slightly recent memories ---

@@ -383,15 +383,30 @@ class PineconeService(MemoryService):
                             f"  Operator: {op}, Value: {val}, Value Data Type: {type(val)}"
                         )  # Log type of values within range query
                         
-                        # For temporal queries, expand the time range to improve recall
+                        # Within the query_memories method, when handling created_at_unix filters
                         if is_temporal_query and op == "$gte":
-                            # Widen the time window by moving back the start time (24-48 hours)
-                            original_val = val
-                            adjusted_val = original_val - (24 * 3600)  # 24 hours earlier
-                            created_at_unix_filter[op] = adjusted_val
-                            logger.info(
-                                f"  ADJUSTED for temporal query: {op} value from {original_val} to {adjusted_val} "
-                                f"(-24h to improve memory recall)"
+                            # Check if it's a "when did we discuss X" type query
+                            is_topic_history_query = any(pattern in self.current_query.lower() 
+                                                    for pattern in ["when did we discuss", "when did we talk about", "when have we"])
+                            
+                            # For "when did we discuss X" queries, use a much wider time window (7 days)
+                            if is_topic_history_query:
+                                # Widen the time window by moving back the start time to 7 days earlier
+                                original_val = val
+                                adjusted_val = original_val - (7 * 24 * 3600)  # 7 days earlier
+                                created_at_unix_filter[op] = adjusted_val
+                                logger.info(
+                                    f"  ADJUSTED for topic history query: {op} value from {original_val} to {adjusted_val} "
+                                    f"(-7 days to improve historical memory recall)"
+                                )
+                            else:  
+                                # For other temporal queries, use the existing 24-hour extension
+                                original_val = val
+                                adjusted_val = original_val - (24 * 3600)  # 24 hours earlier
+                                created_at_unix_filter[op] = adjusted_val
+                                logger.info(
+                                    f"  ADJUSTED for temporal query: {op} value from {original_val} to {adjusted_val} "
+                                    f"(-24h to improve memory recall)"
                             )
                 else:
                     logger.info(
