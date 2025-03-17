@@ -101,83 +101,130 @@ class PineconeService(MemoryService):
             self.initialized = False
             raise PineconeError(f"Failed to initialize Pinecone: {e}")
 
-    async def create_memory(
-        self, memory_id: str, vector: List[float], metadata: Dict[str, Any]
-    ) -> bool:
-        """Creates a memory in Pinecone with error handling."""
-        try:
-            if self.index is None:
-                logger.error("❌ Pinecone index is not initialized. Cannot create memory.")
-                raise PineconeError("Pinecone index is not initialized.")
+        async def create_memory(
+            self, memory_id: str, vector: List[float], metadata: Dict[str, Any]
+        ) -> bool:
+            """Creates a memory in Pinecone with standardized timestamp handling."""
+            try:
+                if self.index is None:
+                    logger.error("❌ Pinecone index is not initialized. Cannot create memory.")
+                    raise PineconeError("Pinecone index is not initialized.")
 
-            # Sanitize metadata - be more selective
-            cleaned_metadata = {}
-            for key, value in metadata.items():
-                if value is None:  # skip None values
-                    continue
-                elif isinstance(
-                    value, (str, int, float, bool, list)
-                ):  # Allow these types directly
-                    cleaned_metadata[key] = value
-                elif isinstance(
-                    value, datetime
-                ):  # Handle datetime objects specifically - convert to ISO string for Pinecone metadata (if you want to store string representation as well)
-                    cleaned_metadata[
-                        key
-                    ] = value.isoformat() + "Z"  # Store datetime as ISO string (optional - you might not need to store string representation if you have created_at_unix)
-                else:
-                    cleaned_metadata[key] = str(
-                        value
-                    )  # Fallback to string for other types
-
-            logger.info(
-                f"📝 Creating memory in Pinecone: {memory_id}, metadata keys: {list(cleaned_metadata.keys())}"
-            )  # Log metadata keys
-            self.index.upsert(vectors=[(memory_id, vector, cleaned_metadata)])
-            return True
-        except Exception as e:
-            logger.error(f"❌ Failed to create memory: {e}")
-            raise PineconeError(f"Failed to create memory: {e}") from e
-
-    async def batch_upsert_memories(
-        self, vectors: List[Tuple[str, List[float], Dict[str, Any]]]
-    ) -> None:
-        """Upserts a batch of memories to Pinecone."""
-        try:
-            if self.index is None:
-                raise PineconeError("Pinecone index is not initialized.")
-
-            batch_vectors_cleaned = []
-            for memory_id, vector, metadata in vectors:
+                # Ensure consistent timestamp format in all new memories
                 cleaned_metadata = {}
                 for key, value in metadata.items():
                     if value is None:  # skip None values
                         continue
-                    elif isinstance(
-                        value, (str, int, float, bool, list)
-                    ):  # Allow these types directly
+                    elif key == "created_at" and isinstance(value, str):
+                        # Always store created_at as ISO string for readability
+                        cleaned_metadata["created_at"] = value
+
+                        # Ensure we always have created_at_unix for filtering
+                        if "created_at_unix" not in metadata:
+                            # Parse the ISO string and convert to unix timestamp
+                            dt = datetime.fromisoformat(normalize_timestamp(value))
+                            cleaned_metadata["created_at_unix"] = int(dt.timestamp())
+                    elif key == "created_at" and isinstance(value, datetime):
+                        # Convert datetime to ISO string and store unix timestamp
+                        cleaned_metadata["created_at"] = value.isoformat() + "Z"
+                        cleaned_metadata["created_at_unix"] = int(value.timestamp())
+                    elif isinstance(value, (str, int, float, bool, list)):
                         cleaned_metadata[key] = value
-                    elif isinstance(
-                        value, datetime
-                    ):  # Handle datetime objects specifically - convert to ISO string (optional)
-                        cleaned_metadata[
-                            key
-                        ] = value.isoformat() + "Z"  # Store datetime as ISO string (optional)
+                    elif isinstance(value, datetime):
+                        cleaned_metadata[key] = value.isoformat() + "Z"
+
+                        # If this is some other datetime field, also store a unix version
+                        if key.endswith("_at") and not key.endswith("_unix"):
+                            unix_key = f"{key}_unix"
+                            cleaned_metadata[unix_key] = int(value.timestamp())
                     else:
-                        cleaned_metadata[key] = str(
-                            value
-                        )  # Fallback to string for other types
-                batch_vectors_cleaned.append((memory_id, vector, cleaned_metadata))
+                        cleaned_metadata[key] = str(value)
 
-            logger.info(
-                f"📝 Upserting batch of {len(batch_vectors_cleaned)} memories to Pinecone."
-            )  # Use cleaned vector count
-            self.index.upsert(vectors=batch_vectors_cleaned)  # Use cleaned vectors for upsert
-            logger.info("✅ Batch upsert successful.")
+                # Ensure created_at_unix is always present
+                if "created_at_unix" not in cleaned_metadata and "created_at" in cleaned_metadata:
+                    try:
+                        dt = datetime.fromisoformat(normalize_timestamp(cleaned_metadata["created_at"]))
+                        cleaned_metadata["created_at_unix"] = int(dt.timestamp())
+                    except Exception as e:
+                        logger.warning(f"Failed to create created_at_unix from created_at: {e}")
+                        # Fallback to current time
+                        cleaned_metadata["created_at_unix"] = int(time.time())
 
-        except Exception as e:
-            logger.error(f"❌ Failed to batch upsert memories: {e}")
-            raise PineconeError(f"Failed to batch upsert memories: {e}") from e
+
+                logger.info(
+                    f"📝 Creating memory in Pinecone: {memory_id}, metadata keys: {list(cleaned_metadata.keys())}"
+                )  # Log metadata keys
+                self.index.upsert(vectors=[(memory_id, vector, cleaned_metadata)])
+                return True
+            except Exception as e:
+                logger.error(f"❌ Failed to create memory: {e}")
+                raise PineconeError(f"Failed to create memory: {e}") from e
+
+        async def batch_upsert_memories(
+            self, vectors: List[Tuple[str, List[float], Dict[str, Any]]]
+        ) -> None:
+            """Upserts a batch of memories to Pinecone with standardized timestamp handling."""
+            try:
+                if self.index is None:
+                    raise PineconeError("Pinecone index is not initialized.")
+
+                batch_vectors_cleaned = []
+                for memory_id, vector, metadata in vectors:
+                    cleaned_metadata = {}
+                    for key, value in metadata.items():
+                        if value is None:  # skip None values
+                            continue
+                        elif key == "created_at" and isinstance(value, str):
+                            # Always store created_at as ISO string for readability
+                            cleaned_metadata["created_at"] = value
+
+                            # Ensure we always have created_at_unix for filtering
+                            if "created_at_unix" not in metadata:
+                                # Parse the ISO string and convert to unix timestamp
+                                dt = datetime.fromisoformat(normalize_timestamp(value))
+                                cleaned_metadata["created_at_unix"] = int(dt.timestamp())
+                        elif key == "created_at" and isinstance(value, datetime):
+                            # Convert datetime to ISO string and store unix timestamp
+                            cleaned_metadata["created_at"] = value.isoformat() + "Z"
+                            cleaned_metadata["created_at_unix"] = int(value.timestamp())
+                        elif isinstance(value, (str, int, float, bool, list)):
+                            cleaned_metadata[key] = value
+                        elif isinstance(value, datetime):
+                            cleaned_metadata[key] = value.isoformat() + "Z"
+
+                            # If this is some other datetime field, also store a unix version
+                            if key.endswith("_at") and not key.endswith("_unix"):
+                                unix_key = f"{key}_unix"
+                                cleaned_metadata[unix_key] = int(value.timestamp())
+                        else:
+                            cleaned_metadata[key] = str(value)
+
+                    # Ensure created_at_unix is always present
+                    if "created_at_unix" not in cleaned_metadata and "created_at" in cleaned_metadata:
+                        try:
+                            dt = datetime.fromisoformat(normalize_timestamp(cleaned_metadata["created_at"]))
+                            cleaned_metadata["created_at_unix"] = int(dt.timestamp())
+                        except Exception as e:
+                            logger.warning(f"Failed to create created_at_unix from created_at for memory {memory_id}: {e}")
+                            # Fallback to current time
+                            cleaned_metadata["created_at_unix"] = int(time.time())
+
+                    batch_vectors_cleaned.append((memory_id, vector, cleaned_metadata))
+
+                # Log batch information
+                logger.info(f"📝 Upserting batch of {len(batch_vectors_cleaned)} memories to Pinecone.")
+
+                # Handle batch size limits (typically 100 for Pinecone)
+                batch_size = 100
+                for i in range(0, len(batch_vectors_cleaned), batch_size):
+                    batch_chunk = batch_vectors_cleaned[i:i + batch_size]
+                    self.index.upsert(vectors=batch_chunk)
+                    logger.info(f"✅ Batch chunk {i//batch_size + 1} upsert successful ({len(batch_chunk)} vectors).")
+
+
+            except Exception as e:
+                logger.error(f"❌ Failed to batch upsert memories: {e}")
+                raise PineconeError(f"Failed to batch upsert memories: {e}") from e
 
     async def get_memory_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
         """Fetches a memory from Pinecone by its ID, parsing created_at."""
