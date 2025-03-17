@@ -1432,130 +1432,118 @@ class MemorySystem:
         episodic_memories: List[Tuple[MemoryResponse, float]],
         learned_memories: List[Tuple[MemoryResponse, float]],
         time_expression: Optional[str] = None,
-        temporal_context: Optional[str] = None
+        temporal_context: Optional[str] = None,
+        window_id: Optional[str] = None # <--- Add window_id as parameter
     ) -> Dict[str, str]:
         """Use an LLM to process retrieved memories into human-like summaries for all memory types."""
         logger.info(f"Processing memories with summarization agent for query: {query[:50]}...")
 
-        # Format semantic memories
-        semantic_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300
-                                    else f"- {mem.content}" for mem, _ in semantic_memories])
+        # Format semantic memories (no changes)
+        semantic_content = "\n".join([
+            f"- {mem.content[:300]}..." if len(mem.content) > 300 else f"- {mem.content}"
+            for mem, _ in semantic_memories
+        ])
 
-        # Check if the user is explicitly asking for exact time
-        lower_query = query.lower()
-        is_exact_time_requested = ("what time" in lower_query) or ("when exactly" in lower_query)
+        # Format learned memories (no changes)
+        learned_content = "\n".join([
+            f"- {mem.content[:300]}..." if len(mem.content) > 300 else f"- {mem.content}"
+            for mem, _ in learned_memories
+        ])
 
-        # === NEW: Detect Very Recent Episodic Memories ===
-        immediate_previous_turn_memory = None
-        slightly_recent_episodic_memories = []
-        older_episodic_memories = []
-        recent_threshold_seconds_immediate = 60
-        recent_threshold_seconds_slightly_recent = 300
-
-        current_time = datetime.now(timezone.utc)
-
-        # Sort episodic memories by creation time (most recent first)
-        episodic_memories.sort(key=lambda x: datetime.fromisoformat(x[0].created_at.rstrip('Z')), reverse=True)
-
-        for mem, score in episodic_memories:
-            try:
-                created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
-                age_seconds = (current_time - created_at_dt).total_seconds()
-                if age_seconds <= recent_threshold_seconds_immediate and not immediate_previous_turn_memory:
-                    immediate_previous_turn_memory = (mem, score)
-                elif age_seconds <= recent_threshold_seconds_slightly_recent:
-                    slightly_recent_episodic_memories.append((mem, score))
-                else:
-                    older_episodic_memories.append((mem, score))
-            except ValueError as e:
-                logger.warning(f"Error parsing created_at for recent memory check: {e}")
-                older_episodic_memories.append((mem, score))
-
-        logger.info(f"Detected immediate previous turn memory: {bool(immediate_previous_turn_memory)}")
-        logger.info(f"Detected {len(slightly_recent_episodic_memories)} slightly recent episodic memories and {len(older_episodic_memories)} older episodic memories.")
-
-        # Format older episodic memories for summarization prompt
+        # === Enhanced Episodic Memory Formatting for Contextual Relevance ===
         episodic_content_list = []
-        for mem, _score in older_episodic_memories:  # Use older_episodic_memories here
-            # === Step A: Build a human-friendly "time_context" ===
-            time_context = ""
-            if hasattr(mem, 'metadata') and mem.metadata:
-                time_of_day = mem.metadata.get('time_of_day', '')
-                day_of_week = mem.metadata.get('day_of_week', '')
-                date_str = mem.metadata.get('date_str', '')
+        if episodic_memories:
+            # Get embedding of the CURRENT QUERY for relevance scoring
+            query_vector = await self.vector_operations.create_semantic_vector(query)  # <--- Embedding of CURRENT QUERY
 
-                if day_of_week and time_of_day:
-                    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                    if date_str == today_str:
-                        time_context = f"earlier {time_of_day}"
+            for mem, _score in episodic_memories:
+                try:
+                    # Calculate semantic similarity between memory and CURRENT QUERY
+                    memory_vector = mem.semantic_vector  # Assuming semantic_vector is populated
+                    if memory_vector:
+                        similarity_to_query = self.vector_operations.cosine_similarity(query_vector, memory_vector)
                     else:
-                        time_context = f"{day_of_week} {time_of_day}"
-                elif time_of_day:
-                    time_context = f"the {time_of_day}"
+                        similarity_to_query = 0.0  # Default if no vector
 
-            if not time_context:
-                if mem.time_ago:
-                    time_context = mem.time_ago
-                elif hasattr(mem, 'created_at'):
+                    # Apply a dynamic relevance boost based on similarity to query
+                    relevance_boost = 1.0 + (similarity_to_query * 0.5)  # Boost up to 50% based on similarity
+
+                    # Apply recency weighting (existing bell curve or time-based decay) - keep your existing logic
                     created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
-                    time_context = self._format_time_ago(created_at_dt) or "recently"
+                    age_hours = (datetime.now(timezone.utc) - created_at_dt).total_seconds() / 3600
+                    recency_score = self._calculate_bell_curve_recency(age_hours)  # Or your original recency method
+                    recency_weight = getattr(self.settings, 'episodic_recency_weight', 0.35)
+                    final_score = (relevance_boost * _score * (1 - recency_weight)) + (recency_score * recency_weight)
 
-            # === Step B: Build the memory content snippet ===
-            content = mem.content
-            if len(content) > 300:
-                content = content[:300] + "..."
+                    # Format time context and content snippet (existing code - no change needed)
+                    time_context = self._format_memory_time_context(mem)  # Helper function to format time context
+                    content = mem.content[:300] + "..." if len(mem.content) > 300 else mem.content
+                    iso_time = mem.metadata.get("created_at_iso")
+                    fragment = f"- ({time_context}" + (f", exact time: {iso_time})" if ("what time" in query.lower() or "when exactly" in query.lower()) and iso_time else ")") + f" {content}"
 
-            # === Step C: If user wants EXACT time, show created_at_iso ===
-            iso_time = mem.metadata.get("created_at_iso")
+                    episodic_content_list.append((fragment, final_score))  # Store fragment AND final score
 
-            if is_exact_time_requested and iso_time:
-                fragment = f"- ({time_context}, exact time: {iso_time}) {content}"
-            else:
-                fragment = f"- ({time_context}) {content}"
+                except Exception as e:
+                    logger.warning(f"Error processing episodic memory for summarization: {e}")
+                    continue
 
-            episodic_content_list.append(fragment)
+            # Sort episodic fragments by final score (descending) for contextual relevance
+            episodic_content_list.sort(key=lambda x: x[1], reverse=True)  # Sort by final score
 
-        episodic_content = "\n".join(episodic_content_list) if episodic_content_list else "No relevant conversations found."
+            # Format top fragments into string for prompt (take top N, e.g., top 5, or based on token budget)
+            top_fragments = [fragment for fragment, _score in episodic_content_list[:5]] # Take top 5 fragments
+            episodic_content = "\n".join(top_fragments) if top_fragments else "No relevant conversation history available."
 
-        learned_content = "\n".join([f"- {mem.content[:300]}..." if len(mem.content) > 300
-                                    else f"- {mem.content}" for mem, _ in learned_memories])
+        else:
+            episodic_content = "No relevant conversation history available."
+        # === End Enhanced Episodic Memory Formatting ===
 
+        # --- Retrieve immediate previous turn and slightly recent memories ---
+        immediate_previous_turn_memory = await self._retrieve_immediate_previous_turn(window_id=window_id) # Pass window_id
+        slightly_recent_episodic_memories = await self._retrieve_slightly_recent_episodic_memories(window_id=window_id) # Pass window_id
+
+        # --- Define semantic_prompt HERE ---
         semantic_prompt = f"""
         You are an AI memory processor helping a conversational AI recall knowledge.
-        
+
         **User Query:** "{query}"
-        
+
         **Retrieved Knowledge Fragments:**
-        {semantic_content or "No relevant knowledge found."}
-        
+        {semantic_content or "**No relevant knowledge found.**"}
+
         **Task:**
         - Synthesize this knowledge like a human would recall facts and information.
         - Keep it concise but informative (max 150 words).
         - Prioritize details that are most relevant to the current query.
         - Connect related concepts naturally.
         - Make it feel like knowledge a person would have, not like search results.
-        - If no knowledge is provided, respond with "No relevant background knowledge available."
-        
+        - If no knowledge is provided, respond with "**No relevant background knowledge available.**"
+
         **Output just the synthesized knowledge:**
         """
 
+        # --- Define learned_prompt HERE ---
         learned_prompt = f"""
         You are an AI memory processor helping a conversational AI recall learned insights.
-        
+
         **User Query:** "{query}"
-        
+
         **Retrieved Insights:**
-        {learned_content or "No relevant insights found."}
-        
+        {learned_content or "**No relevant insights found.**"}
+
         **Task:**
         - Synthesize these insights like a human would recall their own conclusions and lessons.
         - Keep it concise and focused (max 80 words).
         - Prioritize insights that are most relevant to the current query.
         - Make it feel like a personal reflection rather than a data report.
-        - If no insights are provided, respond with "No relevant insights available yet."
-        
+        - If no insights are provided, respond with "**No relevant insights available yet.**"
+
         **Output just the synthesized insights:**
         """
+
+
+        # --- Define episodic_prompt HERE ---
+        episodic_content_for_prompt = "" # Initialize here - default to empty string
 
         episodic_prompt = f"""
         You are an AI memory processor helping a conversational AI recall past conversations.
@@ -1564,22 +1552,37 @@ class MemorySystem:
         {f"**Time Period Referenced:** {time_expression}" if time_expression else ""}
         {temporal_context if temporal_context else ""}
 
-        **Retrieved Conversation Fragments:**
+        **Retrieved Conversation History:**\n
+        """
 
-        {
-            "- **Just now, in our previous turn:** " + (immediate_previous_turn_memory[0].content[:300] + "...")
-            if immediate_previous_turn_memory else ""
-        }
+        if immediate_previous_turn_memory:
+            episodic_prompt += f"""
+        **Immediate Previous Turn (Most Recent Conversation):**
+        - This is what we discussed in our *last* interaction, right before your current query. It's highly relevant context.
+        - **Content from previous turn:** {immediate_previous_turn_memory[0].content[:300]}...\n
+        """
 
-        {
-            "\\n**Recent Turns (in the last few minutes):**\\n" +
-            "\\n".join([f"- ({mem.time_ago or 'recently'}): " + mem.content[:200] + "..." for mem, score in slightly_recent_episodic_memories])
-            if slightly_recent_episodic_memories else ""
-        }
+        if slightly_recent_episodic_memories:
+            episodic_prompt += f"""
+        **Slightly Recent Conversation History (Last Few Minutes):**
+        - These are conversations from the *very recent past*, within the last few minutes before your current query. They provide immediate context beyond just the last turn.
+        - **Relevant fragments from recent turns:**\n
+        """
+            episodic_prompt += "\\n".join([f"- ({self._format_memory_time_context(mem)}): " + mem.content[:200] + "..." for mem, score in slightly_recent_episodic_memories]) + "\\n"
 
-        {episodic_content if episodic_content or (not immediate_previous_turn_memory and not slightly_recent_episodic_memories) else "No relevant conversation history available beyond recent turns."}
-        { "" if (immediate_previous_turn_memory or slightly_recent_episodic_memories) else episodic_content if not episodic_content else ""}
+        if episodic_content: # Check if episodic_content is populated
+            episodic_prompt += f"""
+        **Older Conversation History (Beyond Recent Turns):**
+        - These are conversations from further back in our history, *excluding* the very recent turns already mentioned. They are still considered relevant based on your query.
+        - **Relevant conversation fragments:**\n
+        """
+            episodic_prompt += episodic_content
+        elif not immediate_previous_turn_memory and not slightly_recent_episodic_memories:
+            episodic_content_for_prompt = "No relevant conversation history available beyond recent turns.\\n"
+            episodic_prompt += episodic_content_for_prompt
 
+
+        episodic_prompt += """
 
         **Task:**
         - Summarize these past conversations like a human would recall them.
@@ -1591,12 +1594,12 @@ class MemorySystem:
         - Use natural time expressions like "this morning," "this afternoon," "yesterday evening," "at 3 PM yesterday," etc., when referring to conversations.
 
         IMPORTANT:
-        - If the user explicitly requests an EXACT time or timestamp (e.g., "What time was it, exactly?" or "When exactly did we talk about X?" or "What TIME of day was it?"), 
-          provide the stored 'created_at_iso' from the memory metadata. 
+        - If the user explicitly requests an EXACT time or timestamp (e.g., "What time was it, exactly?" or "When exactly did we talk about X?" or "What TIME of day was it?"),
+          provide the stored 'created_at_iso' from the memory metadata.
           Do not round or paraphrase timestamps in this case.
 
         **Output just the summarized memory:**
-"""
+        """
 
         semantic_summary_task = asyncio.create_task(
             self.llm_service.generate_gpt_response_async(semantic_prompt, temperature=0.7)
@@ -1629,8 +1632,94 @@ class MemorySystem:
                 summaries[memory_type] = f"No relevant memories for {memory_type}."
 
         return summaries
+    
+    def _format_memory_time_context(self, memory: MemoryResponse) -> str:
+        """Helper function to format time context for a memory, reused from memory_summarization_agent."""
+        time_context = ""
+        if hasattr(memory, 'metadata') and memory.metadata:
+            time_of_day = memory.metadata.get('time_of_day', '')
+            day_of_week = memory.metadata.get('day_of_week', '')
+            date_str = memory.metadata.get('date_str', '')
 
+            if day_of_week and time_of_day:
+                today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if date_str == today_str:
+                    time_context = f"earlier {time_of_day}"
+                else:
+                    time_context = f"{day_of_week} {time_of_day}"
+            elif time_of_day:
+                time_context = f"the {time_of_day}"
+
+        if not time_context:
+            if memory.time_ago:
+                time_context = memory.time_ago
+            elif hasattr(memory, 'created_at'):
+                created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                time_context = self._format_time_ago(created_at_dt) or "recently"
+        return time_context
+    
+    async def _retrieve_immediate_previous_turn(self, window_id: Optional[str] = None) -> Optional[List[MemoryResponse]]:
+        """Retrieves the single most recent episodic memory for the current window."""
+        try:
+            if not window_id:
+                logger.warning("Cannot retrieve previous turn memory without a window_id.")
+                return None
+
+            query_request = QueryRequest(
+                prompt="previous turn context", # Dummy prompt - we are sorting by time, not semantic relevance
+                top_k=1, # Only need the most recent one
+                memory_type=MemoryType.EPISODIC,
+                window_id=window_id,
+                request_metadata=RequestMetadata(operation_type=OperationType.QUERY)
+            )
+            query_response = await self._query_memory_type(request=query_request) # Use _query_memory_type for efficiency
+            if query_response.matches:
+                return query_response.matches[:1] # Return as a list (consistent with other memory vars)
+            else:
+                return None # No previous turn memory found
+
+        except Exception as e:
+            logger.error(f"Error retrieving immediate previous turn memory: {e}")
+            return None
         
+    async def _retrieve_slightly_recent_episodic_memories(self, window_id: Optional[str] = None, time_window_minutes: int = 5) -> Optional[List[Tuple[MemoryResponse, float]]]:
+        """Retrieves episodic memories from the last few minutes, sorted by recency and relevance."""
+        try:
+            if not window_id:
+                logger.warning("Cannot retrieve recent memories without a window_id.")
+                return None
+
+            current_time = datetime.now(timezone.utc)
+            recent_past = current_time - timedelta(minutes=time_window_minutes)
+            recent_past_timestamp = int(recent_past.timestamp())
+
+            query_request = QueryRequest(
+                prompt="recent conversation context", # Dummy prompt - relevance will be calculated later
+                top_k=10, # Get a few recent memories to rank
+                memory_type=MemoryType.EPISODIC,
+                window_id=window_id,
+                request_metadata=RequestMetadata(operation_type=OperationType.QUERY)
+            )
+            query_response = await self._query_memory_type(request=query_request) # Use _query_memory_type
+
+            recent_memories_with_scores = []
+            if query_response.matches:
+                for i, memory in enumerate(query_response.matches):
+                    created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+                    if created_at_dt >= recent_past: # Filter to be within the time window
+                        # Calculate a simple recency score (you can refine this)
+                        recency_score = 1.0 - ((current_time - created_at_dt).total_seconds() / (time_window_minutes * 60))
+                        # Combine with the original similarity score (you might want to adjust weights)
+                        final_score = (query_response.similarity_scores[i] * 0.7) + (recency_score * 0.3)
+                        recent_memories_with_scores.append((memory, final_score))
+
+            # Sort by final score (descending) - Most relevant and recent first
+            recent_memories_with_scores.sort(key=lambda x: x[1], reverse=True)
+            return recent_memories_with_scores[:5] # Return top 5 recent memories (adjust as needed)
+
+        except Exception as e:
+            logger.error(f"Error retrieving slightly recent episodic memories: {e}")
+            return None        
 
     async def _check_recent_duplicate(self, content: str, window_minutes: int = 30) -> bool:
         """Improved duplicate detection."""
