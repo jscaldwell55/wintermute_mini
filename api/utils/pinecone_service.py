@@ -569,6 +569,33 @@ class PineconeService(MemoryService):
         except Exception as e:
             logger.error(f"Failed to query memories from Pinecone: {e}")
             raise PineconeError(f"Failed to query memories: {e}") from e
+        
+    async def update_memory_metadata(self, memory_id: str, metadata_updates: Dict[str, Any]) -> bool:
+        """Updates specific metadata fields for a memory without changing the vector."""
+        try:
+            # First, get the current memory to preserve the vector and other metadata
+            memory_data = await self.get_memory_by_id(memory_id)
+            if not memory_data:
+                logger.warning(f"Cannot update metadata for memory {memory_id}: Memory not found")
+                return False
+                
+            # Merge the current metadata with the updates
+            updated_metadata = memory_data["metadata"].copy()
+            updated_metadata.update(metadata_updates)
+            
+            # Re-upsert the memory with the updated metadata
+            self.index.upsert(vectors=[(
+                memory_id, 
+                memory_data["vector"], 
+                updated_metadata
+            )])
+            
+            logger.info(f"📝 Updated metadata for memory: {memory_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to update memory metadata: {e}")
+            return False
 
     async def sample_memories(
         self, limit: int = 1000, include_vector: bool = False
