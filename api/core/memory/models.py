@@ -93,6 +93,9 @@ class MemoryResponse(BaseModel):
     # Add this validator to handle malformed timestamps
     @field_validator('created_at', mode='before')
     def parse_timestamp(cls, value):
+        from datetime import datetime, timezone
+        from dateutil import parser
+        
         if isinstance(value, datetime):
             return value
             
@@ -104,12 +107,10 @@ class MemoryResponse(BaseModel):
                 value = value[:-1]  # Remove the 'Z' at the end
                 
             try:
-                from dateutil import parser
                 return parser.parse(value)
             except Exception as e:
                 import logging
                 logging.warning(f"Failed to parse timestamp: {value}, error: {e}")
-                from datetime import datetime, timezone
                 return datetime.now(timezone.utc)
                 
         return value
