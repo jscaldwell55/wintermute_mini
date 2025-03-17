@@ -291,9 +291,9 @@ class GraphMemoryRetriever:
             return [], []
         
         missing_nodes = [memory.id for memory in entry_point_memories 
-                    if not self.memory_graph.has_node(memory.id)]
+                if memory.id not in self.memory_graph.graph.nodes]
         if missing_nodes:
-            await self.repair_missing_nodes(missing_nodes)
+                await self.repair_missing_nodes(missing_nodes)
             
         associated_memories = []
         association_scores = []
