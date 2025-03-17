@@ -254,14 +254,7 @@ class PineconeService(MemoryService):
                 created_at_raw = metadata.get("created_at")
                 if isinstance(created_at_raw, str):
                     try:
-                        # Fix double timezone indicator: either remove Z or +00:00
-                        if created_at_raw.endswith('Z') and '+00:00' in created_at_raw:
-                            created_at_raw = created_at_raw.replace('+00:00Z', 'Z')
-
-                        # Now parse the fixed timestamp
-                        created_at = datetime.fromisoformat(
-                            normalize_timestamp(created_at_raw)
-                        )
+                        created_at = normalize_timestamp(created_at_raw) # Updated line: Use normalize_timestamp directly
                         metadata["created_at"] = created_at
                     except ValueError as e:
                         logger.warning(f"Error parsing timestamp '{created_at_raw}': {e}, using current time")
@@ -284,9 +277,7 @@ class PineconeService(MemoryService):
                 # Use normalize_timestamp here
                 created_at_raw = metadata.get("created_at")
                 if isinstance(created_at_raw, str):
-                    created_at = datetime.fromisoformat(
-                        normalize_timestamp(created_at_raw)
-                    )
+                    created_at = normalize_timestamp(created_at_raw) # Updated line: Use normalize_timestamp directly
                     metadata["created_at"] = created_at
 
                 return {
@@ -383,7 +374,7 @@ class PineconeService(MemoryService):
                                 normalize_timestamp(val).rstrip("Z")
                             )
                             normalized_filter["created_at_unix"] = int(dt.timestamp())
-                            logger.info(f"  String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {normalized_filter['created_at_unix']}") # Log string conversion and normalization
+                            logger.info(f"  Operator: {op}, String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {normalized_filter['created_at_unix']}") # Log string conversion and normalization
                         else:
                             # Already a number (likely a timestamp)
                             normalized_filter["created_at_unix"] = val
@@ -503,9 +494,7 @@ class PineconeService(MemoryService):
                 # Try ISO format first if available
                 if created_at_iso:
                     try:
-                        created_at = datetime.fromisoformat(
-                            created_at_iso # Removed normalize_timestamp here
-                        )
+                        created_at = normalize_timestamp(created_at_iso) # Updated line: Use normalize_timestamp
                         metadata["created_at"] = created_at
                     except Exception as e:
                         logger.warning(
@@ -522,9 +511,7 @@ class PineconeService(MemoryService):
                             )
                         elif isinstance(created_at_raw, str):
                             # If timestamp is string, convert directly (expecting ISO now)
-                            created_at = datetime.fromisoformat(
-                                created_at_raw # Removed normalize_timestamp here
-                            )
+                            created_at = normalize_timestamp(created_at_raw) # Updated line: Use normalize_timestamp
                         else:
                             logger.warning(
                                 f"Memory {result['id']}: Unexpected created_at format: {type(created_at_raw)}"

@@ -124,7 +124,7 @@ class MemorySystem:
 
             logger.info(f"Creating memory from request: {request}")
             memory_id = str(uuid.uuid4())
-            created_at = datetime.utcnow().isoformat() + "Z" #consistent and timezone aware
+            created_at = datetime.now(timezone.utc).isoformat() + "Z"
 
             semantic_vector = await self.vector_operations.create_semantic_vector(request.content)
 
@@ -444,7 +444,8 @@ class MemorySystem:
 
             matches = []
             similarity_scores = []
-            current_time = datetime.utcnow()
+            current_time = datetime.now(timezone.utc)
+
 
             for memory_data, similarity_score in combined_results:
                 logger.debug(f"Processing combined result: {memory_data}")
@@ -1763,7 +1764,8 @@ class MemorySystem:
                     created_at_unix = memory.metadata.get("created_at_unix")
                     if created_at_unix and created_at_unix >= recent_past_timestamp:
                         # Calculate a simple recency score (you can refine this)
-                        recency_score = 1.0 - ((current_time - datetime.fromtimestamp(created_at_unix)).total_seconds() / (time_window_minutes * 60))
+                        created_at_dt = datetime.fromtimestamp(created_at_unix, tz=timezone.utc) # Make timezone aware
+                        recency_score = 1.0 - ((current_time - created_at_dt).total_seconds() / (time_window_minutes * 60))
                         # Combine with the original similarity score (you might want to adjust weights)
                         final_score = (query_response.similarity_scores[i] * 0.7) + (recency_score * 0.3)
                         recent_memories_with_scores.append((memory, final_score))
