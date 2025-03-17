@@ -1101,6 +1101,10 @@ class MemorySystem:
                 return 1.0  # Perfect match for "yesterday" query
             elif any(x in query for x in ['this morning', 'today', 'yesterday', 'last week']):
                 return 0.2  # Significant penalty for non-matching memories in temporal queries
+            
+        # Add special handling for very recent memories (less than 10 minutes old)
+        if age_hours < 0.17:  # Less than 10 minutes (0.17 hours)
+            return 0.95  # Very high recency score for just-happened conversations
 
         # Standard bell curve logic for non-temporal queries remains the same
         if age_hours < very_recent_threshold:
@@ -1185,6 +1189,16 @@ class MemorySystem:
                     created_at_raw = memory_data["metadata"].get("created_at")
                     if not created_at_raw:
                         continue
+
+                    # Add the is_very_recent check here
+                    if memory_data["metadata"].get("is_very_recent", False):
+                        created_at = datetime.fromisoformat(memory_data["metadata"].get("created_at_iso", "").rstrip('Z'))
+                        if datetime.now(timezone.utc) - created_at > timedelta(minutes=10):
+                            # No longer very recent
+                            memory_data["metadata"]["is_very_recent"] = False
+                            # Optionally update in database
+                            await self.pinecone_service.update_memory_metadata(memory_data["id"], 
+                                                                            {"is_very_recent": False})
 
                     # Convert timestamp to datetime
                     if isinstance(created_at_raw, str):
@@ -1449,6 +1463,14 @@ class MemorySystem:
 
             for mem, _score in episodic_memories:
                 try:
+     
+                    if mem.metadata.get("is_very_recent", False):
+                        created_at = datetime.fromisoformat(mem.metadata.get("created_at_iso", "").rstrip('Z'))
+                        if datetime.now(timezone.utc) - created_at > timedelta(minutes=10):
+                            mem.metadata["is_very_recent"] = False
+                            # Optionally update in database 
+                            await self.pinecone_service.update_memory_metadata(mem.id, 
+                                                                            {"is_very_recent": False})
                     # Calculate semantic similarity between memory and CURRENT QUERY
                     memory_vector = mem.semantic_vector  # Assuming semantic_vector is populated
                     if memory_vector:
@@ -1655,16 +1677,34 @@ class MemorySystem:
         """Helper function to format time context for a memory, reused from memory_summarization_agent."""
         time_context = ""
         if hasattr(memory, 'metadata') and memory.metadata:
+
+            if memory.metadata.get("is_very_recent", False):
+                created_at = datetime.fromisoformat(memory.metadata.get("created_at_iso", "").rstrip('Z'))
+                if datetime.now(timezone.utc) - created_at <= timedelta(minutes=10):
+                    # Still very recent
+                    minutes_ago = (datetime.now(timezone.utc) - created_at).total_seconds() / 60
+                    return "just now" if minutes_ago < 2 else "a few minutes ago"
+                else:
+                    # No longer very recent, update flag
+                    memory.metadata["is_very_recent"] = False
+            # Get time metadata from memory
             time_of_day = memory.metadata.get('time_of_day', '')
             day_of_week = memory.metadata.get('day_of_week', '')
             date_str = memory.metadata.get('date_str', '')
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            
+            # Parse the timestamp
+            created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
+            now = datetime.now(timezone.utc)
+            minutes_ago = (now - created_at_dt).total_seconds() / 60
 
-            if day_of_week and time_of_day:
-                today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                if date_str == today_str:
-                    time_context = f"earlier {time_of_day}"
-                else:
-                    time_context = f"{day_of_week} {time_of_day}"
+            # Modified time_context formatting
+            if created_at_dt + timedelta(minutes=10) > now:
+                time_context = "just now" if minutes_ago < 2 else f"{int(minutes_ago)} minutes ago"
+            elif date_str == today_str:
+                time_context = f"earlier {time_of_day}"
+            elif day_of_week and time_of_day:
+                time_context = f"{day_of_week} {time_of_day}"
             elif time_of_day:
                 time_context = f"the {time_of_day}"
 
@@ -1840,8 +1880,9 @@ class MemorySystem:
             now = datetime.now(timezone.utc)
             diff = now - timestamp
 
-            if diff.total_seconds() < 1800:  # 30 minutes - Keep returning None for very recent
-                return None
+            if diff.total_seconds() < 600:  # 30 minutes - Keep returning None for very recent
+                minutes = max(1, int(diff.total_seconds() / 60))
+                return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
 
             # For memories within the last few hours, consider showing AM/PM time
             if diff.total_seconds() < (6 * 3600): # Within 6 hours
@@ -1935,6 +1976,7 @@ class MemorySystem:
                     "is_afternoon": 12 <= hour < 17,
                     "is_evening": 17 <= hour < 24,
                     "is_today": True,  # Will be useful for "today" queries
+                    "is_very_recent": True,
 
                     # Add hour for more specific filtering
                     "hour_of_day": current_time.hour,

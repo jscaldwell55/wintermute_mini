@@ -273,121 +273,112 @@ class GraphMemoryRetriever:
             return QueryResponse(matches=[], similarity_scores=[])
     
     async def _retrieve_graph_associations(
-        self, 
+        self,
         entry_point_memories: List[MemoryResponse],
         request: QueryRequest
     ) -> Tuple[List[MemoryResponse], List[float]]:
         """
-        Retrieve associated memories through graph traversal.
-        
-        Args:
-            entry_point_memories: Initial memories to start graph traversal from
-            request: Original query request
-            
-        Returns:
-            Tuple of (associated_memories, association_scores)
+        Retrieve associated memories through graph traversal using Dijkstra's algorithm.
         """
         if not entry_point_memories:
             return [], []
-        
-        missing_nodes = [memory.id for memory in entry_point_memories 
-                if memory.id not in self.memory_graph.graph.nodes]
+
+        missing_nodes = [memory.id for memory in entry_point_memories
+                        if memory.id not in self.memory_graph.graph.nodes]
         if missing_nodes:
-                await self.repair_missing_nodes(missing_nodes)
-            
+            await self.repair_missing_nodes(missing_nodes)
+
         associated_memories = []
         association_scores = []
         visited_ids = set()  # Track visited memory IDs
-        
+
         # Add entry point memory IDs to visited set
         for memory in entry_point_memories:
             visited_ids.add(memory.id)
-        
-        # For each entry point memory, find associated memories in the graph
+
+        # For each entry point memory, find associated memories using Dijkstra's
         for i, memory in enumerate(entry_point_memories):
             try:
                 # Get entry point vector score (for weighting later)
                 entry_point_score = 1.0
                 if i > 0:  # Only discount if not the top result
                     entry_point_score = 0.9  # Slightly discount if not top result
-                
-                # Get connected memories from graph
-                connected_memories = self.memory_graph.get_connected_memories(
-                    memory.id, 
+
+                # Use Dijkstra's pathfinding to get best paths
+                best_paths = self.memory_graph.find_best_paths(
+                    memory.id,
                     max_depth=self.max_graph_depth
                 )
 
-                # If you need to limit the number of results, do it after the call
-                if connected_memories:
-                    connected_memories = connected_memories[:self.max_memories_per_hop]
-                
-                for connected_id, relevance, depth in connected_memories:
-                    # Skip if already visited
+                for connected_id, path_cost, path_node_ids in best_paths[:self.max_memories_per_hop]: # Limit results
+                    # Skip if already visited (keep this)
                     if connected_id in visited_ids:
                         continue
-                        
                     visited_ids.add(connected_id)
-                    
-                    # Apply score decay based on hop distance
-                    decayed_score = relevance * (self.association_score_decay ** (depth - 1))
-                    
-                    # Weight by entry point's relevance
-                    final_score = decayed_score * entry_point_score
-                    
-                    # Skip if score too low
+
+                    # Calculate score - now based on path_cost (lower cost = better)
+                    # You'll need to experiment with how to convert path_cost to a relevance score
+                    # A simple approach:  Invert and normalize path_cost
+                    if path_cost == 0: # Handle direct connection case
+                        path_relevance = 1.0
+                    else:
+                        path_relevance = 1.0 / (1 + path_cost) # Normalize and invert (adjust normalization as needed)
+
+                    final_score = path_relevance * entry_point_score  # Weight with entry point score
+
                     if final_score < self.min_association_score:
                         continue
-                    
+
                     # Get memory details from Pinecone
                     memory_data = await self.pinecone_service.get_memory_by_id(connected_id)
                     if not memory_data:
                         continue
-                    
+
                     try:
                         # Debug the memory data structure
                         self.logger.debug(f"Memory data structure: {memory_data.keys()}")
-                        
+
                         # Initialize variables with defaults
                         content = ""
                         memory_type_str = "EPISODIC"  # Default memory type
                         window_id = None
-                        
+
                         # Try to extract from metadata first
                         if "metadata" in memory_data and isinstance(memory_data["metadata"], dict):
                             metadata = memory_data["metadata"]
-                            
+
                             # Get content
                             if "content" in metadata:
                                 content = metadata["content"]
-                            
+
                             # Get memory_type
                             if "memory_type" in metadata:
                                 memory_type_str = metadata["memory_type"]
-                                
+
                             # Get window_id
                             if "window_id" in metadata:
                                 window_id = metadata["window_id"]
-                        
+
                         # Fall back to direct access if not found in metadata
                         if not content and "content" in memory_data:
                             content = memory_data["content"]
-                            
+
                         if memory_type_str == "EPISODIC" and "memory_type" in memory_data:
                             memory_type_str = memory_data["memory_type"]
-                            
+
                         if not window_id and "window_id" in memory_data:
                             window_id = memory_data["window_id"]
-                        
+
                         # Ensure created_at is a properly formatted string
                         created_at_str = self._ensure_string_timestamp(
                             memory_data.get("created_at") or memory_data.get("metadata", {}).get("created_at")
                         )
-                        
+
                         # Make sure memory_type_str is a valid enum value
                         if memory_type_str not in [t.value for t in MemoryType]:
                             self.logger.warning(f"Invalid memory_type: {memory_type_str}, defaulting to EPISODIC")
                             memory_type_str = "EPISODIC"
-                        
+
                         # Create MemoryResponse with extracted fields
                         memory_response = MemoryResponse(
                             id=memory_data["id"],
@@ -397,47 +388,47 @@ class GraphMemoryRetriever:
                             metadata=memory_data.get("metadata", {}),
                             window_id=window_id
                         )
-                        
+
                         # Apply bell curve scoring if this is an episodic memory
                         memory_type_str = memory_data.get("metadata", {}).get("memory_type", "UNKNOWN")
                         if memory_type_str == "EPISODIC":
                             current_time = datetime.now(timezone.utc)
                             created_at = datetime.fromisoformat(created_at_str.rstrip('Z'))
-                            
+
                             # Calculate age in hours
                             age_hours = (current_time - created_at).total_seconds() / (60*60)
-                            
+
                             # Use bell curve recency scoring
                             recency_score = self._calculate_bell_curve_recency(age_hours)
-                            
+
                             # Adjust score with recency
                             recency_weight = getattr(self.settings, 'episodic_recency_weight', 0.35)
                             relevance_weight = 1 - recency_weight
-                            
+
                             # Combine score components
                             combined_score = (relevance_weight * final_score) + (recency_weight * recency_score)
-                            
+
                             # Apply memory type weight
                             memory_weight = getattr(self.settings, 'episodic_memory_weight', 0.40)
                             final_score = combined_score * memory_weight
-                            
-                            self.logger.info(f"Applied bell curve to associated memory {memory_data['id']}: " 
+
+                            self.logger.info(f"Applied bell curve to associated memory {memory_data['id']}: "
                                             f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, "
                                             f"Adjusted Score={final_score:.3f}")
-                        
+
                         associated_memories.append(memory_response)
                         association_scores.append(float(final_score))
-                        
-                        self.logger.info(f"Added associated memory {memory_data['id']} with score {final_score:.3f} (depth {depth})")
-                        
+                        self.logger.info(f"Added associated memory {memory_data['id']} with score {final_score:.3f} (path cost {path_cost:.3f})")
+
+
                     except Exception as e:
                         self.logger.error(f"Error creating MemoryResponse from graph result: {e}")
                         continue
-                        
+
             except Exception as e:
-                self.logger.error(f"Error processing graph traversal for memory {memory.id}: {e}")
+                self.logger.error(f"Error processing graph traversal (Dijkstra's) for memory {memory.id}: {e}")
                 continue
-        
+
         return associated_memories, association_scores
     
     def _combine_results(

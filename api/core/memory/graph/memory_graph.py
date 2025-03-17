@@ -411,6 +411,42 @@ class MemoryGraph:
             return path
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return []
+        
+    def find_best_paths(self, source_id: str, max_depth: int = 2) -> List[Tuple[str, float, List[str]]]: # Return paths and costs
+        """
+        Find best paths (using Dijkstra's) from a source memory to other memories within max_depth.
+
+        Returns a list of tuples: (target_memory_id, path_cost, path_node_ids)
+        """
+        if not self.graph.has_node(source_id):
+            self.logger.warning(f"Source memory node {source_id} not found in graph")
+            return []
+
+        best_paths_found = []
+        visited_nodes = set([source_id])
+        nodes_to_explore = [(source_id, 0, [source_id])] # (node, current_cost, path)
+
+        while nodes_to_explore:
+            current_node_id, current_cost, current_path = nodes_to_explore.pop(0)
+
+            if current_node_id != source_id: # Don't include start node as a 'connected' node
+                best_paths_found.append((current_node_id, current_cost, current_path))
+
+            if len(current_path) - 1 < max_depth: # Check depth relative to path length
+                for neighbor_id in self.graph.successors(current_node_id):
+                    if neighbor_id not in visited_nodes:
+                        edge_data = self.graph.edges[current_node_id, neighbor_id]
+                        edge_weight = edge_data.get('weight', 1.0) # Use edge weight as cost
+
+                        new_cost = current_cost + (1 / edge_weight if edge_weight > 0 else float('inf')) # Invert weight for "cost" - higher weight = lower cost
+                        new_path = list(current_path) # Create copy to avoid modifying original path
+                        new_path.append(neighbor_id)
+
+                        nodes_to_explore.append((neighbor_id, new_cost, new_path))
+                        visited_nodes.add(neighbor_id)
+
+        best_paths_found.sort(key=lambda x: x[1]) # Sort by path cost (ascending - lower cost is better)
+        return best_paths_found
 
     def get_graph_stats(self) -> Dict[str, Any]:
         """Get statistics about the memory graph."""

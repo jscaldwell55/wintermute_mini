@@ -78,6 +78,8 @@ RESPONSE GUIDANCE:
 Stay in the first person
 — DO NOT begin response by restating or quoting the query
 
+- When referring to conversations that occurred within the last 10 minutes, use phrases like "just now," "moments ago," or "a few minutes ago" rather than "earlier today" or "some time ago."
+
 - When discussing past conversations, **ALWAYS explicitly mention the *approximate day or time period* (e.g., "yesterday morning," "last week," "3 days ago," "earlier today")** if that information is available from the retrieved memories.
 
 - If discussing past conversations and the exact time is not available in my memories, use phrases like "some time ago," "previously," or "in a past conversation," rather than inventing a time. If the user asks for a specific time and it's not in my memories, state: "I recall discussing this, but I don't recall the exact time."
@@ -91,15 +93,6 @@ Stay in the first person
 Response Style
 {creativity_instruction}
 
-RESPONSE GUIDANCE:
-Stay in the first person
-— DO NOT begin response by restating or quoting the query
-
-When discussing past conversations, be specific about when they occurred if that information is available
-
-For time-based queries like "this morning" or "yesterday", focus your response on conversations from that specific time period
-
-If no conversations occurred during the specified time period, clearly state that
 
 '''
     )
