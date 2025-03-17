@@ -165,7 +165,13 @@ class GraphMemoryRetriever:
         
         # Already a string, normalize it
         if isinstance(timestamp_value, str):
-            return normalize_timestamp(timestamp_value)
+            normalized_value = normalize_timestamp(timestamp_value)
+            if isinstance(normalized_value, str):
+                return normalized_value
+            else:
+                # If normalize_timestamp returned a datetime
+                return normalized_value.isoformat()
+        
         return str(timestamp_value)
     
     async def _retrieve_vector_memories(self, request: QueryRequest) -> QueryResponse:
@@ -191,13 +197,32 @@ class GraphMemoryRetriever:
                 filter_dict["memory_type"] = request.memory_type.value
                 
             # Query Pinecone
-            results = await self.pinecone_service.query_memories(
-                query_vector=query_vector,
-                top_k=request.top_k,
-                filter=filter_dict,
-                include_metadata=True
-            )
-            
+            try:
+                results = await self.pinecone_service.query_memories(
+                    query_vector=query_vector,
+                    top_k=request.top_k,
+                    filter=filter_dict,
+                    include_metadata=True
+                )
+                
+                # Add check for empty results
+                if not results:
+                    self.logger.warning("No results returned from Pinecone query")
+                    return QueryResponse(matches=[], similarity_scores=[])
+                
+                # Convert to MemoryResponse objects
+                matches = []
+                scores = []
+                
+                # Skip processing if no results returned
+                if len(results) == 0:
+                    self.logger.info("Pinecone returned empty results list")
+                    return QueryResponse(matches=[], similarity_scores=[])
+                    
+            except Exception as e:
+                self.logger.error(f"Error querying Pinecone: {e}")
+                return QueryResponse(matches=[], similarity_scores=[])
+                        
             # Convert to MemoryResponse objects
             matches = []
             scores = []

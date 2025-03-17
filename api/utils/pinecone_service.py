@@ -351,31 +351,31 @@ class PineconeService(MemoryService):
                 normalized_filter = filter.copy()
 
                 # Handle created_at filters specifically
-            if "created_at" in normalized_filter:
-                logger.info("Original filter had 'created_at', normalizing...")  # Log when normalization is triggered
-                # If created_at is a dictionary (range query)
-                if isinstance(normalized_filter["created_at"], dict):
-                    logger.info("  created_at is a dict (range query)")  # Log range query detection
-                    unix_ranges = {}
-                    for op, val in normalized_filter["created_at"].items():
-                        if isinstance(val, datetime):
-                            unix_ranges[op] = int(val.timestamp())
-                            logger.info(f"  Operator: {op}, Datetime Value: {val}, Converted Unix Timestamp: {unix_ranges[op]}")  # Log datetime conversion
-                        elif isinstance(val, str):
-                            # Properly handle normalize_timestamp return value
-                            normalized_value = normalize_timestamp(val)
-                            if isinstance(normalized_value, str):
-                                dt = datetime.fromisoformat(normalized_value.rstrip("Z"))
+                if "created_at" in normalized_filter:
+                    logger.info("Original filter had 'created_at', normalizing...")  # Log when normalization is triggered
+                    # If created_at is a dictionary (range query)
+                    if isinstance(normalized_filter["created_at"], dict):
+                        logger.info("  created_at is a dict (range query)")  # Log range query detection
+                        unix_ranges = {}
+                        for op, val in normalized_filter["created_at"].items():
+                            if isinstance(val, datetime):
+                                unix_ranges[op] = int(val.timestamp())
+                                logger.info(f"  Operator: {op}, Datetime Value: {val}, Converted Unix Timestamp: {unix_ranges[op]}")  # Log datetime conversion
+                            elif isinstance(val, str):
+                                # Properly handle normalize_timestamp return value
+                                normalized_value = normalize_timestamp(val)
+                                if isinstance(normalized_value, str):
+                                    dt = datetime.fromisoformat(normalized_value.rstrip("Z"))
+                                else:
+                                    # Already a datetime object
+                                    dt = normalized_value
+                                
+                                unix_ranges[op] = int(dt.timestamp())
+                                logger.info(f"  Operator: {op}, String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {unix_ranges[op]}")  # Log string conversion and normalization
                             else:
-                                # Already a datetime object
-                                dt = normalized_value
-                            
-                            unix_ranges[op] = int(dt.timestamp())
-                            logger.info(f"  Operator: {op}, String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {unix_ranges[op]}")  # Log string conversion and normalization
-                        else:
-                            # Already a number (likely a timestamp)
-                            unix_ranges[op] = val
-                            logger.info(f"  Operator: {op}, Numeric Value (assumed timestamp): {val}")  # Log numeric value assumption
+                                # Already a number (likely a timestamp)
+                                unix_ranges[op] = val
+                                logger.info(f"  Operator: {op}, Numeric Value (assumed timestamp): {val}")  # Log numeric value assumption
 
                     # Replace with created_at_unix for better filtering
                     normalized_filter["created_at_unix"] = unix_ranges
@@ -497,6 +497,11 @@ class PineconeService(MemoryService):
                 include_metadata=include_metadata,
                 filter=query_filter,
             )
+
+            # Add null check for results
+            if not results or "matches" not in results or not results["matches"]:
+                logger.warning("Pinecone query returned no matches or empty result structure")
+                return []
 
             # Process results
             logger.info(
