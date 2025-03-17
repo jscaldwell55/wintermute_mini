@@ -775,7 +775,7 @@ class MemorySystem:
             return {}
 
         # Parse the temporal expression
-        start_time, end_time = self.parse_time_expression(matched_expr)
+        start_time, end_time = await self.parse_time_expression(matched_expr)
 
         # Add buffer to the time window (e.g., ±3 hours)
         buffer = timedelta(hours=3)
