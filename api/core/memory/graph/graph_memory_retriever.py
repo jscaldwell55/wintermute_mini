@@ -165,9 +165,14 @@ class GraphMemoryRetriever:
         
         # Already a string, normalize it
         if isinstance(timestamp_value, str):
-            # Fix for timestamps with both +00:00 and Z
-            if '+00:00Z' in timestamp_value:
-                timestamp_value = timestamp_value.replace('+00:00Z', '+00:00')
+            # More comprehensive fix for timestamps with both timezone and Z
+            # Match pattern like 2025-03-19T20:14:55.388+00:00Z where +00:00 can be any timezone offset
+            if '+' in timestamp_value and timestamp_value.endswith('Z'):
+                # Find the position of the + sign for timezone offset
+                plus_pos = timestamp_value.rfind('+')
+                if plus_pos > 0:
+                    # Extract up to the +, and the timezone part without the Z
+                    timestamp_value = timestamp_value[:plus_pos] + timestamp_value[plus_pos:-1]
             
             normalized_value = normalize_timestamp(timestamp_value)
             if isinstance(normalized_value, str):
@@ -612,10 +617,13 @@ class GraphMemoryRetriever:
                         elif "created_at_unix" in metadata:
                             # Convert Unix timestamp to ISO string
                             unix_ts = metadata["created_at_unix"]
-                            created_at = datetime.fromtimestamp(unix_ts, tz=timezone.utc).isoformat() + "Z"
+                            created_at = datetime.fromtimestamp(unix_ts, tz=timezone.utc).isoformat()
                         else:
                             # Use current time as fallback
-                            created_at = datetime.now(timezone.utc).isoformat() + "Z"
+                            created_at = datetime.now(timezone.utc).isoformat()
+                        
+                        # Make sure created_at is valid
+                        created_at = self._ensure_string_timestamp(created_at)
                         
                         # Create Memory object with proper created_at
                         memory = Memory(
@@ -635,5 +643,8 @@ class GraphMemoryRetriever:
                     except Exception as e:
                         logger.error(f"Error converting memory data to Memory object: {e}")
                         # As a fallback, add the node directly to graph
-                        self.memory_graph.graph.add_node(memory_id, **memory_data.get("metadata", {}))
+                        # But first fix any timestamp issues in the metadata
+                        if "created_at" in metadata:
+                            metadata["created_at"] = self._ensure_string_timestamp(metadata["created_at"])
+                        self.memory_graph.graph.add_node(memory_id, **metadata)
                         logger.info(f"Added node {memory_id} directly to graph as fallback")
