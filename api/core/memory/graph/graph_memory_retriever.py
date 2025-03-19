@@ -130,9 +130,14 @@ class GraphMemoryRetriever:
         for i, memory in enumerate(memories):
             content_lower = memory.content.lower()
             
+            # Check if this memory contains substantive content (not just "I don't recall")
+            if "i don't recall" in content_lower or "no relevant" in content_lower:
+                # Skip boosting or even penalize these non-informative memories
+                continue
+                
             for term in important_terms:
                 if term in content_lower:
-                    # Significant boost (2x) for memories containing query terms
+                    # Significant boost for memories containing query terms
                     original_score = scores[i]
                     scores[i] *= 2.0
                     self.logger.info(f"Boosted memory {memory.id} with content term '{term}' from {original_score:.3f} to {scores[i]:.3f}")
