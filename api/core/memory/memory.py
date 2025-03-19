@@ -344,7 +344,9 @@ class MemorySystem:
 
                 pinecone_filter = {
                     "memory_type": "EPISODIC",
-                    "created_at": {"$gte": seven_days_ago_timestamp}
+                    "created_at_unix": {  # Corrected line: using created_at_unix
+                        "$gte": seven_days_ago_timestamp
+                    }
                 }
                 logger.info(f"Querying EPISODIC memories with filter: {pinecone_filter}")
 
@@ -362,7 +364,9 @@ class MemorySystem:
                 if request.window_id:
                     fallback_filter = {
                         "memory_type": "EPISODIC",
-                        "created_at": {"$gte": seven_days_ago_timestamp},
+                        "created_at_unix": {  # Corrected line: using created_at_unix
+                            "$gte": seven_days_ago_timestamp
+                        },
                         "window_id": request.window_id
                     }
                     fallback_task = asyncio.create_task(
