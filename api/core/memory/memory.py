@@ -1176,7 +1176,7 @@ class MemorySystem:
                 seven_days_ago_timestamp = int(seven_days_ago.timestamp())
                 pinecone_filter = {
                     "memory_type": "EPISODIC",
-                    "created_at": {"$gte": seven_days_ago_timestamp}
+                    "created_at_unix": {"$gte": seven_days_ago_timestamp}
                 }
             elif request.memory_type == MemoryType.LEARNED:
                 pinecone_filter = {"memory_type": "LEARNED"}
@@ -1873,7 +1873,7 @@ class MemorySystem:
                 top_k=5,  # Check more potential matches
                 filter={
                     "memory_type": "EPISODIC",
-                    "created_at": {"$gte": recent_timestamp}  # Use the integer timestamp
+                    "created_at_unix": {"$gte": recent_timestamp}  # Changed from created_at to created_at_unix
                 },
                 include_metadata=True
             )
@@ -2132,7 +2132,7 @@ class MemorySystem:
             # Query for old episodic memories
             filter_dict = {
                 "memory_type": "EPISODIC",
-                "created_at": {"$lt": cutoff_timestamp}  # Less than cutoff
+                "created_at_unix": {"$lt": cutoff_timestamp}  # Less than cutoff
             }
 
             # Generate a vector for the query (doesn't matter what vector since we're filtering by metadata)
