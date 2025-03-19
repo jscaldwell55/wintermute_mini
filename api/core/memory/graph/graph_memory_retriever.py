@@ -98,6 +98,7 @@ class GraphMemoryRetriever:
     def _boost_content_relevance(self, memories, scores, query):
         """
         Boost relevance scores for memories that match specific content terms in the query
+        and penalize non-informative memories
         """
         query_lower = query.lower()
         
@@ -124,15 +125,42 @@ class GraphMemoryRetriever:
         if not important_terms:
             return memories, scores  # No important terms found
         
+        # Add a comprehensive list of negative terms to detect empty responses
+        negative_terms = [
+            "i don't recall", 
+            "i'm sorry", 
+            "no relevant", 
+            "haven't discussed",
+            "don't remember",
+            "i do not recall",
+            "not recall any",
+            "not remember any",
+            "doesn't look like",
+            "nothing specific",
+            "nothing relevant"
+        ]
+        
         self.logger.info(f"Content query detected with terms: {important_terms}")
         
-        # Boost scores for memories that contain the important terms
+        # First pass: penalize memories with negative/empty content
         for i, memory in enumerate(memories):
             content_lower = memory.content.lower()
             
-            # Check if this memory contains substantive content (not just "I don't recall")
-            if "i don't recall" in content_lower or "no relevant" in content_lower:
-                # Skip boosting or even penalize these non-informative memories
+            # Check if this memory contains negative/empty content
+            for term in negative_terms:
+                if term in content_lower:
+                    # Significantly penalize empty responses
+                    original_score = scores[i]
+                    scores[i] *= 0.1  # Reduce score to 10% of original
+                    self.logger.info(f"Penalized memory {memory.id} containing '{term}' from {original_score:.3f} to {scores[i]:.3f}")
+                    break
+        
+        # Second pass: boost memories with important terms
+        for i, memory in enumerate(memories):
+            content_lower = memory.content.lower()
+            
+            # Skip if already penalized
+            if any(term in content_lower for term in negative_terms):
                 continue
                 
             for term in important_terms:
