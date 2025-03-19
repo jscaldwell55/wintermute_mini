@@ -35,7 +35,7 @@ export default defineConfig({
                         'react',
                         'react-dom',
                         'lucide-react',
-                        '@vapi-ai/web' // ADD VAPI HERE
+                        
                     ],
                 },
             },

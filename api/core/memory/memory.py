@@ -1673,13 +1673,13 @@ class MemorySystem:
         """
 
         semantic_summary_task = asyncio.create_task(
-            self.llm_service.generate_gpt_response_async(semantic_prompt, temperature=0.7)
+            self.llm_service.generate_gpt_response_async(semantic_prompt, temperature=0.5)
         ) if semantic_content else None
         episodic_summary_task = asyncio.create_task(
-            self.llm_service.generate_gpt_response_async(episodic_prompt, temperature=0.7)
+            self.llm_service.generate_gpt_response_async(episodic_prompt, temperature=0.5)
         ) if episodic_content or immediate_previous_turn_memory or slightly_recent_episodic_memories else None
         learned_summary_task = asyncio.create_task(
-            self.llm_service.generate_gpt_response_async(learned_prompt, temperature=0.7)
+            self.llm_service.generate_gpt_response_async(learned_prompt, temperature=0.5)
         ) if learned_content else None
 
         tasks_to_gather = [task for task in [semantic_summary_task, episodic_summary_task, learned_summary_task] if task is not None]

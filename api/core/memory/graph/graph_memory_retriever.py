@@ -165,6 +165,10 @@ class GraphMemoryRetriever:
         
         # Already a string, normalize it
         if isinstance(timestamp_value, str):
+            # Fix for timestamps with both +00:00 and Z
+            if '+00:00Z' in timestamp_value:
+                timestamp_value = timestamp_value.replace('+00:00Z', '+00:00')
+            
             normalized_value = normalize_timestamp(timestamp_value)
             if isinstance(normalized_value, str):
                 return normalized_value
