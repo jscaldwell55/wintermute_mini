@@ -179,8 +179,8 @@ class GraphMemoryRetriever:
         return str(timestamp_value)
     
     async def _retrieve_vector_memories(self, request: QueryRequest) -> QueryResponse:
-        is_time_query = any(x in request.prompt.lower() for x in ["this morning", "today", "yesterday", "last week"])
-    
+        days_of_week = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        is_time_query = any(x in request.prompt.lower() for x in ["this morning", "today", "yesterday", "last week"] + days_of_week)
         if is_time_query:
             # Add additional fields to retrieve and log
             logger.info(f"Time-specific query detected: '{request.prompt}'")
@@ -334,7 +334,8 @@ class GraphMemoryRetriever:
             visited_ids.add(memory.id)
 
         # **Temporal Query Detection Logic (Phase 1 Enhancement):**
-        is_temporal_query = any(x in request.prompt.lower() for x in ["when", "yesterday", "last week", "this morning", "today", "past"]) # Add more keywords as needed
+        days_of_week = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        is_temporal_query = any(x in request.prompt.lower() for x in ["when", "yesterday", "last week", "this morning", "today", "past"] + days_of_week)
         self.logger.info(f"Is temporal query: {is_temporal_query} for query: {request.prompt[:50]}...")
 
 
