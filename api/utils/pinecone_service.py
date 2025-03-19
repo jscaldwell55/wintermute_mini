@@ -118,42 +118,28 @@ class PineconeService(MemoryService):
                 elif key == "created_at" and isinstance(value, str):
                     # Use the normalize_timestamp function which returns a datetime
                     dt = normalize_timestamp(value)
-                    # Store as ISO string WITHOUT the Z
-                    cleaned_metadata["created_at"] = dt.isoformat()
-                    
-                    # Ensure we always have created_at_unix for filtering
-                    if "created_at_unix" not in metadata:
-                        cleaned_metadata["created_at_unix"] = int(dt.timestamp())
+                    cleaned_metadata["created_at_iso"] = dt.isoformat(timespec='milliseconds') + "Z" # Store ISO with Z
+                    cleaned_metadata["created_at_unix"] = int(dt.timestamp()) # Store Unix timestamp
                 elif key == "created_at" and isinstance(value, datetime):
-                    # Convert datetime to ISO string WITHOUT adding Z
-                    cleaned_metadata["created_at"] = value.isoformat()
-                    cleaned_metadata["created_at_unix"] = int(value.timestamp())
+                    cleaned_metadata["created_at_iso"] = value.isoformat(timespec='milliseconds') + "Z" # Store ISO with Z
+                    cleaned_metadata["created_at_unix"] = int(value.timestamp()) # Store Unix timestamp
                 elif isinstance(value, (str, int, float, bool, list)):
                     cleaned_metadata[key] = value
                 elif isinstance(value, datetime):
-                    cleaned_metadata[key] = value.isoformat()
-
-                    # If this is some other datetime field, also store a unix version
-                    if key.endswith("_at") and not key.endswith("_unix"):
-                        unix_key = f"{key}_unix"
-                        cleaned_metadata[unix_key] = int(value.timestamp())
+                    cleaned_metadata[key] = value.isoformat(timespec='milliseconds') + "Z" # Ensure ISO with Z
+                    if key.endswith("_at") and not key.endswith("_unix"): # Also store unix for other datetime fields
+                        cleaned_metadata[f"{key}_unix"] = int(value.timestamp())
                 else:
                     cleaned_metadata[key] = str(value)
 
-            # This is now properly outside the loop
-            # Ensure created_at_unix is always present
-            if "created_at_unix" not in cleaned_metadata and "created_at" in cleaned_metadata:
-                try:
-                    dt = datetime.fromisoformat(normalize_timestamp(cleaned_metadata["created_at"]))
-                    cleaned_metadata["created_at_unix"] = int(dt.timestamp())
-                except Exception as e:
-                    logger.warning(f"Failed to create created_at_unix from created_at: {e}")
-                    # Fallback to current time
-                    cleaned_metadata["created_at_unix"] = int(time.time())
+            # Ensure 'created_at' (for legacy reasons) is also ISO format, but without Z - for backward compatibility if needed, though 'created_at_iso' is preferred
+            if "created_at_iso" in cleaned_metadata:
+                cleaned_metadata["created_at"] = datetime.fromisoformat(cleaned_metadata["created_at_iso"].rstrip('Z')).isoformat()
 
             logger.info(
                 f"📝 Creating memory in Pinecone: {memory_id}, metadata keys: {list(cleaned_metadata.keys())}"
             )  # Log metadata keys
+
             self.index.upsert(vectors=[(memory_id, vector, cleaned_metadata)])
             return True
         except Exception as e:
@@ -177,38 +163,24 @@ class PineconeService(MemoryService):
                     elif key == "created_at" and isinstance(value, str):
                         # Use the normalize_timestamp function which now returns a datetime
                         dt = normalize_timestamp(value)
-                        # Store as ISO string WITHOUT the Z (important!)
-                        cleaned_metadata["created_at"] = dt.isoformat()
-                        
-                        # Ensure we always have created_at_unix for filtering
-                        if "created_at_unix" not in metadata:
-                            cleaned_metadata["created_at_unix"] = int(dt.timestamp())
+                        cleaned_metadata["created_at_iso"] = dt.isoformat(timespec='milliseconds') + "Z" # Store ISO with Z
+                        cleaned_metadata["created_at_unix"] = int(dt.timestamp()) # Store Unix timestamp
                     elif key == "created_at" and isinstance(value, datetime):
-                        # Convert datetime to ISO string WITHOUT adding Z
-                        cleaned_metadata["created_at"] = value.isoformat()
-                        cleaned_metadata["created_at_unix"] = int(value.timestamp())
+                        cleaned_metadata["created_at_iso"] = value.isoformat(timespec='milliseconds') + "Z" # Store ISO with Z
+                        cleaned_metadata["created_at_unix"] = int(value.timestamp()) # Store Unix timestamp
                     elif isinstance(value, (str, int, float, bool, list)):
                         cleaned_metadata[key] = value
                     elif isinstance(value, datetime):
-                        # Store all datetime values consistently WITHOUT Z
-                        cleaned_metadata[key] = value.isoformat()
-
-                        # If this is some other datetime field, also store a unix version
-                        if key.endswith("_at") and not key.endswith("_unix"):
-                            unix_key = f"{key}_unix"
-                            cleaned_metadata[unix_key] = int(value.timestamp())
+                        cleaned_metadata[key] = value.isoformat(timespec='milliseconds') + "Z" # Ensure ISO with Z
+                        if key.endswith("_at") and not key.endswith("_unix"): # Also store unix for other datetime fields
+                            cleaned_metadata[f"{key}_unix"] = int(value.timestamp())
                     else:
                         cleaned_metadata[key] = str(value)
 
-                # This is now properly outside the inner loop
-                if "created_at_unix" not in cleaned_metadata and "created_at" in cleaned_metadata:
-                    try:
-                        dt = datetime.fromisoformat(normalize_timestamp(cleaned_metadata["created_at"]))
-                        cleaned_metadata["created_at_unix"] = int(dt.timestamp())
-                    except Exception as e:
-                        logger.warning(f"Failed to create created_at_unix from created_at for memory {memory_id}: {e}")
-                        # Fallback to current time
-                        cleaned_metadata["created_at_unix"] = int(time.time())
+                # Ensure 'created_at' is also ISO format (without Z) for legacy reasons
+                if "created_at_iso" in cleaned_metadata:
+                    cleaned_metadata["created_at"] = datetime.fromisoformat(cleaned_metadata["created_at_iso"].rstrip('Z')).isoformat()
+
 
                 batch_vectors_cleaned.append((memory_id, vector, cleaned_metadata))
 
@@ -280,14 +252,14 @@ class PineconeService(MemoryService):
                     try:
                         # Check what normalize_timestamp returns
                         normalized_value = normalize_timestamp(created_at_raw)
-                        
+
                         # Handle based on return type
                         if isinstance(normalized_value, str):
                             created_at = datetime.fromisoformat(normalized_value.rstrip("Z"))
                         else:
                             # Already a datetime object
                             created_at = normalized_value
-                            
+
                         metadata["created_at"] = created_at
                     except ValueError as e:
                         logger.warning(f"Error parsing timestamp '{created_at_raw}': {e}, using current time")
@@ -345,149 +317,18 @@ class PineconeService(MemoryService):
                 f"Querying Pinecone with filter (raw): {filter}, include_metadata: {include_metadata}"
             )  # Log raw filter
 
-            # --- RESTORED DYNAMIC FILTER LOGIC (Original, but with logging) ---
-            normalized_filter = None
-            if filter:
-                normalized_filter = filter.copy()
+            query_filter = filter or {} # Use filter directly as we expect it to be correctly formatted with 'created_at_unix'
 
-                # Handle created_at filters specifically
-                if "created_at" in normalized_filter:
-                    logger.info("Original filter had 'created_at', normalizing...")  # Log when normalization is triggered
-                    # If created_at is a dictionary (range query)
-                    if isinstance(normalized_filter["created_at"], dict):
-                        logger.info("  created_at is a dict (range query)")  # Log range query detection
-                        unix_ranges = {}
-                        for op, val in normalized_filter["created_at"].items():
-                            if isinstance(val, datetime):
-                                unix_ranges[op] = int(val.timestamp())
-                                logger.info(f"  Operator: {op}, Datetime Value: {val}, Converted Unix Timestamp: {unix_ranges[op]}")  # Log datetime conversion
-                            elif isinstance(val, str):
-                                # Properly handle normalize_timestamp return value
-                                normalized_value = normalize_timestamp(val)
-                                if isinstance(normalized_value, str):
-                                    dt = datetime.fromisoformat(normalized_value.rstrip("Z"))
-                                else:
-                                    # Already a datetime object
-                                    dt = normalized_value
-                                
-                                unix_ranges[op] = int(dt.timestamp())
-                                logger.info(f"  Operator: {op}, String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {unix_ranges[op]}")  # Log string conversion and normalization
-                            else:
-                                # Already a number (likely a timestamp)
-                                unix_ranges[op] = val
-                                logger.info(f"  Operator: {op}, Numeric Value (assumed timestamp): {val}")  # Log numeric value assumption
-
-                    # Replace with created_at_unix for better filtering
-                    normalized_filter["created_at_unix"] = unix_ranges
-                    del normalized_filter["created_at"]
-                else:
-                    # Single value created_at (exact match - unlikely in temporal queries, but handling just in case)
-                    logger.info("  created_at is NOT a dict (single value - exact match?)")  # Log single value case
-                    val = normalized_filter["created_at"]
-                    if isinstance(val, datetime):
-                        normalized_filter["created_at_unix"] = int(val.timestamp())
-                        logger.info(f"  Datetime Value: {val}, Converted Unix Timestamp: {normalized_filter['created_at_unix']}")  # Log datetime conversion
-                    elif isinstance(val, str):
-                        # Properly handle normalize_timestamp return value
-                        normalized_value = normalize_timestamp(val)
-                        if isinstance(normalized_value, str):
-                            dt = datetime.fromisoformat(normalized_value.rstrip("Z"))
-                        else:
-                            # Already a datetime object
-                            dt = normalized_value
-                            
-                        normalized_filter["created_at_unix"] = int(dt.timestamp())
-                        logger.info(f"  String Value: {val}, Normalized Datetime: {dt}, Converted Unix Timestamp: {normalized_filter['created_at_unix']}")  # Log string conversion and normalization
-                    else:
-                        # Already a number (likely a timestamp)
-                        normalized_filter["created_at_unix"] = val
-                        logger.info(f"  Numeric Value (assumed timestamp): {val}")  # Log numeric value assumption
-
-                    # Remove original created_at after converting
-                    del normalized_filter["created_at"]
-            else:
-                logger.info("No filter or no 'created_at' in filter - no normalization needed.")  # Log no normalization case
-
-
-            # Use normalized filter or original if no normalization was needed
-            query_filter = (
-                normalized_filter if normalized_filter is not None else filter
-            )
-
-            # --- End of RESTORED DYNAMIC FILTER LOGIC ---
-
-            # Log the normalized filter for debugging
-            logger.info(f"Normalized filter (sent to Pinecone): {query_filter}")
+            # Log the filter being sent
             logger.info(f"Filter being sent to Pinecone QUERY: {query_filter}") # Log the FILTER!
             if query_filter and "created_at_unix" in query_filter and isinstance(query_filter["created_at_unix"], dict):
                 for op, ts in query_filter["created_at_unix"].items():
                     logger.info(f"  {op.upper()} timestamp (Unix): {ts}") # Log the timestamp range
-
-
-            if query_filter and "created_at_unix" in query_filter:  # Add check for query_filter
+            elif query_filter and "created_at_unix" in query_filter: # Log for single value as well
                 created_at_unix_filter = query_filter["created_at_unix"]
                 logger.info(
                     f"Data type of created_at_unix filter: {type(created_at_unix_filter)}"
                 )  # Log the type
-
-                # Check if this is a temporal query (looking for when something was discussed)
-                is_temporal_query = False
-                if hasattr(self, 'current_query') and self.current_query:
-                    is_temporal_query = any(term in self.current_query.lower()
-                                        for term in ["when did we", "when have we", "what time", "how long ago"])
-
-                # Handle range queries (most common for temporal filters)
-                if isinstance(created_at_unix_filter, dict):
-                    # Log original values before any modifications
-                    logger.info(f"Original created_at_unix filter: {created_at_unix_filter}")
-
-                    for op, val in created_at_unix_filter.items():
-                        logger.info(
-                            f"  Operator: {op}, Value: {val}, Value Data Type: {type(val)}"
-                        )  # Log type of values within range query
-
-                        # Within the query_memories method, when handling created_at_unix filters
-                        if is_temporal_query and op == "$gte":
-                            # Check if it's a "when did we discuss X" type query
-                            is_topic_history_query = any(pattern in self.current_query.lower()
-                                                    for pattern in ["when did we discuss", "when did we talk about", "when have we"])
-
-                            # For "when did we discuss X" queries, use a much wider time window (7 days)
-                            if is_topic_history_query:
-                                # Widen the time window by moving back the start time to 7 days earlier
-                                original_val = val
-                                adjusted_val = original_val - (7 * 24 * 3600)  # 7 days earlier
-                                created_at_unix_filter[op] = adjusted_val
-                                logger.info(
-                                    f"  ADJUSTED for topic history query: {op} value from {original_val} to {adjusted_val} "
-                                    f"(-7 days to improve historical memory recall)"
-                                )
-                            else:
-                                # For other temporal queries, use the existing 24-hour extension
-                                original_val = val
-                                adjusted_val = original_val - (24 * 3600)  # 24 hours earlier
-                                created_at_unix_filter[op] = adjusted_val
-                                logger.info(
-                                    f"  ADJUSTED for temporal query: {op} value from {original_val} to {adjusted_val} "
-                                    f"(-24h to improve memory recall)"
-                                )
-                else:
-                    logger.info(
-                        f"  Value: {created_at_unix_filter}, Data Type: {type(created_at_unix_filter)}"
-                    )  # Log type of single value
-
-                    # If it's a single value (exact match) and temporal query, convert to a range
-                    if is_temporal_query:
-                        exact_val = created_at_unix_filter
-                        # Convert to a range query extending 48 hours before and after the timestamp
-                        query_filter["created_at_unix"] = {
-                            "$gte": exact_val - (48 * 3600),
-                            "$lte": exact_val + (48 * 3600)
-                        }
-                        logger.info(
-                            f"  Converted exact timestamp {exact_val} to range query for temporal query: "
-                            f"{query_filter['created_at_unix']}"
-                        )
 
             # Execute the query
             results = self.index.query(
