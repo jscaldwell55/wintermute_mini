@@ -108,12 +108,17 @@ class GraphMemoryRetriever:
         self.logger.info(f"Retrieving memories for query: {request.prompt[:50]}...")
         
         # 1. First, retrieve memories using vector similarity (existing approach)
-        vector_results = await self._retrieve_vector_memories(request)
+        vector_results, is_time_query = await self._retrieve_vector_memories(request)
         self.logger.info(f"Vector retrieval returned {len(vector_results.matches)} matches")
         
         # If graph is empty, just return vector results
         if self.memory_graph.graph.number_of_nodes() == 0:
             self.logger.info("Memory graph is empty. Using vector-only retrieval.")
+            # Apply temporal boosting even for vector-only results
+            if is_time_query:
+                vector_results.matches, vector_results.similarity_scores = self._boost_temporal_relevance(
+                    vector_results.matches, vector_results.similarity_scores, request.prompt
+                )
             return vector_results
         
         # 2. Use vector-retrieved memories as entry points for graph traversal
@@ -142,6 +147,10 @@ class GraphMemoryRetriever:
             top_matches = []
             top_scores = []
         
+        # Apply temporal boosting if it's a time query
+        if is_time_query:
+            top_matches, top_scores = self._boost_temporal_relevance(top_matches, top_scores, request.prompt)
+        
         self.logger.info(f"Final combined retrieval returned {len(top_matches)} matches")
         
         return QueryResponse(
@@ -165,25 +174,34 @@ class GraphMemoryRetriever:
         
         # Already a string, normalize it
         if isinstance(timestamp_value, str):
-            # More comprehensive fix for timestamps with both timezone and Z
-            # Match pattern like 2025-03-19T20:14:55.388+00:00Z where +00:00 can be any timezone offset
-            if '+' in timestamp_value and timestamp_value.endswith('Z'):
-                # Find the position of the + sign for timezone offset
-                plus_pos = timestamp_value.rfind('+')
-                if plus_pos > 0:
-                    # Extract up to the +, and the timezone part without the Z
-                    timestamp_value = timestamp_value[:plus_pos] + timestamp_value[plus_pos:-1]
+            # More comprehensive fix for timestamps with timezone and Z issues
             
-            normalized_value = normalize_timestamp(timestamp_value)
-            if isinstance(normalized_value, str):
-                return normalized_value
-            else:
-                # If normalize_timestamp returned a datetime
-                return normalized_value.isoformat()
+            # First, remove trailing Z if it follows a timezone offset
+            if '+' in timestamp_value and timestamp_value.endswith('Z'):
+                timestamp_value = timestamp_value[:-1]  # Remove the last character (Z)
+            
+            try:
+                # Try direct parsing - this will fail on malformed timestamps
+                dt = datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                return dt.isoformat()
+            except (ValueError, TypeError):
+                # If direct parsing fails, use normalize_timestamp
+                try:
+                    normalized_value = normalize_timestamp(timestamp_value)
+                    if isinstance(normalized_value, str):
+                        return normalized_value
+                    else:
+                        # If normalize_timestamp returned a datetime
+                        return normalized_value.isoformat()
+                except Exception:
+                    # Last resort fallback
+                    return datetime.now(timezone.utc).isoformat()
         
         return str(timestamp_value)
     
-    async def _retrieve_vector_memories(self, request: QueryRequest) -> QueryResponse:
+    async def _retrieve_vector_memories(self, request: QueryRequest) -> Tuple[QueryResponse, bool]:
+
+        
         days_of_week = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
         is_time_query = any(x in request.prompt.lower() for x in ["this morning", "today", "yesterday", "last week"] + days_of_week)
         if is_time_query:
@@ -217,7 +235,7 @@ class GraphMemoryRetriever:
                 # Add check for empty results
                 if not results:
                     self.logger.warning("No results returned from Pinecone query")
-                    return QueryResponse(matches=[], similarity_scores=[])
+                    return QueryResponse(matches=[], similarity_scores=[]), is_time_query
                 
                 # Convert to MemoryResponse objects
                 matches = []
@@ -226,11 +244,11 @@ class GraphMemoryRetriever:
                 # Skip processing if no results returned
                 if len(results) == 0:
                     self.logger.info("Pinecone returned empty results list")
-                    return QueryResponse(matches=[], similarity_scores=[])
+                    return QueryResponse(matches=[], similarity_scores=[]), is_time_query
                     
             except Exception as e:
                 self.logger.error(f"Error querying Pinecone: {e}")
-                return QueryResponse(matches=[], similarity_scores=[])
+                return QueryResponse(matches=[], similarity_scores=[]), is_time_query
                         
             # Convert to MemoryResponse objects
             matches = []
@@ -302,16 +320,15 @@ class GraphMemoryRetriever:
                 except Exception as e:
                     self.logger.error(f"Error applying bell curve to memory {memory.id}: {e}")
                     continue
-             
             
             return QueryResponse(
                 matches=matches,
                 similarity_scores=scores
-            )
-            
+            ), is_time_query
+                
         except Exception as e:
             self.logger.error(f"Error in vector memory retrieval: {e}")
-            return QueryResponse(matches=[], similarity_scores=[])
+            return QueryResponse(matches=[], similarity_scores=[]), is_time_query
     
     async def _retrieve_graph_associations(
         self,
@@ -537,6 +554,50 @@ class GraphMemoryRetriever:
             combined_scores.append(score)
         
         return combined_matches, combined_scores
+    
+    def _boost_temporal_relevance(self, memories, scores, query):
+        """
+        Boost relevance scores for memories that match temporal terms in the query
+        """
+        query_lower = query.lower()
+        
+        # Define temporal terms to look for
+        temporal_terms = {
+            "yesterday": ["yesterday"],
+            "today": ["today"],
+            "this morning": ["morning", "this morning"],
+            "monday": ["monday"],
+            "tuesday": ["tuesday"],
+            "wednesday": ["wednesday"],
+            "thursday": ["thursday"],
+            "friday": ["friday"],
+            "saturday": ["saturday"],
+            "sunday": ["sunday"]
+        }
+        
+        # Determine which temporal terms are in the query
+        active_terms = []
+        for term_key, variations in temporal_terms.items():
+            if any(variation in query_lower for variation in variations):
+                active_terms.extend(variations)
+        
+        if not active_terms:
+            return memories, scores  # No temporal terms found
+        
+        # Boost scores for memories that contain the active temporal terms
+        for i, memory in enumerate(memories):
+            content_lower = memory.content.lower()
+            
+            # Check if this memory explicitly mentions the temporal term
+            # and also contains substantive content (not just "I don't recall")
+            for term in active_terms:
+                if term in content_lower and "i don't recall" not in content_lower:
+                    # Significant boost for memories with actual content about the temporal term
+                    scores[i] *= 1.5  # 50% boost
+                    self.logger.info(f"Boosted memory {memory.id} with temporal term '{term}' from {scores[i]/1.5:.3f} to {scores[i]:.3f}")
+                    break
+        
+        return memories, scores
     
     async def find_paths_between_memories(
         self,
