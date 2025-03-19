@@ -94,6 +94,52 @@ class GraphMemoryRetriever:
             
             # Scale between 0.8 (peak) and 0.2 (oldest)
             return 0.8 * bell_value + 0.2
+        
+    def _boost_content_relevance(self, memories, scores, query):
+        """
+        Boost relevance scores for memories that match specific content terms in the query
+        """
+        query_lower = query.lower()
+        
+        # Extract important terms (nouns, proper names) from the query
+        # Exclude common stop words and query words
+        stop_words = ["the", "and", "but", "or", "in", "on", "at", "to", "for", "with", 
+                    "about", "from", "do", "did", "does", "have", "has", "had", "is", 
+                    "am", "are", "was", "were", "be", "been", "being", "by", "during",
+                    "before", "after", "above", "below", "between", "into", "through",
+                    "during", "you", "your", "we", "our", "i", "my", "me", "mine"]
+        
+        # Extract all words, filter out stop words and short words
+        important_terms = [term for term in query_lower.split() 
+                        if len(term) > 3 and term not in stop_words]
+        
+        # Also look for specific phrases (these are particularly important)
+        phrases = ["mirandola", "talked about", "discuss", "conversation about", 
+                "remember", "recall", "mentioned", "spoke about"]
+        
+        for phrase in phrases:
+            if phrase in query_lower:
+                important_terms.append(phrase)
+        
+        if not important_terms:
+            return memories, scores  # No important terms found
+        
+        self.logger.info(f"Content query detected with terms: {important_terms}")
+        
+        # Boost scores for memories that contain the important terms
+        for i, memory in enumerate(memories):
+            content_lower = memory.content.lower()
+            
+            for term in important_terms:
+                if term in content_lower:
+                    # Significant boost (2x) for memories containing query terms
+                    original_score = scores[i]
+                    scores[i] *= 2.0
+                    self.logger.info(f"Boosted memory {memory.id} with content term '{term}' from {original_score:.3f} to {scores[i]:.3f}")
+                    break
+        
+        return memories, scores
+
 
     async def retrieve_memories(self, request: QueryRequest) -> QueryResponse:
         """
@@ -147,9 +193,24 @@ class GraphMemoryRetriever:
             top_matches = []
             top_scores = []
         
-        # Apply temporal boosting if it's a time query
-        if is_time_query:
+        # Detect different query types
+        days_of_week = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        is_temporal_query = any(x in request.prompt.lower() for x in ["when", "yesterday", "last week", "this morning", "today", "past"] + days_of_week)
+        self.logger.info(f"Is temporal query: {is_temporal_query} for query: {request.prompt[:50]}...")
+        
+        # Add content query detection
+        is_content_query = any(term in request.prompt.lower() for term in 
+                            ["mirandola", "discuss", "talked about", "remember", "our conversation", 
+                            "we talked", "mention", "referred to", "spoke about", "said", "recall"])
+        self.logger.info(f"Is content query: {is_content_query} for query: {request.prompt[:50]}...")
+        
+        # Apply appropriate boosting based on query type
+        if is_temporal_query:
             top_matches, top_scores = self._boost_temporal_relevance(top_matches, top_scores, request.prompt)
+        
+        # Always apply content boosting for content-specific queries
+        if is_content_query:
+            top_matches, top_scores = self._boost_content_relevance(top_matches, top_scores, request.prompt)
         
         self.logger.info(f"Final combined retrieval returned {len(top_matches)} matches")
         
