@@ -233,6 +233,11 @@ class Settings(BaseSettings):
     # Learned Memory Settings - NEW
     learned_confidence_weight: float = 0.2  # Weight for confidence in scoring learned memories
 
+    # Empty Response Handling Settings
+    empty_response_penalty: float = 0.01  # 1% of original score for empty responses 
+    content_response_boost: float = 5.0   # 5x boost for memories with actual content
+    contradictory_memory_resolution: bool = True  # Enable resolution of contradictory memories
+
     # Consolidation Settings
     consolidation_hour: int = 2
     consolidation_minute: int = 0

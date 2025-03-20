@@ -792,6 +792,8 @@ class MemorySystem:
             window_id=window_id
         )
 
+        
+
         return summary
     
     async def parse_time_expression(
@@ -1543,6 +1545,24 @@ class MemorySystem:
                     memory_type = memory_data["metadata"].get("memory_type", "UNKNOWN")
                     final_score = similarity_score
 
+                    # Check for empty/negative responses and apply severe penalty
+                    content = memory_data["metadata"].get("content", "").lower()
+                    empty_response_penalty = getattr(self.settings, 'empty_response_penalty', 0.01)
+
+                    # More comprehensive negative phrases detection
+                    negative_phrases = [
+                        "i don't recall", "i'm sorry", "no relevant", "haven't discussed",
+                        "don't remember", "i do not recall", "not recall any", 
+                        "not remember any", "doesn't look like", "nothing specific"
+                    ]
+
+                    if any(phrase in content for phrase in negative_phrases):
+                        # Apply severe penalty to empty/negative responses
+                        original_score = final_score
+                        final_score *= empty_response_penalty  # Default 0.01 = 1% of original score
+                        logger.info(f"Applied empty response penalty to memory {memory_data['id']}: " +
+                                f"Score reduced from {original_score:.4f} to {final_score:.4f}")
+
                     # Apply memory-type specific scoring
                     if memory_type == "EPISODIC":
                         # Adjust for timezone if needed
@@ -1578,7 +1598,19 @@ class MemorySystem:
                             self.settings.episodic_recency_weight * recency_score
                         )
 
-                        final_score = combined_score * self.settings.episodic_memory_weight
+                        # Apply memory type weight
+                        combined_score = combined_score * self.settings.episodic_memory_weight
+
+                        # Check for substantive content and boost if found
+                        content_boost = getattr(self.settings, 'content_response_boost', 5.0)
+                        if (not any(phrase in content for phrase in negative_phrases) and 
+                            len(content) > 100):  # Threshold for meaningful content
+                            original_score = combined_score
+                            combined_score *= content_boost  # Default 5.0 = 5x boost for real content
+                            logger.info(f"Applied content boost to memory {memory_data['id']}: " +
+                                    f"Score increased from {original_score:.4f} to {combined_score:.4f}")
+
+                        final_score = combined_score
 
                         logger.info(f"Memory ID {memory_data['id']} (EPISODIC): Raw={similarity_score:.3f}, " +
                             f"Age={age_hours:.1f}h, Recency={recency_score:.3f}, Final={final_score:.3f}")
@@ -2019,8 +2051,164 @@ class MemorySystem:
             else:
                 summaries[memory_type] = f"No relevant memories for {memory_type}."
 
+            # Fix contradictory episodic summaries
+            if "episodic" in summaries:
+                summary_lower = summaries["episodic"].lower()
+                
+                # Check if the summary incorrectly claims no memories when we actually found content
+                contradiction_detected = any(phrase in summary_lower for phrase in [
+                    "don't recall", "no relevant", "haven't discussed", 
+                    "i'm sorry", "not recall any", "nothing specific"
+                ])
+                
+                if contradiction_detected and episodic_content_list:
+                    # Look for actual content in our fragments
+                    for fragment, _ in episodic_content_list:
+                        fragment_lower = fragment.lower()
+                        
+                        # Look for fragments with positive content (not "I don't recall")
+                        if any(positive in fragment_lower for positive in [
+                            "yesterday, we", "we discussed", "we talked about", 
+                            "we delved into", "yesterday we"
+                        ]) and not any(negative in fragment_lower for negative in [
+                            "don't recall", "i'm sorry", "no relevant"
+                        ]):
+                            # Extract content after the time context
+                            if ") " in fragment:
+                                content_part = fragment.split(") ")[1].strip()
+                            else:
+                                content_part = fragment
+                            
+                            # Further clean up the content if possible
+                            if "we delved into" in content_part.lower():
+                                content_part = content_part.split("we delved into")[1].strip()
+                            elif "we discussed" in content_part.lower():
+                                content_part = content_part.split("we discussed")[1].strip()
+                            elif "we talked about" in content_part.lower():
+                                content_part = content_part.split("we talked about")[1].strip()
+                            
+                            # Create corrected summary based on time expression
+                            if time_expression and "yesterday" in time_expression.lower():
+                                summaries["episodic"] = f"Yesterday, we discussed {content_part}"
+                            elif time_expression:
+                                summaries["episodic"] = f"During {time_expression}, we discussed {content_part}"
+                            else:
+                                # Default case with no specific time expression
+                                summaries["episodic"] = f"We discussed {content_part}"
+                            
+                            logger.info(f"Corrected contradictory episodic summary")
+                            break
+
         return summaries
 
+    async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
+        """Stores a user interaction (query + response) as a new episodic memory with consistent timestamp formats."""
+        try:
+            logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
+            
+            # Combine query and response for embedding. Correct format.
+            interaction_text = f"User: {query}\nAssistant: {response}"
+
+            # Check for duplicates *before* creating the memory object
+            if await self._check_recent_duplicate(interaction_text):
+                logger.warning("Duplicate interaction detected. Skipping storage.")
+                return None  # Or raise an exception, depending on desired behavior
+
+            semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
+            memory_id = f"mem_{uuid.uuid4().hex}"
+
+            # Get current time for enhanced time metadata with proper UTC timezone
+            current_time = datetime.now(timezone.utc)
+            
+            # Generate consistent timestamp formats that work reliably with filtering
+            # 1. ISO 8601 format with explicit Z notation for UTC
+            current_time_iso = current_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+            
+            # 2. Unix timestamp (seconds since epoch) for range queries
+            current_time_unix = int(current_time.timestamp())
+
+            # Add more granular time_of_day periods
+            hour = current_time.hour
+            if 5 <= hour < 9:
+                time_of_day = "early morning"
+            elif 9 <= hour < 12:
+                time_of_day = "morning"
+            elif 12 <= hour < 14:
+                time_of_day = "noon"
+            elif 14 <= hour < 17:
+                time_of_day = "afternoon"
+            elif 17 <= hour < 21:
+                time_of_day = "evening"
+            else:
+                time_of_day = "night"
+
+            # Create a standardized metadata dictionary with consistent timestamp formats
+            metadata = {
+                "content": interaction_text,
+                "memory_type": "EPISODIC",
+                
+                # IMPORTANT: Three different timestamp representations for different purposes
+                "created_at_iso": current_time_iso,         # ISO string with Z notation
+                "created_at_unix": current_time_unix,       # Unix timestamp for range filtering
+                "created_at": current_time_iso,             # Backward compatibility
+                
+                "window_id": window_id,
+                "source": "user_interaction",
+
+                # Enhanced time metadata for better temporal queries
+                "time_of_day": time_of_day,
+                "day_of_week": current_time.strftime("%A").lower(),  # Use lowercase for consistent queries
+                "date_str": current_time.strftime("%Y-%m-%d"),
+
+                # Boolean flags for efficient filtering
+                "is_morning": 5 <= hour < 12,
+                "is_afternoon": 12 <= hour < 17,
+                "is_evening": 17 <= hour < 24,
+                "is_today": True,  # Will be useful for "today" queries
+                "is_very_recent": True,
+
+                # Add hour for more specific filtering
+                "hour_of_day": current_time.hour,
+                
+                # Add additional useful time flags
+                "is_weekday": 0 <= current_time.weekday() <= 4,
+                "is_weekend": current_time.weekday() >= 5,
+                "month": current_time.strftime("%B").lower(),
+                "year": current_time.year,
+                "week_of_year": current_time.isocalendar()[1]
+            }
+
+            # Create the Memory object 
+            # NOTE: We now use the ISO string format for created_at to maintain consistency
+            memory = Memory(
+                id=memory_id,
+                content=interaction_text,
+                memory_type=MemoryType.EPISODIC,
+                created_at=current_time_iso,  # Use ISO string for consistent format
+                metadata=metadata,
+                window_id=window_id,
+                semantic_vector=semantic_vector
+            )
+
+            # Log timestamp details for debugging
+            logger.info(f"Creating memory with timestamps - ISO: {current_time_iso}, Unix: {current_time_unix}")
+
+            # Store in Pinecone
+            success = await self.pinecone_service.create_memory(
+                memory_id=memory.id,
+                vector=semantic_vector,
+                metadata=metadata
+            )
+
+            if not success:
+                raise MemoryOperationError("Failed to store memory in vector database")
+
+            logger.info(f"Episodic memory stored successfully: {memory_id}")
+            return memory
+
+        except Exception as e:
+            logger.error(f"Failed to store interaction: {e}", exc_info=True)
+            raise MemoryOperationError("store_interaction", str(e))
     async def handle_temporal_query(self, query, window_id=None):
         """Dedicated handler for temporal queries."""
         # Detect temporal expressions with enhanced regex
@@ -2407,7 +2595,7 @@ class MemorySystem:
                 created_at=current_time_iso,  # Use ISO string for consistent format
                 metadata=metadata,
                 window_id=window_id,
-                semantic_vector=semantic_vector,
+                semantic_vector=semantic_vector
             )
 
             # Log timestamp details for debugging
@@ -2444,7 +2632,6 @@ class MemorySystem:
             window_id=window_id
         )
         return memory.id if memory else None
-
     async def cleanup_old_episodic_memories(self, days: Optional[int] = None) -> int:
         """
         Delete episodic memories older than the specified number of days.
