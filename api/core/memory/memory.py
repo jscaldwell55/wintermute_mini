@@ -611,7 +611,6 @@ class MemorySystem:
 
 
 
-    
     def _get_past_weekday_date(self, base_time: datetime, weekday_name: str) -> datetime:
             """Helper to get the datetime for the most recent past weekday (e.g., last Monday)."""
             weekday_map = {
@@ -625,7 +624,7 @@ class MemorySystem:
 
     async def process_temporal_query(self, query: str, window_id: Optional[str] = None) -> Dict[str, str]:
         """Process queries about past conversations with temporal references."""
-        
+
         # Enhanced regex patterns for temporal expressions with better coverage
         temporal_patterns = [
             # Simple temporal references
@@ -634,21 +633,21 @@ class MemorySystem:
             r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (last week)",
             r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
             r"(?:what|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
-            
+
             # Time of day references
             r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (this morning)",
             r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (today)",
             r"(?:what) (?:have we discussed|did we discuss) (today|this morning|this afternoon|this evening)",
             r"(?:what) (?:happened|occurred|took place) (this morning|today|this afternoon)",
-            
+
             # More specific times
             r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (yesterday) (morning|afternoon|evening|night)",
             r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (last week)",
             r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (?:on) (monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
-            
+
             # Exact time references
             r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (?:at|around|about) (\d{1,2}[:.]\d{2}) *(am|pm)",
-            
+
             # Simple "What did we discuss yesterday?" pattern
             r"what did we discuss (yesterday)"
         ]
@@ -693,7 +692,7 @@ class MemorySystem:
                 "$lte": end_timestamp
             }
         }
-        
+
         # Add time-of-day filters if present in the query
         if "morning" in matched_expr.lower():
             filter_dict["is_morning"] = True
@@ -701,7 +700,7 @@ class MemorySystem:
             filter_dict["is_afternoon"] = True
         elif "evening" in matched_expr.lower() or "night" in matched_expr.lower():
             filter_dict["is_evening"] = True
-        
+
         # For specific day of week queries
         days_of_week = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
         for day in days_of_week:
@@ -719,8 +718,13 @@ class MemorySystem:
             top_k=10
         )
 
+        # Unzip the results returned from query_by_timeframe_enhanced
+        episodic_memories, episodic_scores = [], []
+        if memories:
+            episodic_memories, episodic_scores = zip(*memories)
+
         # If no results, progressively relax constraints
-        if not memories:
+        if not episodic_memories:
             logger.info(f"No memories found with primary filter, trying expanded time range")
 
             # 1. Double the time window
@@ -732,25 +736,30 @@ class MemorySystem:
                     "$lte": end_timestamp + time_span//2
                 }
             }
-            
+
             # Remove time-of-day constraints but keep day of week if present
-            if "is_morning" in expanded_filter: 
+            if "is_morning" in expanded_filter:
                 del expanded_filter["is_morning"]
             if "is_afternoon" in expanded_filter:
-                del expanded_filter["is_afternoon"] 
+                del expanded_filter["is_afternoon"]
             if "is_evening" in expanded_filter:
                 del expanded_filter["is_evening"]
-                
+
             logger.info(f"Using expanded filter: {expanded_filter}")
-                
+
             memories = await self.query_by_timeframe_enhanced(
                 query=query,
                 filter_dict=expanded_filter,
                 top_k=10
             )
+            # Unzip the results returned from query_by_timeframe_enhanced
+            episodic_memories, episodic_scores = [], []
+            if memories:
+                episodic_memories, episodic_scores = zip(*memories)
+
 
         # For fallback approach, use a very liberal timeframe
-        if not memories:
+        if not episodic_memories:
             logger.info(f"No memories found with expanded filter, using fallback approach")
 
             # For fallback, use a very wide time range (7 days before to 1 day after the specified period)
@@ -761,11 +770,11 @@ class MemorySystem:
                     "$lte": end_timestamp + (24 * 3600)         # 1 day after
                 }
             }
-            
+
             # Remove all time constraints
             if "day_of_week" in fallback_filter:
                 del fallback_filter["day_of_week"]
-                
+
             logger.info(f"Using fallback filter: {fallback_filter}")
 
             memories = await self.query_by_timeframe_enhanced(
@@ -773,29 +782,32 @@ class MemorySystem:
                 filter_dict=fallback_filter,
                 top_k=10
             )
+            # Unzip the results returned from query_by_timeframe_enhanced
+            episodic_memories, episodic_scores = [], []
+            if memories:
+                episodic_memories, episodic_scores = zip(*memories)
 
-        if not memories:
+
+        if not episodic_memories:
             # Return a polite "no memories found" response
             return {"episodic": f"I don't recall discussing anything {matched_expr}. Is there something else I can help you with?"}
 
         # Process memories for summarization
-        episodic_memories = [(m, score) for m, score in memories]
+        episodic_memories_with_scores = list(zip(episodic_memories, episodic_scores))
 
         # Use the existing memory summarization agent
         summary = await self.memory_summarization_agent(
             query=query,
             semantic_memories=[],
-            episodic_memories=episodic_memories,
+            episodic_memories=episodic_memories_with_scores,
             learned_memories=[],
             time_expression=matched_expr,
             temporal_context=temporal_context,
             window_id=window_id
         )
 
-        
-
         return summary
-    
+
     async def parse_time_expression(
         self,
         time_expr: str,
@@ -805,11 +817,11 @@ class MemorySystem:
         Parse natural language time expressions into start/end datetime objects.
         Handles various temporal references like today, yesterday, specific times of day,
         days ago, last week, specific weekdays, and exact times.
-        
+
         Args:
             time_expr: Natural language time expression (e.g., "yesterday", "this morning")
             base_time: Reference time for relative expressions (defaults to current UTC time)
-            
+
         Returns:
             Tuple of (start_time, end_time) as datetime objects with timezone info
         """
@@ -817,7 +829,7 @@ class MemorySystem:
         base_time = base_time or datetime.now(timezone.utc)
         if base_time.tzinfo is None:
             base_time = base_time.replace(tzinfo=timezone.utc)
-            
+
         # Normalize time expression for easier matching
         time_expr = time_expr.lower().strip()
 
@@ -834,7 +846,7 @@ class MemorySystem:
             )
             for i, (mem, _) in enumerate(sample_results):
                 logger.info(f"Sample memory #{i+1}: created_at_unix={mem['metadata'].get('created_at_unix')}, " +
-                            f"ISO={mem['metadata'].get('created_at_iso')}, " + 
+                            f"ISO={mem['metadata'].get('created_at_iso')}, " +
                             f"time_of_day={mem['metadata'].get('time_of_day', 'missing')}")
         except Exception as e:
             logger.error(f"Error sampling memories for timestamp format reference: {e}")
@@ -859,7 +871,7 @@ class MemorySystem:
             end_time = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
             logger.info(f"Yesterday evening/night timeframe: {start_time.isoformat()} to {end_time.isoformat()}")
             return start_time, end_time
-        
+
         # Check for specific time mentions like "at 3pm yesterday"
         time_pattern = re.search(r"(?:at|around|about) (\d{1,2})[:\.]?(\d{2})?\s*(am|pm)?(?:\s+(\w+))?", time_expr)
         if time_pattern:
@@ -868,23 +880,23 @@ class MemorySystem:
             minute = int(time_pattern.group(2) or 0)
             am_pm = time_pattern.group(3)
             day_ref = time_pattern.group(4)  # Could be "yesterday", "today", etc.
-            
+
             # Adjust hour for AM/PM
             if am_pm:
                 if am_pm.lower() == 'pm' and hour < 12:
                     hour += 12
                 elif am_pm.lower() == 'am' and hour == 12:
                     hour = 0
-                    
+
             # Determine which day
             target_day = base_time
             if day_ref and "yesterday" in day_ref:
                 target_day = base_time - timedelta(days=1)
-            
+
             # Create a 2-hour window centered on the specific time
             start_time = target_day.replace(hour=max(0, hour-1), minute=minute, second=0, microsecond=0)
             end_time = target_day.replace(hour=min(23, hour+1), minute=minute, second=59, microsecond=999999)
-            
+
             logger.info(f"Specific time timeframe: {start_time.isoformat()} to {end_time.isoformat()}")
             return start_time, end_time
 
@@ -940,7 +952,7 @@ class MemorySystem:
                     target_date = base_time - timedelta(days=days_ago)
                     start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
                     end_time = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-                    
+
                 logger.info(f"Days ago timeframe: {start_time.isoformat()} to {end_time.isoformat()}")
                 return start_time, end_time
 
@@ -965,11 +977,11 @@ class MemorySystem:
             "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
             "friday": 4, "saturday": 5, "sunday": 6
         }
-        
+
         for day_name, day_num in weekday_map.items():
             if day_name in time_expr:
                 logger.info(f"Detected reference to '{day_name}'")
-                
+
                 # Handle "last Monday" vs just "Monday"
                 if "last" in time_expr:
                     # Find the most recent occurrence of this day before the previous one
@@ -987,7 +999,7 @@ class MemorySystem:
                 target_date = base_time - timedelta(days=days_back)
                 start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
                 end_time = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-                
+
                 logger.info(f"Weekday timeframe for {day_name}: {start_time.isoformat()} to {end_time.isoformat()}")
                 return start_time, end_time
 
@@ -998,7 +1010,7 @@ class MemorySystem:
             start_time = end_time - timedelta(minutes=10)
             logger.info(f"Very recent timeframe: {start_time.isoformat()} to {end_time.isoformat()}")
             return start_time, end_time
-            
+
         elif "earlier today" in time_expr:
             # Earlier part of today
             now_hour = base_time.hour
@@ -1006,7 +1018,7 @@ class MemorySystem:
             end_time = base_time.replace(hour=max(0, now_hour-1), minute=59, second=59, microsecond=999999)
             logger.info(f"Earlier today timeframe: {start_time.isoformat()} to {end_time.isoformat()}")
             return start_time, end_time
-            
+
         elif "an hour ago" in time_expr:
             # About an hour ago - 40-80 minute window
             end_time = base_time - timedelta(minutes=40)
@@ -1018,7 +1030,7 @@ class MemorySystem:
         logger.warning(f"No specific time expression pattern matched for '{time_expr}'. Using default (last 24 hours)")
         end_time = base_time
         start_time = end_time - timedelta(days=1)
-        
+
         logger.info(f"Default timeframe: {start_time.isoformat()} to {end_time.isoformat()}")
         return start_time, end_time
 
@@ -1031,13 +1043,13 @@ class MemorySystem:
     ) -> List[Tuple[MemoryResponse, float]]:
         """
         Enhanced timeframe query with precise filtering and improved temporal boost logic.
-        
+
         Args:
             query: The user's query text
             window_id: Optional window ID (kept for backward compatibility)
             filter_dict: Dictionary of filters to apply to the query
             top_k: Maximum number of results to return
-            
+
         Returns:
             List of (MemoryResponse, score) tuples sorted by relevance
         """
@@ -1050,16 +1062,16 @@ class MemorySystem:
 
             # Log the filter for debugging
             logger.info(f"Temporal query with filter: {filter_dict}")
-            
+
             # Log readable timestamp range if present
             if "created_at_unix" in filter_dict and "$gte" in filter_dict["created_at_unix"]:
                 try:
                     gte_timestamp = filter_dict["created_at_unix"]["$gte"]
                     lte_timestamp = filter_dict["created_at_unix"].get("$lte", int(datetime.now(timezone.utc).timestamp()))
-                    
+
                     from_time = datetime.fromtimestamp(gte_timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                     to_time = datetime.fromtimestamp(lte_timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-                    
+
                     logger.info(f"Searching for memories from {from_time} to {to_time} (Unix timestamps: {gte_timestamp} to {lte_timestamp})")
                 except Exception as e:
                     logger.error(f"Error formatting timestamp range: {e}")
@@ -1083,7 +1095,7 @@ class MemorySystem:
                     logger.info(f"  created_at: {metadata.get('created_at', 'missing')}")
                     logger.info(f"  time_of_day: {metadata.get('time_of_day', 'missing')}")
                     logger.info(f"  day_of_week: {metadata.get('day_of_week', 'missing')}")
-                    
+
                     # Log human-readable time if available
                     if "created_at_unix" in metadata:
                         unix_ts = metadata["created_at_unix"]
@@ -1107,14 +1119,14 @@ class MemorySystem:
                 "today": "today" in query_lower,
                 "specific_time": bool(re.search(r"(?:at|around|about) \d{1,2}(?::\d{2})?\s*(?:am|pm)", query_lower))
             }
-            
+
             # Check for day of week references
             day_of_week_reference = None
             for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]:
                 if day in query_lower:
                     day_of_week_reference = day
                     break
-                    
+
             # Process results with temporal boosting
             processed_results = []
             current_time = datetime.now(timezone.utc)
@@ -1122,16 +1134,16 @@ class MemorySystem:
             for memory_data, score in results:
                 try:
                     metadata = memory_data.get("metadata", {})
-                    
+
                     # Skip memories without proper metadata
                     if not metadata or "content" not in metadata:
                         logger.warning(f"Skipping memory {memory_data.get('id', 'unknown')} - missing metadata or content")
                         continue
-                        
+
                     # Get timestamp in most reliable format
                     memory_timestamp = None
                     created_at_object = None
-                    
+
                     # Try Unix timestamp first (most reliable for comparisons)
                     if "created_at_unix" in metadata and isinstance(metadata["created_at_unix"], (int, float)):
                         memory_timestamp = metadata["created_at_unix"]
@@ -1156,21 +1168,21 @@ class MemorySystem:
                                 memory_timestamp = int(created_at_object.timestamp())
                         except Exception as e:
                             logger.warning(f"Error processing created_at for memory {memory_data.get('id', 'unknown')}: {e}")
-                    
+
                     # Skip if we couldn't determine a valid timestamp
                     if created_at_object is None:
                         logger.warning(f"Skipping memory {memory_data.get('id', 'unknown')} - couldn't determine timestamp")
                         continue
-                    
+
                     # Calculate memory age for recency boosts
                     memory_age_hours = (current_time - created_at_object).total_seconds() / 3600
-                    
+
                     # Start with base score
                     adjusted_score = score
                     applied_boosts = []
-                    
+
                     # Apply temporal relevance boosts based on query
-                    
+
                     # 1. Check for time of day matches
                     memory_time_of_day = metadata.get("time_of_day", "").lower()
                     if time_references["morning"] and "morning" in memory_time_of_day:
@@ -1182,13 +1194,13 @@ class MemorySystem:
                     elif time_references["evening"] and ("evening" in memory_time_of_day or "night" in memory_time_of_day):
                         adjusted_score *= 1.5
                         applied_boosts.append("evening/night match")
-                    
+
                     # 2. Check for day reference matches
                     memory_day = metadata.get("day_of_week", "").lower()
                     if day_of_week_reference and day_of_week_reference == memory_day:
                         adjusted_score *= 1.7
                         applied_boosts.append(f"day of week match ({day_of_week_reference})")
-                        
+
                     # 3. Check for "yesterday" match
                     if time_references["yesterday"]:
                         yesterday = current_time - timedelta(days=1)
@@ -1196,14 +1208,14 @@ class MemorySystem:
                         if is_yesterday:
                             adjusted_score *= 1.8
                             applied_boosts.append("yesterday match")
-                            
+
                     # 4. Check for "today" match
                     if time_references["today"]:
                         is_today = created_at_object.date() == current_time.date()
                         if is_today:
                             adjusted_score *= 1.8
                             applied_boosts.append("today match")
-                    
+
                     # 5. Specific time match (more precise)
                     if time_references["specific_time"]:
                         # Get the hour mentioned in the query
@@ -1211,24 +1223,24 @@ class MemorySystem:
                         if time_match:
                             hour = int(time_match.group(1))
                             am_pm = time_match.group(2)
-                            
+
                             # Adjust for AM/PM
                             if am_pm == "pm" and hour < 12:
                                 hour += 12
                             elif am_pm == "am" and hour == 12:
                                 hour = 0
-                                
+
                             # Check if memory is within 1 hour of the specified time
                             memory_hour = created_at_object.hour
                             if abs(memory_hour - hour) <= 1:
                                 adjusted_score *= 2.0  # Significant boost for exact time match
                                 applied_boosts.append(f"specific hour match ({hour})")
-                    
+
                     # 6. Apply recency adjustment for very recent memories
                     if memory_age_hours < 1:  # Less than 1 hour old
                         adjusted_score *= 1.2  # 20% boost for very recent
                         applied_boosts.append("very recent (<1 hour)")
-                    
+
                     # Create the memory response object
                     memory_response = MemoryResponse(
                         id=memory_data["id"],
@@ -1238,15 +1250,15 @@ class MemorySystem:
                         metadata=metadata,
                         window_id=metadata.get("window_id")
                     )
-                    
+
                     # Add human-readable time_ago property
                     memory_response.time_ago = self._format_time_ago(created_at_object)
-                    
+
                     # Log any boosts we applied
                     if applied_boosts:
                         logger.info(f"Memory {memory_data['id']} - Applied boosts: {', '.join(applied_boosts)}, " +
                                     f"Final score: {score:.3f} → {adjusted_score:.3f}")
-                    
+
                     processed_results.append((memory_response, adjusted_score))
 
                 except Exception as e:
@@ -1258,7 +1270,7 @@ class MemorySystem:
             final_results = processed_results[:top_k]
 
             logger.info(f"Returning {len(final_results)}/{len(processed_results)} processed results for temporal query")
-            
+
             if not final_results:
                 logger.warning(f"No processed results after filtering for query: {query}")
 
@@ -1285,16 +1297,10 @@ class MemorySystem:
         if temporal_summaries and "episodic" in temporal_summaries:
             # If it's a temporal query and we got results, return them in the format expected by caller
             logger.info("Processed as temporal query, returning specialized results")
-            # Create a dummy memory response with the summary
-            dummy_memory = MemoryResponse(
-                id="temporal_summary",
-                content=temporal_summaries["episodic"],
-                memory_type=MemoryType.EPISODIC,
-                created_at=datetime.now(timezone.utc).isoformat(),
-                metadata={"source": "temporal_query_summary"}
-            )
-            # Return in the expected format with a perfect score
-            return {MemoryType.EPISODIC: [(dummy_memory, 1.0)]}
+
+            # Return the episodic memories directly without wrapping in a dummy object.
+            # episodic_memories should already be a list of (MemoryResponse, score) tuples
+            return {MemoryType.EPISODIC: temporal_summaries['episodic']} # Corrected line
 
         # Create embedding cache for this query
         embedding_cache = {}
@@ -1369,7 +1375,7 @@ class MemorySystem:
                 created_at = memory.created_at
                 if created_at.tzinfo is None:
                     created_at = created_at.replace(tzinfo=timezone.utc)
-            
+
             age_in_days = (now - created_at).days
 
             # Apply gentler exponential decay based on age
@@ -1436,7 +1442,7 @@ class MemorySystem:
                 return 1.0  # Perfect match for "yesterday" query
             elif any(x in query for x in ['this morning', 'today', 'yesterday', 'last week']):
                 return 0.2  # Significant penalty for non-matching memories in temporal queries
-            
+
         # Add special handling for very recent memories (less than 10 minutes old)
         if age_hours < 0.17:  # Less than 10 minutes (0.17 hours)
             return 0.95  # Very high recency score for just-happened conversations
@@ -1497,6 +1503,8 @@ class MemorySystem:
                     "memory_type": "EPISODIC",
                     "created_at_unix": {"$gte": seven_days_ago_timestamp}
                 }
+                if request.window_id: # ADDED WINDOW_ID FILTER HERE
+                    pinecone_filter["window_id"] = request.window_id
             elif request.memory_type == MemoryType.LEARNED:
                 pinecone_filter = {"memory_type": "LEARNED"}
 
@@ -1532,7 +1540,7 @@ class MemorySystem:
                             # No longer very recent
                             memory_data["metadata"]["is_very_recent"] = False
                             # Optionally update in database
-                            await self.pinecone_service.update_memory_metadata(memory_data["id"], 
+                            await self.pinecone_service.update_memory_metadata(memory_data["id"],
                                                                             {"is_very_recent": False})
 
                     # Convert timestamp to datetime
@@ -1552,7 +1560,7 @@ class MemorySystem:
                     # More comprehensive negative phrases detection
                     negative_phrases = [
                         "i don't recall", "i'm sorry", "no relevant", "haven't discussed",
-                        "don't remember", "i do not recall", "not recall any", 
+                        "don't remember", "i do not recall", "not recall any",
                         "not remember any", "doesn't look like", "nothing specific"
                     ]
 
@@ -1603,7 +1611,7 @@ class MemorySystem:
 
                         # Check for substantive content and boost if found
                         content_boost = getattr(self.settings, 'content_response_boost', 5.0)
-                        if (not any(phrase in content for phrase in negative_phrases) and 
+                        if (not any(phrase in content for phrase in negative_phrases) and
                             len(content) > 100):  # Threshold for meaningful content
                             original_score = combined_score
                             combined_score *= content_boost  # Default 5.0 = 5x boost for real content
@@ -1830,7 +1838,7 @@ class MemorySystem:
                 try:
                     if mem.metadata.get("is_very_recent", False):
                         created_at_value = mem.metadata.get("created_at_iso", "")
-                        
+
                         # Handle different types for created_at_value
                         if isinstance(created_at_value, str):
                             created_at = datetime.fromisoformat(created_at_value.rstrip('Z'))
@@ -1839,16 +1847,16 @@ class MemorySystem:
                         else:
                             # Default to current time if we can't parse
                             created_at = datetime.now(timezone.utc)
-                        
+
                         # Ensure timezone information
                         if created_at.tzinfo is None:
                             created_at = created_at.replace(tzinfo=timezone.utc)
-                            
+
                         # Check if it's still "very recent"
                         if datetime.now(timezone.utc) - created_at > timedelta(minutes=10):
                             mem.metadata["is_very_recent"] = False
-                            # Optionally update in database 
-                            await self.pinecone_service.update_memory_metadata(mem.id, 
+                            # Optionally update in database
+                            await self.pinecone_service.update_memory_metadata(mem.id,
                                                                             {"is_very_recent": False})
                     # Calculate semantic similarity between memory and CURRENT QUERY
                     memory_vector = mem.semantic_vector  # Assuming semantic_vector is populated
@@ -1919,8 +1927,8 @@ class MemorySystem:
         # === End Enhanced Episodic Memory Formatting ===
 
         # --- Retrieve immediate previous turn and slightly recent memories ---
-        immediate_previous_turn_memory = await self._retrieve_immediate_previous_turn() # Don't pass window_id
-        slightly_recent_episodic_memories = await self._retrieve_slightly_recent_episodic_memories() # Don't pass window_id
+        immediate_previous_turn_memory = await self._retrieve_immediate_previous_turn(window_id=window_id) # Pass window_id
+        slightly_recent_episodic_memories = await self._retrieve_slightly_recent_episodic_memories(window_id=window_id) # Pass window_id
 
         # --- Define semantic_prompt HERE ---
         semantic_prompt = f"""
@@ -1966,60 +1974,34 @@ class MemorySystem:
         episodic_content_for_prompt = "" # Initialize here - default to empty string
 
         episodic_prompt = f"""
-        You are an AI memory processor helping a conversational AI recall past conversations.
+You are an AI memory processor recalling past conversations.
 
-        **User Query:** "{query}"
-        {f"**Time Period Referenced:** {time_expression}" if time_expression else ""}
-        {temporal_context if temporal_context else ""}
-
-        **Retrieved Conversation History:**\n
-        """
-
+**User Query:** "{query}"
+"""
         if immediate_previous_turn_memory:
             episodic_prompt += f"""
-        **Immediate Previous Turn (Most Recent Conversation):**
-        - This is what we discussed in our *last* interaction, right before your current query. It's highly relevant context.
-        - **Content from previous turn:** {immediate_previous_turn_memory[0].content[:300]}...\n
+**Immediate Previous Turn (Most Recent Conversation):**
+        - {immediate_previous_turn_memory[0].content[:300]}...\n
         """
-
         if slightly_recent_episodic_memories:
-            episodic_prompt += f"""
-        **Slightly Recent Conversation History (Last Few Minutes):**
-        - These are conversations from the *very recent past*, within the last few minutes before your current query. They provide immediate context beyond just the last turn.
-        - **Relevant fragments from recent turns:**\n
-        """
+            episodic_prompt += f"""**Slightly Recent Conversation History (Last Few Minutes):**\n"""
             episodic_prompt += "\\n".join([f"- ({self._format_memory_time_context(mem)}): " + mem.content[:200] + "..." for mem, score in slightly_recent_episodic_memories]) + "\\n"
 
         if episodic_content: # Check if episodic_content is populated
             episodic_prompt += f"""
-        **Older Conversation History (Beyond Recent Turns):**
-        - These are conversations from further back in our history, *excluding* the very recent turns already mentioned. They are still considered relevant based on your query.
-        - **Relevant conversation fragments:**\n
+**Older Conversation History:**\n
         """
             episodic_prompt += episodic_content
-        elif not immediate_previous_turn_memory and not slightly_recent_episodic_memories:
-            episodic_content_for_prompt = "No relevant conversation history available beyond recent turns.\\n"
-            episodic_prompt += episodic_content_for_prompt
-
 
         episodic_prompt += """
+**Task:**
+- Summarize relevant past conversations concisely (max 150 words).
+- Prioritize the most relevant content to the current query.
+{f"- Focus on conversations from {time_expression}." if time_expression else ""}
+{temporal_context if temporal_context else ""}
 
-        **Task:**
-        - Summarize these past conversations like a human would recall them.
-        {f"- Frame your summary specifically about conversations that happened {time_expression}." if time_expression else "- Only mention timing when the conversation happened more than 1 hour ago."}
-        - Keep it concise (max 150 words).
-        - Prioritize conversations that are most relevant to the current query.
-        {f"- If no conversations are found from {time_expression}, clearly state that nothing was discussed during that time period." if time_expression else "- If no conversations are provided, respond with \"No relevant conversation history available.\""}
-        - Be specific about the timing of these conversations when responding.
-        - Use natural time expressions like "this morning," "this afternoon," "yesterday evening," "at 3 PM yesterday," etc., when referring to conversations.
-
-        IMPORTANT:
-        - If the user explicitly requests an EXACT time or timestamp (e.g., "What time was it, exactly?" or "When exactly did we talk about X?" or "What TIME of day was it?"),
-          provide the stored 'created_at_iso' from the memory metadata.
-          Do not round or paraphrase timestamps in this case.
-
-        **Output just the summarized memory:**
-        """
+**Output the summarized memory:**
+"""
 
         semantic_summary_task = asyncio.create_task(
             self.llm_service.generate_gpt_response_async(semantic_prompt, temperature=0.5)
@@ -2051,53 +2033,12 @@ class MemorySystem:
             else:
                 summaries[memory_type] = f"No relevant memories for {memory_type}."
 
-            # Fix contradictory episodic summaries
-            if "episodic" in summaries:
-                summary_lower = summaries["episodic"].lower()
-                
-                # Check if the summary incorrectly claims no memories when we actually found content
-                contradiction_detected = any(phrase in summary_lower for phrase in [
-                    "don't recall", "no relevant", "haven't discussed", 
-                    "i'm sorry", "not recall any", "nothing specific"
-                ])
-                
-                if contradiction_detected and episodic_content_list:
-                    # Look for actual content in our fragments
-                    for fragment, _ in episodic_content_list:
-                        fragment_lower = fragment.lower()
-                        
-                        # Look for fragments with positive content (not "I don't recall")
-                        if any(positive in fragment_lower for positive in [
-                            "yesterday, we", "we discussed", "we talked about", 
-                            "we delved into", "yesterday we"
-                        ]) and not any(negative in fragment_lower for negative in [
-                            "don't recall", "i'm sorry", "no relevant"
-                        ]):
-                            # Extract content after the time context
-                            if ") " in fragment:
-                                content_part = fragment.split(") ")[1].strip()
-                            else:
-                                content_part = fragment
-                            
-                            # Further clean up the content if possible
-                            if "we delved into" in content_part.lower():
-                                content_part = content_part.split("we delved into")[1].strip()
-                            elif "we discussed" in content_part.lower():
-                                content_part = content_part.split("we discussed")[1].strip()
-                            elif "we talked about" in content_part.lower():
-                                content_part = content_part.split("we talked about")[1].strip()
-                            
-                            # Create corrected summary based on time expression
-                            if time_expression and "yesterday" in time_expression.lower():
-                                summaries["episodic"] = f"Yesterday, we discussed {content_part}"
-                            elif time_expression:
-                                summaries["episodic"] = f"During {time_expression}, we discussed {content_part}"
-                            else:
-                                # Default case with no specific time expression
-                                summaries["episodic"] = f"We discussed {content_part}"
-                            
-                            logger.info(f"Corrected contradictory episodic summary")
-                            break
+        # Check for "I don't recall" in the FINAL SUMMARY, not individual memories
+        if "episodic" in summaries:
+            if any(phrase in summaries["episodic"].lower() for phrase in ["i don't recall", "no relevant", "haven't discussed", "i'm sorry"]):
+                # Handle the case where no relevant memories were found *after* summarization
+                summaries["episodic"] = "I don't recall any relevant conversations from that time." # Or retry, expand time window, etc.
+
 
         return summaries
 
@@ -2105,7 +2046,7 @@ class MemorySystem:
         """Stores a user interaction (query + response) as a new episodic memory with consistent timestamp formats."""
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
-            
+
             # Combine query and response for embedding. Correct format.
             interaction_text = f"User: {query}\nAssistant: {response}"
 
@@ -2119,11 +2060,11 @@ class MemorySystem:
 
             # Get current time for enhanced time metadata with proper UTC timezone
             current_time = datetime.now(timezone.utc)
-            
+
             # Generate consistent timestamp formats that work reliably with filtering
             # 1. ISO 8601 format with explicit Z notation for UTC
             current_time_iso = current_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-            
+
             # 2. Unix timestamp (seconds since epoch) for range queries
             current_time_unix = int(current_time.timestamp())
 
@@ -2146,12 +2087,12 @@ class MemorySystem:
             metadata = {
                 "content": interaction_text,
                 "memory_type": "EPISODIC",
-                
+
                 # IMPORTANT: Three different timestamp representations for different purposes
                 "created_at_iso": current_time_iso,         # ISO string with Z notation
                 "created_at_unix": current_time_unix,       # Unix timestamp for range filtering
                 "created_at": current_time_iso,             # Backward compatibility
-                
+
                 "window_id": window_id,
                 "source": "user_interaction",
 
@@ -2169,7 +2110,7 @@ class MemorySystem:
 
                 # Add hour for more specific filtering
                 "hour_of_day": current_time.hour,
-                
+
                 # Add additional useful time flags
                 "is_weekday": 0 <= current_time.weekday() <= 4,
                 "is_weekend": current_time.weekday() >= 5,
@@ -2178,7 +2119,7 @@ class MemorySystem:
                 "week_of_year": current_time.isocalendar()[1]
             }
 
-            # Create the Memory object 
+            # Create the Memory object
             # NOTE: We now use the ISO string format for created_at to maintain consistency
             memory = Memory(
                 id=memory_id,
@@ -2209,6 +2150,7 @@ class MemorySystem:
         except Exception as e:
             logger.error(f"Failed to store interaction: {e}", exc_info=True)
             raise MemoryOperationError("store_interaction", str(e))
+
     async def handle_temporal_query(self, query, window_id=None):
         """Dedicated handler for temporal queries."""
         # Detect temporal expressions with enhanced regex
@@ -2235,7 +2177,7 @@ class MemorySystem:
             day_of_week = memory.metadata.get('day_of_week', '')
             date_str = memory.metadata.get('date_str', '')
             today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            
+
             # Parse the timestamp
             if isinstance(memory.created_at, str):
                 created_at_dt = datetime.fromisoformat(memory.created_at.rstrip('Z'))
@@ -2269,28 +2211,32 @@ class MemorySystem:
                 else:
                     # Already a datetime object
                     created_at_dt = memory.created_at
-                    
+
                 # Ensure timezone info
                 if created_at_dt.tzinfo is None:
                     created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
-                    
+
                 time_context = self._format_time_ago(created_at_dt) or "recently"
         return time_context
 
     async def _retrieve_immediate_previous_turn(self, window_id: Optional[str] = None) -> Optional[List[MemoryResponse]]:
         """Retrieves the single most recent episodic memory for the current window."""
         try:
-            # Remove window_id check
-            
+            # Add window_id filter
+            pinecone_filter = {
+                    "memory_type": "EPISODIC",
+                }
+            if window_id:
+              pinecone_filter["window_id"] = window_id
+
             query_request = QueryRequest(
                 prompt="previous turn context", # Dummy prompt - we are sorting by time, not semantic relevance
                 top_k=1, # Only need the most recent one
                 memory_type=MemoryType.EPISODIC,
-                # Remove window_id parameter here
                 request_metadata=RequestMetadata(operation_type=OperationType.QUERY)
             )
-            query_response = await self._query_memory_type(request=query_request) # Use _query_memory_type for efficiency
-            
+            query_response = await self._query_memory_type(request=query_request, pinecone_filter=pinecone_filter) # Use _query_memory_type for efficiency
+
             if query_response.matches:
                 # Don't modify the objects, just return them as is
                 # If we need to process timestamps, do it without adding new attributes
@@ -2301,14 +2247,14 @@ class MemorySystem:
                             local_created_at = datetime.fromisoformat(mem.created_at.rstrip('Z'))
                         else:
                             local_created_at = mem.created_at
-                        
+
                         # Ensure timezone info
                         if local_created_at.tzinfo is None:
                             local_created_at = local_created_at.replace(tzinfo=timezone.utc)
-                        
+
                         # Use local_created_at for any calculations here
                         # But don't add it back to the mem object
-                
+
                 return query_response.matches[:1]  # Return as a list (consistent with other memory vars)
             else:
                 return None  # No previous turn memory found
@@ -2320,7 +2266,12 @@ class MemorySystem:
     async def _retrieve_slightly_recent_episodic_memories(self, window_id: Optional[str] = None, time_window_minutes: int = 5) -> Optional[List[Tuple[MemoryResponse, float]]]:
         """Retrieves episodic memories from the last few minutes, sorted by recency and relevance."""
         try:
-            # Remove window_id check
+            # Add window_id filter
+            pinecone_filter = {
+              "memory_type": "EPISODIC",
+            }
+            if window_id:
+              pinecone_filter["window_id"] = window_id
 
             current_time = datetime.now(timezone.utc)
             recent_past = current_time - timedelta(minutes=time_window_minutes)
@@ -2330,10 +2281,9 @@ class MemorySystem:
                 prompt="recent conversation context",
                 top_k=10,
                 memory_type=MemoryType.EPISODIC,
-                # Remove window_id parameter here
                 request_metadata=RequestMetadata(operation_type=OperationType.QUERY)
             )
-            query_response = await self._query_memory_type(request=query_request) # Use _query_memory_type
+            query_response = await self._query_memory_type(request=query_request, pinecone_filter=pinecone_filter) # Use _query_memory_type
 
             recent_memories_with_scores = []
             if query_response.matches:
@@ -2448,11 +2398,11 @@ class MemorySystem:
                     else:
                         # Already a datetime object
                         created_at = memory.created_at
-                        
+
                     # Ensure timezone information
                     if created_at.tzinfo is None:
                         created_at = created_at.replace(tzinfo=timezone.utc)
-                        
+
                     time_ago = self._format_time_ago(created_at)
                 formatted = f"{time_ago}: {formatted}"
 
@@ -2513,7 +2463,7 @@ class MemorySystem:
         """Stores a user interaction (query + response) as a new episodic memory with consistent timestamp formats."""
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
-            
+
             # Combine query and response for embedding. Correct format.
             interaction_text = f"User: {query}\nAssistant: {response}"
 
@@ -2527,11 +2477,11 @@ class MemorySystem:
 
             # Get current time for enhanced time metadata with proper UTC timezone
             current_time = datetime.now(timezone.utc)
-            
+
             # Generate consistent timestamp formats that work reliably with filtering
             # 1. ISO 8601 format with explicit Z notation for UTC
             current_time_iso = current_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-            
+
             # 2. Unix timestamp (seconds since epoch) for range queries
             current_time_unix = int(current_time.timestamp())
 
@@ -2554,12 +2504,12 @@ class MemorySystem:
             metadata = {
                 "content": interaction_text,
                 "memory_type": "EPISODIC",
-                
+
                 # IMPORTANT: Three different timestamp representations for different purposes
                 "created_at_iso": current_time_iso,         # ISO string with Z notation
                 "created_at_unix": current_time_unix,       # Unix timestamp for range filtering
                 "created_at": current_time_iso,             # Backward compatibility
-                
+
                 "window_id": window_id,
                 "source": "user_interaction",
 
@@ -2577,7 +2527,7 @@ class MemorySystem:
 
                 # Add hour for more specific filtering
                 "hour_of_day": current_time.hour,
-                
+
                 # Add additional useful time flags
                 "is_weekday": 0 <= current_time.weekday() <= 4,
                 "is_weekend": current_time.weekday() >= 5,
@@ -2586,7 +2536,7 @@ class MemorySystem:
                 "week_of_year": current_time.isocalendar()[1]
             }
 
-            # Create the Memory object 
+            # Create the Memory object
             # NOTE: We now use the ISO string format for created_at to maintain consistency
             memory = Memory(
                 id=memory_id,
