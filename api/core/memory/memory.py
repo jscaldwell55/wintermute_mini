@@ -1076,6 +1076,14 @@ class MemorySystem:
                 except Exception as e:
                     logger.error(f"Error formatting timestamp range: {e}")
 
+                    logger.info(f"Querying Pinecone with filter (raw): {filter_dict}") # Add this line
+                    results = await self.pinecone_service.query_memories(
+                        query_vector=query_vector,
+                        top_k=top_k * 3,  # Request more to account for filtering and boost adjustments
+                        filter=filter_dict,
+                        include_metadata=True
+                    )
+
             # Execute query with specific filter - request more results to account for post-processing
             results = await self.pinecone_service.query_memories(
                 query_vector=query_vector,
@@ -1474,7 +1482,8 @@ class MemorySystem:
     async def _query_memory_type(
         self,
         request: QueryRequest,
-        pre_computed_vector: Optional[List[float]] = None
+        pre_computed_vector: Optional[List[float]] = None,
+        pinecone_filter: Optional[Dict[str, Any]] = None  # COMMA ADDED HERE
     ) -> QueryResponse:
         """
         Query a specific memory type using pre-computed vector if available.
