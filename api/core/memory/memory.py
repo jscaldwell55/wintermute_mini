@@ -622,8 +622,9 @@ class MemorySystem:
             target_date = base_time - timedelta(days=days_diff)
             return target_date.replace(hour=0, minute=0, second=0, microsecond=0) # Set time to midnight
 
-    async def process_temporal_query(self, query: str, window_id: Optional[str] = None) -> Dict[str, str]:
+        async def process_temporal_query(self, query: str, window_id: Optional[str] = None) -> Dict[str, str]:
         """Process queries about past conversations with temporal references."""
+        temporal_context = None  # Initialize temporal_context here to avoid NameError
 
         # Enhanced regex patterns for temporal expressions with better coverage
         temporal_patterns = [
@@ -669,17 +670,20 @@ class MemorySystem:
 
         # Parse the temporal expression
         start_time, end_time = await self.parse_time_expression(matched_expr)
+        logger.info(f"Parsed start_time: {start_time.isoformat()}, end_time: {end_time.isoformat()}") # ADD LOGGING
 
         # Add buffer to the time window (e.g., ±1 hours for more precise queries)
         buffer = timedelta(hours=1)
         start_time = start_time - buffer
         end_time = end_time + buffer
+        logger.info(f"Timeframe with buffer: start_time: {start_time.isoformat()}, end_time: {end_time.isoformat()}") # ADD LOGGING
 
         logger.info(f"Temporal query detected: '{matched_expr}' - Timeframe with buffer: {start_time} to {end_time}")
 
         # Always calculate Unix timestamps for consistency
         start_timestamp = int(start_time.timestamp())
         end_timestamp = int(end_time.timestamp())
+        logger.info(f"Unix timestamps: start_timestamp: {start_timestamp}, end_timestamp: {end_timestamp}") # ADD LOGGING
 
         # Generate temporal context for the prompt template
         temporal_context = f"Note: This query is specifically about conversations from {matched_expr}, between {start_time.strftime('%Y-%m-%d %H:%M')} and {end_time.strftime('%Y-%m-%d %H:%M')}."
@@ -692,20 +696,25 @@ class MemorySystem:
                 "$lte": end_timestamp
             }
         }
+        logger.info(f"Initial filter_dict: {filter_dict}") # ADD LOGGING
 
         # Add time-of-day filters if present in the query
         if "morning" in matched_expr.lower():
             filter_dict["is_morning"] = True
+            logger.info(f"Added 'is_morning' to filter: {filter_dict}") # ADD LOGGING
         elif "afternoon" in matched_expr.lower():
             filter_dict["is_afternoon"] = True
+            logger.info(f"Added 'is_afternoon' to filter: {filter_dict}") # ADD LOGGING
         elif "evening" in matched_expr.lower() or "night" in matched_expr.lower():
             filter_dict["is_evening"] = True
+            logger.info(f"Added 'is_afternoon' to filter: {filter_dict}") # ADD LOGGING
 
         # For specific day of week queries
         days_of_week = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
         for day in days_of_week:
             if day in matched_expr.lower():
                 filter_dict["day_of_week"] = day
+                logger.info(f"Added 'day_of_week' ({day}) to filter: {filter_dict}") # ADD LOGGING
                 break
 
         # Log the actual filter being used
@@ -740,10 +749,13 @@ class MemorySystem:
             # Remove time-of-day constraints but keep day of week if present
             if "is_morning" in expanded_filter:
                 del expanded_filter["is_morning"]
+                logger.info(f"Removed 'is_morning' from expanded_filter") # ADD LOGGING
             if "is_afternoon" in expanded_filter:
                 del expanded_filter["is_afternoon"]
+                logger.info(f"Removed 'is_afternoon' from expanded_filter") # ADD LOGGING
             if "is_evening" in expanded_filter:
                 del expanded_filter["is_evening"]
+                logger.info(f"Removed 'is_evening' from expanded_filter") # ADD LOGGING
 
             logger.info(f"Using expanded filter: {expanded_filter}")
 
@@ -774,6 +786,7 @@ class MemorySystem:
             # Remove all time constraints
             if "day_of_week" in fallback_filter:
                 del fallback_filter["day_of_week"]
+                logger.info(f"Removed 'day_of_week' from fallback_filter") # ADD LOGGING
 
             logger.info(f"Using fallback filter: {fallback_filter}")
 
@@ -807,6 +820,254 @@ class MemorySystem:
         )
 
         return summary
+
+
+    async def query_by_timeframe_enhanced(
+        self,
+        query: str,
+        window_id: Optional[str] = None,  # Keep parameter for backward compatibility
+        filter_dict: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
+    ) -> List[Tuple[MemoryResponse, float]]:
+        """
+        Enhanced timeframe query with precise filtering and improved temporal boost logic.
+
+        Args:
+            query: The user's query text
+            window_id: Optional window ID (kept for backward compatibility)
+            filter_dict: Dictionary of filters to apply to the query
+            top_k: Maximum number of results to return
+
+        Returns:
+            List of (MemoryResponse, score) tuples sorted by relevance
+        """
+        try:
+            # Create vector for semantic search
+            query_vector = await self.vector_operations.create_semantic_vector(query)
+
+            # Start with the provided filter or default to episodic memories
+            filter_dict = filter_dict or {"memory_type": "EPISODIC"}
+
+            # Log the filter for debugging
+            logger.info(f"Temporal query with filter: {filter_dict}")
+
+            # Log readable timestamp range if present
+            if "created_at_unix" in filter_dict and "$gte" in filter_dict["created_at_unix"]:
+                try:
+                    gte_timestamp = filter_dict["created_at_unix"]["$gte"]
+                    lte_timestamp = filter_dict["created_at_unix"].get("$lte", int(datetime.now(timezone.utc).timestamp()))
+
+                    from_time = datetime.fromtimestamp(gte_timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                    to_time = datetime.fromtimestamp(lte_timestamp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+                    logger.info(f"Searching for memories from {from_time} to {to_time} (Unix timestamps: {gte_timestamp} to {lte_timestamp})")
+                except Exception as e:
+                    logger.error(f"Error formatting timestamp range: {e}")
+
+            logger.info(f"Querying Pinecone with filter (raw): {filter_dict}") # Add this line - ENSURE THIS IS PRESENT
+            results = await self.pinecone_service.query_memories(
+                query_vector=query_vector,
+                top_k=top_k * 3,  # Request more to account for filtering and boost adjustments
+                filter=filter_dict,
+                include_metadata=True
+            )
+
+
+            # Log sample memory timestamps for debugging
+            if results:
+                logger.info(f"Sample memories from query results:")
+                for i, (memory_data, _) in enumerate(results[:3]):  # Log first 3 memories
+                    metadata = memory_data.get("metadata", {})
+                    logger.info(f"Memory {i+1}: {memory_data['id']}")
+                    logger.info(f"  created_at_unix: {metadata.get('created_at_unix', 'missing')}")
+                    logger.info(f"  created_at_iso: {metadata.get('created_at_iso', 'missing')}")
+                    logger.info(f"  created_at: {metadata.get('created_at', 'missing')}")
+                    logger.info(f"  time_of_day: {metadata.get('time_of_day', 'missing')}")
+                    logger.info(f"  day_of_week: {metadata.get('day_of_week', 'missing')}")
+
+                    # Log human-readable time if available
+                    if "created_at_unix" in metadata:
+                        unix_ts = metadata["created_at_unix"]
+                        if isinstance(unix_ts, (int, float)):
+                            try:
+                                dt = datetime.fromtimestamp(unix_ts, tz=timezone.utc)
+                                logger.info(f"  human-readable time: {dt.strftime('%Y-%m-%d %H:%M:%S')} ({metadata.get('time_of_day', 'unknown')})")
+                            except Exception as e:
+                                logger.error(f"Error converting Unix timestamp {unix_ts}: {e}")
+
+            # Log the number of results
+            logger.info(f"Temporal query returned {len(results)} initial results")
+
+            # Extract temporal references from query for better boosting
+            query_lower = query.lower()
+            time_references = {
+                "morning": "morning" in query_lower,
+                "afternoon": "afternoon" in query_lower,
+                "evening": "evening" in query_lower or "night" in query_lower,
+                "yesterday": "yesterday" in query_lower,
+                "today": "today" in query_lower,
+                "specific_time": bool(re.search(r"(?:at|around|about) \d{1,2}(?::\d{2})?\s*(?:am|pm)", query_lower))
+            }
+
+            # Check for day of week references
+            day_of_week_reference = None
+            for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]:
+                if day in query_lower:
+                    day_of_week_reference = day
+                    break
+
+            # Process results with temporal boosting
+            processed_results = []
+            current_time = datetime.now(timezone.utc)
+
+            for memory_data, score in results:
+                try:
+                    metadata = memory_data.get("metadata", {})
+
+                    # Skip memories without proper metadata
+                    if not metadata or "content" not in metadata:
+                        logger.warning(f"Skipping memory {memory_data.get('id', 'unknown')} - missing metadata or content")
+                        continue
+
+                    # Get timestamp in most reliable format
+                    memory_timestamp = None
+                    created_at_object = None
+
+                    # Try Unix timestamp first (most reliable for comparisons)
+                    if "created_at_unix" in metadata and isinstance(metadata["created_at_unix"], (int, float)):
+                        memory_timestamp = metadata["created_at_unix"]
+                        created_at_object = datetime.fromtimestamp(memory_timestamp, tz=timezone.utc)
+                    # Then try ISO string
+                    elif "created_at_iso" in metadata and isinstance(metadata["created_at_iso"], str):
+                        try:
+                            created_at_object = datetime.fromisoformat(metadata["created_at_iso"].rstrip('Z'))
+                            if created_at_object.tzinfo is None:
+                                created_at_object = created_at_object.replace(tzinfo=timezone.utc)
+                            memory_timestamp = int(created_at_object.timestamp())
+                        except Exception as e:
+                            logger.warning(f"Error parsing created_at_iso for memory {memory_data.get('id', 'unknown')}: {e}")
+                    # Finally try created_at field
+                    elif "created_at" in metadata:
+                        try:
+                            if isinstance(metadata["created_at"], (int, float)):
+                                memory_timestamp = metadata["created_at"]
+                                created_at_object = datetime.fromtimestamp(memory_timestamp, tz=timezone.utc)
+                            elif isinstance(metadata["created_at"], str):
+                                created_at_object = normalize_timestamp(metadata["created_at"])
+                                memory_timestamp = int(created_at_object.timestamp())
+                        except Exception as e:
+                            logger.warning(f"Error processing created_at for memory {memory_data.get('id', 'unknown')}: {e}")
+
+                    # Skip if we couldn't determine a valid timestamp
+                    if created_at_object is None:
+                        logger.warning(f"Skipping memory {memory_data.get('id', 'unknown')} - couldn't determine timestamp")
+                        continue
+
+                    # Calculate memory age for recency boosts
+                    memory_age_hours = (current_time - created_at_object).total_seconds() / 3600
+
+                    # Start with base score
+                    adjusted_score = score
+                    applied_boosts = []
+
+                    # Apply temporal relevance boosts based on query
+
+                    # 1. Check for time of day matches
+                    memory_time_of_day = metadata.get("time_of_day", "").lower()
+                    if time_references["morning"] and "morning" in memory_time_of_day:
+                        adjusted_score *= 1.5
+                        applied_boosts.append("morning match")
+                    elif time_references["afternoon"] and "afternoon" in memory_time_of_day:
+                        adjusted_score *= 1.5
+                        applied_boosts.append("afternoon match")
+                    elif time_references["evening"] and ("evening" in memory_time_of_day or "night" in memory_time_of_day):
+                        adjusted_score *= 1.5
+                        applied_boosts.append("evening/night match")
+
+                    # 2. Check for day reference matches
+                    memory_day = metadata.get("day_of_week", "").lower()
+                    if day_of_week_reference and day_of_week_reference == memory_day:
+                        adjusted_score *= 1.7
+                        applied_boosts.append(f"day of week match ({day_of_week_reference})")
+
+                    # 3. Check for "yesterday" match
+                    if time_references["yesterday"]:
+                        yesterday = current_time - timedelta(days=1)
+                        is_yesterday = created_at_object.date() == yesterday.date()
+                        if is_yesterday:
+                            adjusted_score *= 1.8
+                            applied_boosts.append("yesterday match")
+
+                    # 4. Check for "today" match
+                    if time_references["today"]:
+                        is_today = created_at_object.date() == current_time.date()
+                        if is_today:
+                            adjusted_score *= 1.8
+                            applied_boosts.append("today match")
+
+                    # 5. Specific time match (more precise)
+                    if time_references["specific_time"]:
+                        # Get the hour mentioned in the query
+                        time_match = re.search(r"(?:at|around|about) (\d{1,2})(?::\d{2})?\s*(?:am|pm)?", query_lower)
+                        if time_match:
+                            hour = int(time_match.group(1))
+                            am_pm = time_match.group(2)
+
+                            # Adjust for AM/PM
+                            if am_pm == "pm" and hour < 12:
+                                hour += 12
+                            elif am_pm == "am" and hour == 12:
+                                hour = 0
+
+                            # Check if memory is within 1 hour of the specified time
+                            memory_hour = created_at_object.hour
+                            if abs(memory_hour - hour) <= 1:
+                                adjusted_score *= 2.0  # Significant boost for exact time match
+                                applied_boosts.append(f"specific hour match ({hour})")
+
+                    # 6. Apply recency adjustment for very recent memories
+                    if memory_age_hours < 1:  # Less than 1 hour old
+                        adjusted_score *= 1.2  # 20% boost for very recent
+                        applied_boosts.append("very recent (<1 hour)")
+
+                    # Create the memory response object
+                    memory_response = MemoryResponse(
+                        id=memory_data["id"],
+                        content=metadata["content"],
+                        memory_type=MemoryType(metadata.get("memory_type", "EPISODIC")),
+                        created_at=created_at_object.isoformat(),
+                        metadata=metadata,
+                        window_id=metadata.get("window_id")
+                    )
+
+                    # Add human-readable time_ago property
+                    memory_response.time_ago = self._format_time_ago(created_at_object)
+
+                    # Log any boosts we applied
+                    if applied_boosts:
+                        logger.info(f"Memory {memory_data['id']} - Applied boosts: {', '.join(applied_boosts)}, " +
+                                    f"Final score: {score:.3f} → {adjusted_score:.3f}")
+
+                    processed_results.append((memory_response, adjusted_score))
+
+                except Exception as e:
+                    logger.error(f"Error processing memory {memory_data.get('id', 'unknown')} in timeframe query: {e}")
+                    continue
+
+            # Sort by adjusted score and limit to top_k
+            processed_results.sort(key=lambda x: x[1], reverse=True)
+            final_results = processed_results[:top_k]
+
+            logger.info(f"Returning {len(final_results)}/{len(processed_results)} processed results for temporal query")
+
+            if not final_results:
+                logger.warning(f"No processed results after filtering for query: {query}")
+
+            return final_results
+
+        except Exception as e:
+            logger.error(f"Error in query_by_timeframe_enhanced: {e}", exc_info=True)
+            return []
 
     async def parse_time_expression(
         self,
@@ -1076,21 +1337,14 @@ class MemorySystem:
                 except Exception as e:
                     logger.error(f"Error formatting timestamp range: {e}")
 
-                    logger.info(f"Querying Pinecone with filter (raw): {filter_dict}") # Add this line
-                    results = await self.pinecone_service.query_memories(
-                        query_vector=query_vector,
-                        top_k=top_k * 3,  # Request more to account for filtering and boost adjustments
-                        filter=filter_dict,
-                        include_metadata=True
-                    )
-
-            # Execute query with specific filter - request more results to account for post-processing
+            logger.info(f"Querying Pinecone with filter (raw): {filter_dict}") # Add this line - ENSURE THIS IS PRESENT
             results = await self.pinecone_service.query_memories(
                 query_vector=query_vector,
                 top_k=top_k * 3,  # Request more to account for filtering and boost adjustments
                 filter=filter_dict,
                 include_metadata=True
             )
+
 
             # Log sample memory timestamps for debugging
             if results:
@@ -1227,7 +1481,7 @@ class MemorySystem:
                     # 5. Specific time match (more precise)
                     if time_references["specific_time"]:
                         # Get the hour mentioned in the query
-                        time_match = re.search(r"(?:at|around|about) (\d{1,2})(?::\d{2})?\s*(am|pm)?", query_lower)
+                        time_match = re.search(r"(?:at|around|about) (\d{1,2})(?::\d{2})?\s*(?:am|pm)?", query_lower)
                         if time_match:
                             hour = int(time_match.group(1))
                             am_pm = time_match.group(2)
