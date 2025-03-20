@@ -622,204 +622,204 @@ class MemorySystem:
             target_date = base_time - timedelta(days=days_diff)
             return target_date.replace(hour=0, minute=0, second=0, microsecond=0) # Set time to midnight
 
-        async def process_temporal_query(self, query: str, window_id: Optional[str] = None) -> Dict[str, str]:
-        """Process queries about past conversations with temporal references."""
-        temporal_context = None  # Initialize temporal_context here to avoid NameError
+    async def process_temporal_query(self, query: str, window_id: Optional[str] = None) -> Dict[str, str]:
+            """Process queries about past conversations with temporal references."""
+            temporal_context = None  # Initialize temporal_context here to avoid NameError
 
-        # Enhanced regex patterns for temporal expressions with better coverage
-        temporal_patterns = [
-            # Simple temporal references
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (\d+ days? ago)",
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (yesterday)",
-            r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (last week)",
-            r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
-            r"(?:what|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
+            # Enhanced regex patterns for temporal expressions with better coverage
+            temporal_patterns = [
+                # Simple temporal references
+                r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (\d+ days? ago)",
+                r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (yesterday)",
+                r"(?:what|when) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (last week)",
+                r"(?:what) (?:happened|occurred|took place) (yesterday|last week|\d+ days? ago)",
+                r"(?:what|remember) (?:we've|we have|have we) (?:talk|discuss|chat)(?:ed|) (?:about)? (?:the past|in the past|over the past) (\d+ days?)",
 
-            # Time of day references
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (this morning)",
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (today)",
-            r"(?:what) (?:have we discussed|did we discuss) (today|this morning|this afternoon|this evening)",
-            r"(?:what) (?:happened|occurred|took place) (this morning|today|this afternoon)",
+                # Time of day references
+                r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (this morning)",
+                r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (today)",
+                r"(?:what) (?:have we discussed|did we discuss) (today|this morning|this afternoon|this evening)",
+                r"(?:what) (?:happened|occurred|took place) (this morning|today|this afternoon)",
 
-            # More specific times
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (yesterday) (morning|afternoon|evening|night)",
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (last week)",
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (?:on) (monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
+                # More specific times
+                r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (yesterday) (morning|afternoon|evening|night)",
+                r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (last week)",
+                r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (?:on) (monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
 
-            # Exact time references
-            r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (?:at|around|about) (\d{1,2}[:.]\d{2}) *(am|pm)",
+                # Exact time references
+                r"(?:what|when|how) (?:did|have) (?:we|you|I) (?:talk|discuss|chat|mention) (?:about)? (?:at|around|about) (\d{1,2}[:.]\d{2}) *(am|pm)",
 
-            # Simple "What did we discuss yesterday?" pattern
-            r"what did we discuss (yesterday)"
-        ]
+                # Simple "What did we discuss yesterday?" pattern
+                r"what did we discuss (yesterday)"
+            ]
 
-        # Check for temporal patterns
-        matched_expr = None
-        for pattern in temporal_patterns:
-            match = re.search(pattern, query.lower(), re.IGNORECASE)
-            if match:
-                matched_expr = match.group(1)
-                # If we have a second capturing group (e.g., "morning" in "yesterday morning")
-                if len(match.groups()) > 1 and match.group(2):
-                    matched_expr += f" {match.group(2)}"
-                break
+            # Check for temporal patterns
+            matched_expr = None
+            for pattern in temporal_patterns:
+                match = re.search(pattern, query.lower(), re.IGNORECASE)
+                if match:
+                    matched_expr = match.group(1)
+                    # If we have a second capturing group (e.g., "morning" in "yesterday morning")
+                    if len(match.groups()) > 1 and match.group(2):
+                        matched_expr += f" {match.group(2)}"
+                    break
 
-        if not matched_expr:
-            # No temporal expression found, return empty so normal processing continues
-            return {}
+            if not matched_expr:
+                # No temporal expression found, return empty so normal processing continues
+                return {}
 
-        # Parse the temporal expression
-        start_time, end_time = await self.parse_time_expression(matched_expr)
-        logger.info(f"Parsed start_time: {start_time.isoformat()}, end_time: {end_time.isoformat()}") # ADD LOGGING
+            # Parse the temporal expression
+            start_time, end_time = await self.parse_time_expression(matched_expr)
+            logger.info(f"Parsed start_time: {start_time.isoformat()}, end_time: {end_time.isoformat()}") # ADD LOGGING
 
-        # Add buffer to the time window (e.g., ±1 hours for more precise queries)
-        buffer = timedelta(hours=1)
-        start_time = start_time - buffer
-        end_time = end_time + buffer
-        logger.info(f"Timeframe with buffer: start_time: {start_time.isoformat()}, end_time: {end_time.isoformat()}") # ADD LOGGING
+            # Add buffer to the time window (e.g., ±1 hours for more precise queries)
+            buffer = timedelta(hours=1)
+            start_time = start_time - buffer
+            end_time = end_time + buffer
+            logger.info(f"Timeframe with buffer: start_time: {start_time.isoformat()}, end_time: {end_time.isoformat()}") # ADD LOGGING
 
-        logger.info(f"Temporal query detected: '{matched_expr}' - Timeframe with buffer: {start_time} to {end_time}")
+            logger.info(f"Temporal query detected: '{matched_expr}' - Timeframe with buffer: {start_time} to {end_time}")
 
-        # Always calculate Unix timestamps for consistency
-        start_timestamp = int(start_time.timestamp())
-        end_timestamp = int(end_time.timestamp())
-        logger.info(f"Unix timestamps: start_timestamp: {start_timestamp}, end_timestamp: {end_timestamp}") # ADD LOGGING
+            # Always calculate Unix timestamps for consistency
+            start_timestamp = int(start_time.timestamp())
+            end_timestamp = int(end_time.timestamp())
+            logger.info(f"Unix timestamps: start_timestamp: {start_timestamp}, end_timestamp: {end_timestamp}") # ADD LOGGING
 
-        # Generate temporal context for the prompt template
-        temporal_context = f"Note: This query is specifically about conversations from {matched_expr}, between {start_time.strftime('%Y-%m-%d %H:%M')} and {end_time.strftime('%Y-%m-%d %H:%M')}."
+            # Generate temporal context for the prompt template
+            temporal_context = f"Note: This query is specifically about conversations from {matched_expr}, between {start_time.strftime('%Y-%m-%d %H:%M')} and {end_time.strftime('%Y-%m-%d %H:%M')}."
 
-        # Create primary filter WITHOUT window_id for broader search
-        filter_dict = {
-            "memory_type": "EPISODIC",
-            "created_at_unix": {
-                "$gte": start_timestamp,
-                "$lte": end_timestamp
-            }
-        }
-        logger.info(f"Initial filter_dict: {filter_dict}") # ADD LOGGING
-
-        # Add time-of-day filters if present in the query
-        if "morning" in matched_expr.lower():
-            filter_dict["is_morning"] = True
-            logger.info(f"Added 'is_morning' to filter: {filter_dict}") # ADD LOGGING
-        elif "afternoon" in matched_expr.lower():
-            filter_dict["is_afternoon"] = True
-            logger.info(f"Added 'is_afternoon' to filter: {filter_dict}") # ADD LOGGING
-        elif "evening" in matched_expr.lower() or "night" in matched_expr.lower():
-            filter_dict["is_evening"] = True
-            logger.info(f"Added 'is_afternoon' to filter: {filter_dict}") # ADD LOGGING
-
-        # For specific day of week queries
-        days_of_week = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-        for day in days_of_week:
-            if day in matched_expr.lower():
-                filter_dict["day_of_week"] = day
-                logger.info(f"Added 'day_of_week' ({day}) to filter: {filter_dict}") # ADD LOGGING
-                break
-
-        # Log the actual filter being used
-        logger.info(f"Using temporal query filter: {filter_dict}")
-
-        # Perform vector search with the time-filtered query
-        memories = await self.query_by_timeframe_enhanced(
-            query=query,
-            filter_dict=filter_dict,
-            top_k=10
-        )
-
-        # Unzip the results returned from query_by_timeframe_enhanced
-        episodic_memories, episodic_scores = [], []
-        if memories:
-            episodic_memories, episodic_scores = zip(*memories)
-
-        # If no results, progressively relax constraints
-        if not episodic_memories:
-            logger.info(f"No memories found with primary filter, trying expanded time range")
-
-            # 1. Double the time window
-            time_span = end_timestamp - start_timestamp
-            expanded_filter = {
+            # Create primary filter WITHOUT window_id for broader search
+            filter_dict = {
                 "memory_type": "EPISODIC",
                 "created_at_unix": {
-                    "$gte": start_timestamp - time_span//2,
-                    "$lte": end_timestamp + time_span//2
+                    "$gte": start_timestamp,
+                    "$lte": end_timestamp
                 }
             }
+            logger.info(f"Initial filter_dict: {filter_dict}") # ADD LOGGING
 
-            # Remove time-of-day constraints but keep day of week if present
-            if "is_morning" in expanded_filter:
-                del expanded_filter["is_morning"]
-                logger.info(f"Removed 'is_morning' from expanded_filter") # ADD LOGGING
-            if "is_afternoon" in expanded_filter:
-                del expanded_filter["is_afternoon"]
-                logger.info(f"Removed 'is_afternoon' from expanded_filter") # ADD LOGGING
-            if "is_evening" in expanded_filter:
-                del expanded_filter["is_evening"]
-                logger.info(f"Removed 'is_evening' from expanded_filter") # ADD LOGGING
+            # Add time-of-day filters if present in the query
+            if "morning" in matched_expr.lower():
+                filter_dict["is_morning"] = True
+                logger.info(f"Added 'is_morning' to filter: {filter_dict}") # ADD LOGGING
+            elif "afternoon" in matched_expr.lower():
+                filter_dict["is_afternoon"] = True
+                logger.info(f"Added 'is_afternoon' to filter: {filter_dict}") # ADD LOGGING
+            elif "evening" in matched_expr.lower() or "night" in matched_expr.lower():
+                filter_dict["is_evening"] = True
+                logger.info(f"Added 'is_afternoon' to filter: {filter_dict}") # ADD LOGGING
 
-            logger.info(f"Using expanded filter: {expanded_filter}")
+            # For specific day of week queries
+            days_of_week = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+            for day in days_of_week:
+                if day in matched_expr.lower():
+                    filter_dict["day_of_week"] = day
+                    logger.info(f"Added 'day_of_week' ({day}) to filter: {filter_dict}") # ADD LOGGING
+                    break
 
+            # Log the actual filter being used
+            logger.info(f"Using temporal query filter: {filter_dict}")
+
+            # Perform vector search with the time-filtered query
             memories = await self.query_by_timeframe_enhanced(
                 query=query,
-                filter_dict=expanded_filter,
+                filter_dict=filter_dict,
                 top_k=10
             )
+
             # Unzip the results returned from query_by_timeframe_enhanced
             episodic_memories, episodic_scores = [], []
             if memories:
                 episodic_memories, episodic_scores = zip(*memories)
 
+            # If no results, progressively relax constraints
+            if not episodic_memories:
+                logger.info(f"No memories found with primary filter, trying expanded time range")
 
-        # For fallback approach, use a very liberal timeframe
-        if not episodic_memories:
-            logger.info(f"No memories found with expanded filter, using fallback approach")
-
-            # For fallback, use a very wide time range (7 days before to 1 day after the specified period)
-            fallback_filter = {
-                "memory_type": "EPISODIC",
-                "created_at_unix": {
-                    "$gte": start_timestamp - (7 * 24 * 3600),  # 7 days before
-                    "$lte": end_timestamp + (24 * 3600)         # 1 day after
+                # 1. Double the time window
+                time_span = end_timestamp - start_timestamp
+                expanded_filter = {
+                    "memory_type": "EPISODIC",
+                    "created_at_unix": {
+                        "$gte": start_timestamp - time_span//2,
+                        "$lte": end_timestamp + time_span//2
+                    }
                 }
-            }
 
-            # Remove all time constraints
-            if "day_of_week" in fallback_filter:
-                del fallback_filter["day_of_week"]
-                logger.info(f"Removed 'day_of_week' from fallback_filter") # ADD LOGGING
+                # Remove time-of-day constraints but keep day of week if present
+                if "is_morning" in expanded_filter:
+                    del expanded_filter["is_morning"]
+                    logger.info(f"Removed 'is_morning' from expanded_filter") # ADD LOGGING
+                if "is_afternoon" in expanded_filter:
+                    del expanded_filter["is_afternoon"]
+                    logger.info(f"Removed 'is_afternoon' from expanded_filter") # ADD LOGGING
+                if "is_evening" in expanded_filter:
+                    del expanded_filter["is_evening"]
+                    logger.info(f"Removed 'is_evening' from expanded_filter") # ADD LOGGING
 
-            logger.info(f"Using fallback filter: {fallback_filter}")
+                logger.info(f"Using expanded filter: {expanded_filter}")
 
-            memories = await self.query_by_timeframe_enhanced(
+                memories = await self.query_by_timeframe_enhanced(
+                    query=query,
+                    filter_dict=expanded_filter,
+                    top_k=10
+                )
+                # Unzip the results returned from query_by_timeframe_enhanced
+                episodic_memories, episodic_scores = [], []
+                if memories:
+                    episodic_memories, episodic_scores = zip(*memories)
+
+
+            # For fallback approach, use a very liberal timeframe
+            if not episodic_memories:
+                logger.info(f"No memories found with expanded filter, using fallback approach")
+
+                # For fallback, use a very wide time range (7 days before to 1 day after the specified period)
+                fallback_filter = {
+                    "memory_type": "EPISODIC",
+                    "created_at_unix": {
+                        "$gte": start_timestamp - (7 * 24 * 3600),  # 7 days before
+                        "$lte": end_timestamp + (24 * 3600)         # 1 day after
+                    }
+                }
+
+                # Remove all time constraints
+                if "day_of_week" in fallback_filter:
+                    del fallback_filter["day_of_week"]
+                    logger.info(f"Removed 'day_of_week' from fallback_filter") # ADD LOGGING
+
+                logger.info(f"Using fallback filter: {fallback_filter}")
+
+                memories = await self.query_by_timeframe_enhanced(
+                    query=query,
+                    filter_dict=fallback_filter,
+                    top_k=10
+                )
+                # Unzip the results returned from query_by_timeframe_enhanced
+                episodic_memories, episodic_scores = [], []
+                if memories:
+                    episodic_memories, episodic_scores = zip(*memories)
+
+
+            if not episodic_memories:
+                # Return a polite "no memories found" response
+                return {"episodic": f"I don't recall discussing anything {matched_expr}. Is there something else I can help you with?"}
+
+            # Process memories for summarization
+            episodic_memories_with_scores = list(zip(episodic_memories, episodic_scores))
+
+            # Use the existing memory summarization agent
+            summary = await self.memory_summarization_agent(
                 query=query,
-                filter_dict=fallback_filter,
-                top_k=10
+                semantic_memories=[],
+                episodic_memories=episodic_memories_with_scores,
+                learned_memories=[],
+                time_expression=matched_expr,
+                temporal_context=temporal_context,
+                window_id=window_id
             )
-            # Unzip the results returned from query_by_timeframe_enhanced
-            episodic_memories, episodic_scores = [], []
-            if memories:
-                episodic_memories, episodic_scores = zip(*memories)
 
-
-        if not episodic_memories:
-            # Return a polite "no memories found" response
-            return {"episodic": f"I don't recall discussing anything {matched_expr}. Is there something else I can help you with?"}
-
-        # Process memories for summarization
-        episodic_memories_with_scores = list(zip(episodic_memories, episodic_scores))
-
-        # Use the existing memory summarization agent
-        summary = await self.memory_summarization_agent(
-            query=query,
-            semantic_memories=[],
-            episodic_memories=episodic_memories_with_scores,
-            learned_memories=[],
-            time_expression=matched_expr,
-            temporal_context=temporal_context,
-            window_id=window_id
-        )
-
-        return summary
+            return summary
 
 
     async def query_by_timeframe_enhanced(
