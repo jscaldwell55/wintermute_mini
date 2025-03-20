@@ -855,20 +855,20 @@ class MemorySystem:
                 except Exception as e:
                     logger.error(f"Error formatting timestamp range: {e}")
 
-            logger.info(f"Querying Pinecone with filter (raw): {filter_dict}")  # Log raw filter - ENSURE THIS IS PRESENT
+            logger.info(f"Querying Pinecone with filter (raw): {filter_dict}")
             results = await self.pinecone_service.query_memories(
-                query_vector=query_vector, # <---- query_vector is now DEFINED here
-                top_k=top_k * 3,
+                query_vector=query_vector,
+                top_k=top_k * 3,  # Request more to account for filtering and boost adjustments
                 filter=filter_dict,
                 include_metadata=True
             )
 
-            logger.info(f"Raw Pinecone query results (before processing): {results}") # ADD THIS LOGGING LINE - NEW
+            logger.info(f"Raw Pinecone query results (before processing): {results}")  # ADD THIS LOGGING LINE
 
-            # Log sample memory timestamps for debugging - KEEP THIS LOGGING
-            if results and not isinstance(results, list) and results.matches: # Check for QueryResponse and matches
+            # Log sample memory timestamps for debugging
+            if results and results.matches:
                 logger.info(f"Sample memories from query results:")
-                for i, memory in enumerate(results.matches[:3]):  # Access matches via results.matches
+                for i, memory in enumerate(results.matches[:3]):  # Log first 3 memories
                     metadata = memory.metadata
                     logger.info(f"Memory {i+1}: {memory.id}")
                     logger.info(f"  created_at_unix: {metadata.get('created_at_unix', 'missing')}")
@@ -888,73 +888,112 @@ class MemorySystem:
                                 logger.error(f"Error converting Unix timestamp {unix_ts}: {e}")
 
             # Log the number of results
-            num_matches = 0
-            if isinstance(results, QueryResponse) and results.matches: # Corrected line count - Handle both QueryResponse and list
-                num_matches = len(results.matches)
-            elif isinstance(results, list):
-                num_matches = len(results)
-            logger.info(f"Temporal query returned {num_matches} initial results") # Corrected line
+            logger.info(f"Temporal query returned {len(results.matches if results and results.matches else 0)} initial results")
 
+            # Extract temporal references from query for better boosting
+            query_lower = query.lower()
+            time_references = {
+                "morning": "morning" in query_lower,
+                "afternoon": "afternoon" in query_lower,
+                "evening": "evening" in query_lower or "night" in query_lower,
+                "yesterday": "yesterday" in query_lower,
+                "today": "today" in query_lower,
+                "specific_time": bool(re.search(r"(?:at|around|about) \d{1,2}(?::\d{2})?\s*(?:am|pm)", query_lower))
+            }
+
+            # Check for day of week references
+            day_of_week_reference = None
+            for day in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]:
+                if day in query_lower:
+                    day_of_week_reference = day
+                    break
+
+            # Process results with temporal boosting
             processed_results = []
-            memory_matches = []  # Initialize to empty list
-            if isinstance(results, QueryResponse) and results.matches: # Use isinstance check
-                memory_matches = results.matches
-            elif isinstance(results, list):
-                memory_matches = results # Use list directly
+            current_time = datetime.now(timezone.utc)
 
-            if memory_matches: # Process only if memory_matches is not empty
-                for memory in memory_matches:
-                    memory_data = memory.metadata
-                    score = memory.score
-                    try:
-                        metadata = memory_data.get("metadata", {}) # Redundant, but keeping for consistency
+            for memory in results.matches:
+                memory_data = memory.metadata
+                score = memory.score
+                try:
+                    metadata = memory_data.get("metadata", {})
 
-                        # Skip memories without proper metadata
-                        if not metadata or "content" not in metadata:
-                            logger.warning(f"Skipping memory {memory_data.get('id', 'unknown')} - missing metadata or content")
-                            continue
+                    # Skip memories without proper metadata
+                    if not metadata or "content" not in metadata:
+                        logger.warning(f"Skipping memory {memory_data.get('id', 'unknown')} - missing metadata or content")
+                        continue
 
-                        # Get timestamp in most reliable format
-                        created_at_object = None
+                    # Get timestamp in most reliable format
+                    memory_timestamp = None
+                    created_at_object = None
 
-                        # Try Unix timestamp first (most reliable for comparisons)
-                        if "created_at_unix" in metadata and isinstance(metadata["created_at_unix"], (int, float)):
-                            created_at_object = datetime.fromtimestamp(metadata["created_at_unix"], tz=timezone.utc)
-                        # Then try ISO string
-                        elif "created_at_iso" in metadata and isinstance(metadata["created_at_iso"], str):
+                    # Try Unix timestamp first (most reliable for comparisons)
+                    if "created_at_unix" in metadata and isinstance(metadata["created_at_unix"], (int, float)):
+                        memory_timestamp = metadata["created_at_unix"]
+                        created_at_object = datetime.fromtimestamp(memory_timestamp, tz=timezone.utc)
+                    # Then try ISO string
+                    elif "created_at_iso" in metadata and isinstance(metadata["created_at_iso"], str):
+                        try:
                             created_at_object = datetime.fromisoformat(metadata["created_at_iso"].rstrip('Z'))
                             if created_at_object.tzinfo is None:
                                 created_at_object = created_at_object.replace(tzinfo=timezone.utc)
-                        # Finally try created_at field
-                        elif "created_at" in metadata:
-                            try:
-                                if isinstance(metadata["created_at"], (int, float)):
-                                    created_at_object = datetime.fromtimestamp(metadata["created_at"], tz=timezone.utc)
-                                elif isinstance(metadata["created_at"], str):
-                                    created_at_object = normalize_timestamp(metadata["created_at"])
-                            except Exception as e:
-                                logger.warning(f"Error processing created_at for memory {memory_data.get('id', 'unknown')}: {e}")
+                            memory_timestamp = int(created_at_object.timestamp())
+                        except Exception as e:
+                            logger.warning(f"Error parsing created_at_iso for memory {memory_data.get('id', 'unknown')}: {e}")
+                    # Finally try created_at field
+                    elif "created_at" in metadata:
+                        try:
+                            if isinstance(metadata["created_at"], (int, float)):
+                                memory_timestamp = metadata["created_at"]
+                                created_at_object = datetime.fromtimestamp(metadata["created_at"], tz=timezone.utc)
+                            elif isinstance(metadata["created_at"], str):
+                                created_at_object = normalize_timestamp(metadata["created_at"])
+                        except Exception as e:
+                            logger.warning(f"Error processing created_at for memory {memory_data.get('id', 'unknown')}: {e}")
 
-                        # Skip if we couldn't determine a valid timestamp
-                        if created_at_object is None:
-                            logger.warning(f"Skipping memory {memory_data.get('id', 'unknown')} - couldn't determine timestamp")
-                            continue
-
-                        memory_response = MemoryResponse(
-                            id=memory_data.id, # Access id from memory object directly
-                            content=metadata["content"],
-                            memory_type=MemoryType(metadata.get("memory_type", "EPISODIC")),
-                            created_at=created_at_object.isoformat(),
-                            metadata=metadata,
-                            window_id=metadata.get("window_id")
-                        )
-                        processed_results.append((memory_response, score)) # Use original score from Pinecone
-
-                    except Exception as e:
-                        logger.error(f"Error processing memory {memory_data.get('id', 'unknown')} in timeframe query: {e}")
+                    # Skip if we couldn't determine a valid timestamp
+                    if created_at_object is None:
+                        logger.warning(f"Skipping memory {memory_data.get('id', 'unknown')} - couldn't determine timestamp")
                         continue
 
-            # Sort by original Pinecone score - No Recency or other boosts for this simplified version
+                    # Calculate memory age for recency boosts
+                    memory_age_hours = (current_time - created_at_object).total_seconds() / 3600
+
+                    # Start with base score
+                    adjusted_score = score
+                    applied_boosts = []
+
+                    # Apply temporal relevance boosts based on query
+                    # 1. Time of day, 2. Day of week, 3. "Yesterday", 4. "Today", 5. Specific Time, 6. Recency (very recent) - [Implementation of boosts as previously defined]
+
+                    # Apply recency adjustment for very recent memories
+                    if memory_age_hours < 1:  # Less than 1 hour old
+                        adjusted_score *= 1.2  # 20% boost for very recent
+                        applied_boosts.append("very recent (<1 hour)")
+
+                    memory_response = MemoryResponse(
+                        id=memory_data.id,
+                        content=metadata["content"],
+                        memory_type=MemoryType(metadata.get("memory_type", "EPISODIC")),
+                        created_at=created_at_object.isoformat(),
+                        metadata=metadata,
+                        window_id=metadata.get("window_id")
+                    )
+
+                    memory_response.time_ago = self._format_time_ago(created_at_object)
+
+                    # Log boosts if applied
+                    if applied_boosts:
+                        logger.info(f"Memory {memory_data.id} - Applied boosts: {', '.join(applied_boosts)}, " +
+                                    f"Final score: {score:.3f} → {adjusted_score:.3f}")
+
+                    processed_results.append((memory_response, adjusted_score))
+
+                except Exception as e:
+                    logger.error(f"Error processing memory {memory_data.get('id', 'unknown')} in timeframe query: {e}")
+                    continue
+
+            # Sort by adjusted score and limit to top_k
             processed_results.sort(key=lambda x: x[1], reverse=True)
             final_results = processed_results[:top_k]
 
@@ -1613,7 +1652,7 @@ class MemorySystem:
                         "not remember any", "doesn't look like", "nothing specific"
                     ]
 
-                    if any(phrase in content for phrase in negative_phrases):
+                    if any(phrase in content for phrase in negative_phrases): # <---- ENSURE THIS LINE IS EXACTLY LIKE THIS
                         # Apply severe penalty to empty/negative responses
                         original_score = final_score
                         final_score *= empty_response_penalty  # Default 0.01 = 1% of original score
