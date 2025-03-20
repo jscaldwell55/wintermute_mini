@@ -866,7 +866,7 @@ class MemorySystem:
             logger.info(f"Raw Pinecone query results (before processing): {results}") # ADD THIS LOGGING LINE - NEW
 
             # Log sample memory timestamps for debugging - KEEP THIS LOGGING
-            if results and results.matches: # Check if results and results.matches are not None/empty
+            if results and not isinstance(results, list) and results.matches: # Check for QueryResponse and matches
                 logger.info(f"Sample memories from query results:")
                 for i, memory in enumerate(results.matches[:3]):  # Access matches via results.matches
                     metadata = memory.metadata
@@ -888,11 +888,22 @@ class MemorySystem:
                                 logger.error(f"Error converting Unix timestamp {unix_ts}: {e}")
 
             # Log the number of results
-            logger.info(f"Temporal query returned {len(results.matches if results and results.matches else 0)} initial results") # Corrected line
+            num_matches = 0
+            if isinstance(results, QueryResponse) and results.matches: # Corrected line count - Handle both QueryResponse and list
+                num_matches = len(results.matches)
+            elif isinstance(results, list):
+                num_matches = len(results)
+            logger.info(f"Temporal query returned {num_matches} initial results") # Corrected line
 
             processed_results = []
-            if results and results.matches: # Process only if results and results.matches are not None/empty
-                for memory in results.matches:
+            memory_matches = []  # Initialize to empty list
+            if isinstance(results, QueryResponse) and results.matches: # Use isinstance check
+                memory_matches = results.matches
+            elif isinstance(results, list):
+                memory_matches = results # Use list directly
+
+            if memory_matches: # Process only if memory_matches is not empty
+                for memory in memory_matches:
                     memory_data = memory.metadata
                     score = memory.score
                     try:
