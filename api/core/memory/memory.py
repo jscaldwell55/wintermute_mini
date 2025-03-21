@@ -2228,13 +2228,18 @@ You are an AI memory processor recalling past conversations.
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
 
+            # Check for "I don't recall" responses and skip storing
+            if "i don't recall" in response.lower() or "no relevant" in response.lower() or "haven't discussed" in response.lower():
+                logger.info(f"Not storing 'I don't recall' response to avoid polluting memory")
+                return None
+
             # Combine query and response for embedding. Correct format.
             interaction_text = f"User: {query}\nAssistant: {response}"
 
             # Check for duplicates *before* creating the memory object
             if await self._check_recent_duplicate(interaction_text):
                 logger.warning("Duplicate interaction detected. Skipping storage.")
-                return None  # Or raise an exception, depending on desired behavior
+                return None  # Or raise an exception, depending on desired behavio
 
             semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
             memory_id = f"mem_{uuid.uuid4().hex}"
