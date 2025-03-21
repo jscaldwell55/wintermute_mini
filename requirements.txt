@@ -10,6 +10,8 @@ python-multipart>=0.0.5
 networkx==3.1  # or whatever version you need
 redis>=4.2.0  # Replace aioredis with modern redis-py
 setuptools    # Add this to provide distutils compatibility
+ortools
+
 
 
 # Vector operations and machine learning

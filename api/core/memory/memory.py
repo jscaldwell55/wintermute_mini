@@ -8,6 +8,7 @@ import asyncio
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 import re
+from ortools.linear_solver import pywraplp
 
 # Corrected imports: Import from the correct locations
 from api.utils.config import get_settings, Settings
@@ -1601,6 +1602,8 @@ class MemorySystem:
 
             # Scale between 0.8 (peak) and 0.2 (oldest)
             return 0.8 * bell_value + 0.2
+        
+    
 
     async def _query_memory_type(
         self,
@@ -1935,6 +1938,79 @@ class MemorySystem:
             logger.error(f"Error combining search results: {e}", exc_info=True)
             # Return an empty list if there's an error, not None
             return []
+        
+    async def optimize_temporal_memories(candidates: List[Tuple[MemoryResponse, float]],
+                                     max_memories: int = 5,
+                                     time_window_hours: float = 24) -> List[MemoryResponse]:
+        """
+        Optimize the selection of episodic memories for a temporal query.
+        Only memories within the target time window (e.g., last 24 hours) are allowed.
+        The optimization maximizes the total relevance score.
+        
+        Args:
+            candidates: List of (MemoryResponse, score) tuples.
+            max_memories: Maximum number of memories to select.
+            time_window_hours: Only memories with age (in hours) <= this value will be considered.
+        
+        Returns:
+            List of selected MemoryResponse objects.
+        """
+        # Filter candidates by time window.
+        now = datetime.now(timezone.utc)
+        filtered_candidates = []
+        scores = []
+        timestamps = []
+        for mem, score in candidates:
+            try:
+                # Assume mem.created_at is an ISO string
+                mem_time = datetime.fromisoformat(mem.created_at.rstrip('Z'))
+                if mem_time.tzinfo is None:
+                    mem_time = mem_time.replace(tzinfo=timezone.utc)
+                age_hours = (now - mem_time).total_seconds() / 3600
+                if age_hours <= time_window_hours:
+                    filtered_candidates.append(mem)
+                    scores.append(score)
+                    timestamps.append(mem_time.timestamp())
+            except Exception as e:
+                # If there's an error parsing, skip the candidate
+                continue
+
+        if not filtered_candidates:
+            return []
+
+        n = len(filtered_candidates)
+        solver = pywraplp.Solver.CreateSolver("SCIP")
+        if not solver:
+            return [mem for mem, _ in candidates][:max_memories]  # Fallback
+
+        # Create binary decision variables for each memory.
+        memory_vars = [solver.BoolVar(f"mem_{i}") for i in range(n)]
+        
+        # Objective: maximize total score.
+        solver.Maximize(solver.Sum([memory_vars[i] * scores[i] for i in range(n)]))
+        
+        # Constraint: select at most max_memories.
+        solver.Add(solver.Sum(memory_vars) <= max_memories)
+        
+        # (Optional) Add a constraint: at least one memory must be very recent,
+        # e.g. within the last 2 hours (you could adjust as needed)
+        very_recent_threshold = now - timedelta(hours=2)
+        very_recent_indices = [i for i, ts in enumerate(timestamps) if ts >= very_recent_threshold.timestamp()]
+        if very_recent_indices:
+            solver.Add(solver.Sum([memory_vars[i] for i in very_recent_indices]) >= 1)
+        
+        status = solver.Solve()
+        selected = []
+        if status == pywraplp.Solver.OPTIMAL:
+            for i in range(n):
+                if memory_vars[i].solution_value() > 0.5:
+                    selected.append(filtered_candidates[i])
+        else:
+            # If no optimal solution found, fallback to top scoring filtered candidates
+            sorted_by_score = sorted(zip(filtered_candidates, scores), key=lambda x: x[1], reverse=True)
+            selected = [mem for mem, _ in sorted_by_score][:max_memories]
+
+        return selected
 
     async def memory_summarization_agent(
         self,
@@ -1944,7 +2020,7 @@ class MemorySystem:
         learned_memories: List[Tuple[MemoryResponse, float]],
         time_expression: Optional[str] = None,
         temporal_context: Optional[str] = None,
-        window_id: Optional[str] = None # Keep parameter for compatibility
+        window_id: Optional[str] = None  # Keep parameter for compatibility
     ) -> Dict[str, str]:
         """Use an LLM to process retrieved memories into human-like summaries for all memory types."""
         logger.info(f"Processing memories with summarization agent for query: {query[:50]}...")
@@ -1969,6 +2045,17 @@ class MemorySystem:
             # Only replace if we have some substantial memories left
             if filtered_episodic_memories:
                 episodic_memories = filtered_episodic_memories
+
+        # **NEW STEP: Temporal Query Optimization**
+        # If the query contains temporal keywords, run the OR-based optimization before further processing
+        temporal_keywords = ["yesterday", "today", "last week", "this morning", "this afternoon", "this evening"]
+        if any(keyword in query.lower() for keyword in temporal_keywords):
+            logger.info("Temporal query detected: applying OR-based optimization to episodic memories")
+            optimized = await self.optimize_temporal_memories(episodic_memories, max_memories=5, time_window_hours=24)
+            if optimized:
+                episodic_memories = [(mem, 1.0) for mem in optimized]
+            else:
+                episodic_memories = []
 
         # Format semantic memories (no changes)
         semantic_content = "\n".join([
@@ -2001,7 +2088,6 @@ class MemorySystem:
                 try:
                     if mem.metadata.get("is_very_recent", False):
                         created_at_value = mem.metadata.get("created_at_iso", "")
-
                         # Handle different types for created_at_value
                         if isinstance(created_at_value, str):
                             created_at = datetime.fromisoformat(created_at_value.rstrip('Z'))
@@ -2010,11 +2096,9 @@ class MemorySystem:
                         else:
                             # Default to current time if we can't parse
                             created_at = datetime.now(timezone.utc)
-
                         # Ensure timezone information
                         if created_at.tzinfo is None:
                             created_at = created_at.replace(tzinfo=timezone.utc)
-
                         # Check if it's still "very recent"
                         if datetime.now(timezone.utc) - created_at > timedelta(minutes=10):
                             mem.metadata["is_very_recent"] = False
@@ -2025,73 +2109,52 @@ class MemorySystem:
                     memory_vector = mem.semantic_vector  # Assuming semantic_vector is populated
                     if memory_vector:
                         similarity_to_query = self.vector_operations.cosine_similarity(query_vector, memory_vector)
-                        # Log similarity for debugging
                         logger.info(f"Memory {mem.id} similarity to query: {similarity_to_query:.4f}")
                     else:
-                        similarity_to_query = 0.0  # Default if no vector
-
+                        similarity_to_query = 0.0
                     # Apply a dynamic relevance boost based on similarity to query
-                    relevance_boost = 1.0 + (similarity_to_query * 1.0)  # Boost up to 50% based on similarity
-
+                    relevance_boost = 1.0 + (similarity_to_query * 1.0)
                     # Apply recency weighting (existing bell curve or time-based decay)
                     if isinstance(mem.created_at, str):
                         created_at_dt = datetime.fromisoformat(mem.created_at.rstrip('Z'))
                     else:
-                        created_at_dt = mem.created_at  # Already a datetime object
-
-                    # Ensure it has timezone info
+                        created_at_dt = mem.created_at
                     if created_at_dt.tzinfo is None:
                         created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
-
                     age_hours = (datetime.now(timezone.utc) - created_at_dt).total_seconds() / 3600
                     recency_score = self._calculate_bell_curve_recency(age_hours)
                     recency_weight = getattr(self.settings, 'episodic_recency_weight', 0.35)
                     final_score = (relevance_boost * _score * (1 - recency_weight)) + (recency_score * recency_weight)
-
                     # Enhanced time context formatting with additional metadata
                     time_context = self._format_memory_time_context(mem)
                     content = mem.content[:300] + "..." if len(mem.content) > 300 else mem.content
-
                     # Add more detail to help with temporal references
                     iso_time = mem.metadata.get("created_at_iso")
                     date_str = mem.metadata.get("date_str", "")
                     day_of_week = mem.metadata.get("day_of_week", "")
-
-                    # Format with enhanced temporal information
                     fragment = f"- ({time_context}"
                     if "what time" in query.lower() or "when exactly" in query.lower():
                         fragment += f", exact time: {iso_time}"
                     if "when did we" in query.lower() and date_str:
                         fragment += f", date: {date_str} ({day_of_week})"
                     fragment += f") {content}"
-
-                    episodic_content_list.append((fragment, final_score))  # Store fragment AND final score
-
-                    # Log the fragment and score for debugging
+                    episodic_content_list.append((fragment, final_score))
                     logger.info(f"Memory fragment (score={final_score:.3f}): {fragment[:100]}...")
-
                 except Exception as e:
                     logger.warning(f"Error processing episodic memory for summarization: {e}")
                     continue
-
-            # Sort episodic fragments by final score (descending) for contextual relevance
             episodic_content_list.sort(key=lambda x: x[1], reverse=True)
-
-            # Format top fragments into string for prompt
-            top_fragments = [fragment for fragment, _score in episodic_content_list[:10]] # Take top 5 fragments
+            top_fragments = [fragment for fragment, _score in episodic_content_list[:10]]
             episodic_content = "\n".join(top_fragments) if top_fragments else "No relevant conversation history available."
-
-            # Log the final formatted content for the prompt
             logger.info(f"Final episodic content for prompt (length={len(episodic_content)}): {episodic_content[:200]}...")
-
         else:
             episodic_content = "No relevant conversation history available."
             logger.warning("No episodic memories received for summarization")
         # === End Enhanced Episodic Memory Formatting ===
 
         # --- Retrieve immediate previous turn and slightly recent memories ---
-        immediate_previous_turn_memory = await self._retrieve_immediate_previous_turn(window_id=window_id) # Pass window_id
-        slightly_recent_episodic_memories = await self._retrieve_slightly_recent_episodic_memories(window_id=window_id) # Pass window_id
+        immediate_previous_turn_memory = await self._retrieve_immediate_previous_turn(window_id=window_id)
+        slightly_recent_episodic_memories = await self._retrieve_slightly_recent_episodic_memories(window_id=window_id)
 
         # --- Define semantic_prompt HERE ---
         semantic_prompt = f"""
@@ -2132,10 +2195,8 @@ class MemorySystem:
         **Output just the synthesized insights:**
         """
 
-
         # --- Define episodic_prompt HERE ---
-        episodic_content_for_prompt = "" # Initialize here - default to empty string
-
+        episodic_content_for_prompt = ""
         episodic_prompt = f"""
 You are an AI memory processor recalling past conversations.
 
@@ -2149,13 +2210,11 @@ You are an AI memory processor recalling past conversations.
         if slightly_recent_episodic_memories:
             episodic_prompt += f"""**Slightly Recent Conversation History (Last Few Minutes):**\n"""
             episodic_prompt += "\\n".join([f"- ({self._format_memory_time_context(mem)}): " + mem.content[:200] + "..." for mem, score in slightly_recent_episodic_memories]) + "\\n"
-
-        if episodic_content: # Check if episodic_content is populated
+        if episodic_content:
             episodic_prompt += f"""
 **Older Conversation History:**\n
         """
             episodic_prompt += episodic_content
-
         episodic_prompt += f"""
         **Task:**
         - Summarize relevant past conversations concisely (max 150 words).
@@ -2180,15 +2239,12 @@ You are an AI memory processor recalling past conversations.
         ) if learned_content else None
 
         tasks_to_gather = [task for task in [semantic_summary_task, episodic_summary_task, learned_summary_task] if task is not None]
-
         summaries = {}
         results = await asyncio.gather(
             *tasks_to_gather,
             return_exceptions=True
         )
-
         task_map = {"semantic": semantic_summary_task, "episodic": episodic_summary_task, "learned": learned_summary_task}
-
         for memory_type, task, result in zip(task_map.keys(), task_map.values(), results):
             if isinstance(result, Exception):
                 logger.error(f"Summarization task for {memory_type} failed: {result}")
@@ -2198,32 +2254,23 @@ You are an AI memory processor recalling past conversations.
                 logger.info(f"Memory summarization for {memory_type} completed: {summaries[memory_type][:100]}...")
             else:
                 summaries[memory_type] = f"No relevant memories for {memory_type}."
-
-        # Check if the ENTIRE summary is just a variation of "I don't recall"
         if "episodic" in summaries:
             negative_phrases = ["i don't recall", "no relevant", "haven't discussed", "i'm sorry"]
-            
-            # This allows meaningful content to pass through even if it contains these phrases
             if (len(summaries["episodic"]) < 100 and 
                 any(phrase in summaries["episodic"].lower() for phrase in negative_phrases)):
-                
-                # Handle the case where no relevant memories were found after summarization
                 summaries["episodic"] = "I don't recall any relevant conversations from that time."
-
-            # Add logging to track what's being returned
-            if "i don't recall" in summaries["episodic"].lower() or "no relevant" in summaries["episodic"].lower():
+            if "episodic" in summaries and "i don't recall" in summaries["episodic"].lower():
                 logger.info("Episodic summary contains 'I don't recall' or similar phrase")
             else:
                 logger.info(f"Returning non-empty episodic summary: {summaries.get('episodic', '')[:100]}...")
-
         logger.info(f"Returning summaries - Episodic: {summaries.get('episodic', '')[:100]}...")
-        # Make sure we always have a string, never None
         if 'episodic' in summaries and summaries['episodic'] is None:
             summaries['episodic'] = "No relevant conversation history available."
         if "episodic" not in summaries:
             summaries["episodic"] = "No relevant conversation history available."
         logger.info(f"Returning summaries - Episodic: {summaries.get('episodic', '')[:100]}...")
         return summaries
+
 
     async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
         """Stores a user interaction (query + response) as a new episodic memory with consistent timestamp formats."""
