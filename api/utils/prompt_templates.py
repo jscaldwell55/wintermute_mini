@@ -40,7 +40,6 @@ class BaseResponseTemplate(BaseModel):
         # Format each memory with a bullet point
         formatted_memories = [f"- {memory}" for memory in filtered_memories]
         
-        # Join with newlines and limit to max_memory_tokens (approximate)
         # This is a simple approximation - in a real system you'd use a tokenizer
         result = "\n".join(formatted_memories)
         
@@ -54,6 +53,7 @@ class CaseResponseTemplate(BaseResponseTemplate):
 
     template: str = Field(
     default='''
+    
 CONTEXT
 **Temporal Context:**
 {temporal_context}

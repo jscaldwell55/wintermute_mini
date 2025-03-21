@@ -79,29 +79,32 @@ export const queryAPI = async (query: string, windowId?: string): Promise<QueryR
     if (!response.ok) {
       let errorData: any;
       let errorMessage = `HTTP Error ${response.status}: ${response.statusText}`;
-
+    
       try {
-        // Try to parse error response as JSON
-        errorData = await response.json();
+        // Clone the response and try to parse it as JSON
+        const jsonResponse = response.clone();
+        errorData = await jsonResponse.json();
         if (errorData.message) {
           errorMessage = errorData.message;
         }
       } catch (e) {
-        // If parsing fails, get text instead
-        const errorText = await response.text();
+        // If JSON parsing fails, clone the response again and read as text
+        const textResponse = response.clone();
+        const errorText = await textResponse.text();
         errorData = { raw: errorText };
         if (errorText) {
           errorMessage += ` - ${errorText}`;
         }
       }
-
-      // Return a structured error response instead of throwing
+    
+      // Return a structured error response
       return createErrorResponse(
         `API_ERROR_${response.status}`,
         errorMessage,
         errorData
       );
     }
+    
 
     // Parse the JSON response
     const data = await response.json();
