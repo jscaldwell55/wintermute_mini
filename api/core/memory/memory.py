@@ -1965,13 +1965,13 @@ class MemorySystem:
         timestamps = []
         for mem, score in candidates:
             try:
-                # Use the normalize_timestamp helper to parse mem.created_at.
+                # Normalize the timestamp using your helper function.
                 mem_time = normalize_timestamp(mem.created_at)
                 age_hours = (now - mem_time).total_seconds() / 3600
                 if age_hours <= time_window_hours:
                     filtered_candidates.append(mem)
                     scores.append(score)
-                    # Pinecone requires a Unix timestamp.
+                    # Pinecone requires a UNIX timestamp.
                     timestamps.append(int(mem_time.timestamp()))
             except Exception as e:
                 # Skip candidates with parsing errors.
@@ -2014,6 +2014,7 @@ class MemorySystem:
             selected = [mem for mem, _ in sorted_by_score][:max_memories]
 
         return selected
+
 
 
 
