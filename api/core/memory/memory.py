@@ -2051,7 +2051,7 @@ class MemorySystem:
         temporal_keywords = ["yesterday", "today", "last week", "this morning", "this afternoon", "this evening"]
         if any(keyword in query.lower() for keyword in temporal_keywords):
             logger.info("Temporal query detected: applying OR-based optimization to episodic memories")
-            optimized = await self.optimize_temporal_memories(episodic_memories, max_memories=5, time_window_hours=24)
+            optimized = await self.optimize_temporal_memories(episodic_memories, time_window_hours=24)
             if optimized:
                 episodic_memories = [(mem, 1.0) for mem in optimized]
             else:
