@@ -1939,9 +1939,12 @@ class MemorySystem:
             # Return an empty list if there's an error, not None
             return []
         
-    async def optimize_temporal_memories(self, candidates: List[Tuple[MemoryResponse, float]],
-                                     max_memories: int = 5,
-                                     time_window_hours: float = 24) -> List[MemoryResponse]:
+    async def optimize_temporal_memories(
+        self,
+        candidates: List[Tuple[MemoryResponse, float]],
+        max_memories: int = 5,
+        time_window_hours: float = 24
+    ) -> List[MemoryResponse]:
         """
         Optimize the selection of episodic memories for a temporal query.
         Only memories within the target time window (e.g., last 24 hours) are allowed.
@@ -1962,7 +1965,7 @@ class MemorySystem:
         timestamps = []
         for mem, score in candidates:
             try:
-                # Assume mem.created_at is an ISO string
+                # Assume mem.created_at is an ISO string.
                 mem_time = datetime.fromisoformat(mem.created_at.rstrip('Z'))
                 if mem_time.tzinfo is None:
                     mem_time = mem_time.replace(tzinfo=timezone.utc)
@@ -1972,7 +1975,7 @@ class MemorySystem:
                     scores.append(score)
                     timestamps.append(mem_time.timestamp())
             except Exception as e:
-                # If there's an error parsing, skip the candidate
+                # If there's an error parsing, skip the candidate.
                 continue
 
         if not filtered_candidates:
@@ -1981,7 +1984,9 @@ class MemorySystem:
         n = len(filtered_candidates)
         solver = pywraplp.Solver.CreateSolver("SCIP")
         if not solver:
-            return [mem for mem, _ in candidates][:max_memories]  # Fallback
+            # Fallback: return top scoring filtered candidates.
+            sorted_by_score = sorted(zip(filtered_candidates, scores), key=lambda x: x[1], reverse=True)
+            return [mem for mem, _ in sorted_by_score][:max_memories]
 
         # Create binary decision variables for each memory.
         memory_vars = [solver.BoolVar(f"mem_{i}") for i in range(n)]
@@ -1992,8 +1997,7 @@ class MemorySystem:
         # Constraint: select at most max_memories.
         solver.Add(solver.Sum(memory_vars) <= max_memories)
         
-        # (Optional) Add a constraint: at least one memory must be very recent,
-        # e.g. within the last 2 hours (you could adjust as needed)
+        # (Optional) Constraint: at least one memory must be very recent (e.g., within the last 2 hours).
         very_recent_threshold = now - timedelta(hours=2)
         very_recent_indices = [i for i, ts in enumerate(timestamps) if ts >= very_recent_threshold.timestamp()]
         if very_recent_indices:
@@ -2006,7 +2010,7 @@ class MemorySystem:
                 if memory_vars[i].solution_value() > 0.5:
                     selected.append(filtered_candidates[i])
         else:
-            # If no optimal solution found, fallback to top scoring filtered candidates
+            # Fallback: select top scoring filtered candidates.
             sorted_by_score = sorted(zip(filtered_candidates, scores), key=lambda x: x[1], reverse=True)
             selected = [mem for mem, _ in sorted_by_score][:max_memories]
 
