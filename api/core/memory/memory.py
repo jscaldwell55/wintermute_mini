@@ -2368,14 +2368,29 @@ You are an AI memory processor recalling past conversations.
         return summaries
 
 
-    async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
+    async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Optional[Memory]:
         """Stores a user interaction (query + response) as a new episodic memory with consistent timestamp formats."""
         try:
             logger.info(f"Storing interaction with query: '{query[:50]}...' and response: '{response[:50]}...'")
 
-            # Check for "I don't recall" responses and skip storing
-            if "i don't recall" in response.lower() or "no relevant" in response.lower() or "haven't discussed" in response.lower():
-                logger.info(f"Not storing 'I don't recall' response to avoid polluting memory")
+            # Comprehensive list of non-informative response patterns
+            non_informative_patterns = [
+                "i don't recall", "no relevant", "haven't discussed", "i'm sorry", 
+                "don't have any information", "don't have a record", 
+                "no specific conversation", "didn't have a conversation",
+                "not aware of any", "no previous", "don't remember"
+            ]
+            
+            # Check for non-informative responses and skip storing
+            if any(pattern in response.lower() for pattern in non_informative_patterns):
+                logger.info(f"Not storing non-informative response to avoid polluting memory")
+                return None
+                
+            # Skip storing queries about what was discussed
+            discussion_query_patterns = ["what did we discuss", "what have we discussed", "what did we talk about", 
+                                        "what was our conversation", "what were we talking about"]
+            if any(pattern in query.lower() for pattern in discussion_query_patterns):
+                logger.info(f"Not storing conversation history query to avoid memory pollution")
                 return None
 
             # Combine query and response for embedding. Correct format.
@@ -2384,7 +2399,7 @@ You are an AI memory processor recalling past conversations.
             # Check for duplicates *before* creating the memory object
             if await self._check_recent_duplicate(interaction_text):
                 logger.warning("Duplicate interaction detected. Skipping storage.")
-                return None  # Or raise an exception, depending on desired behavio
+                return None
 
             semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
             memory_id = f"mem_{uuid.uuid4().hex}"
@@ -2413,6 +2428,12 @@ You are an AI memory processor recalling past conversations.
                 time_of_day = "evening"
             else:
                 time_of_day = "night"
+                
+            # Determine if content is substantive (for better filtering)
+            is_substantive = len(response) > 200 and not any(pattern in response.lower() for pattern in non_informative_patterns)
+            
+            # Create a simple content summary for easier debugging
+            summary = response[:100].replace("\n", " ").strip() + "..." if len(response) > 100 else response
 
             # Create a standardized metadata dictionary with consistent timestamp formats
             metadata = {
@@ -2438,6 +2459,10 @@ You are an AI memory processor recalling past conversations.
                 "is_evening": 17 <= hour < 24,
                 "is_today": True,  # Will be useful for "today" queries
                 "is_very_recent": True,
+                
+                # Content quality flags
+                "is_substantive": is_substantive,
+                "content_summary": summary,
 
                 # Add hour for more specific filtering
                 "hour_of_day": current_time.hour,
@@ -2451,7 +2476,6 @@ You are an AI memory processor recalling past conversations.
             }
 
             # Create the Memory object
-            # NOTE: We now use the ISO string format for created_at to maintain consistency
             memory = Memory(
                 id=memory_id,
                 content=interaction_text,
@@ -2481,6 +2505,137 @@ You are an AI memory processor recalling past conversations.
         except Exception as e:
             logger.error(f"Failed to store interaction: {e}", exc_info=True)
             raise MemoryOperationError("store_interaction", str(e))
+        
+    async def create_backdated_memory(
+        self, 
+        query: str, 
+        response: str, 
+        days_ago: int = 1, 
+        hours_ago: int = 0,
+        window_id: Optional[str] = None
+    ) -> Optional[Memory]:
+        """
+        Creates a test memory with a timestamp from X days ago for testing temporal queries.
+        
+        Args:
+            query: The user query text
+            response: The assistant response text
+            days_ago: Number of days to backdate the memory (default: 1)
+            hours_ago: Additional hours to backdate (default: 0)
+            window_id: Optional window ID
+        
+        Returns:
+            Created Memory object, or None if creation failed
+        """
+        try:
+            logger.info(f"Creating backdated memory from {days_ago} days and {hours_ago} hours ago")
+            
+            # Check for non-informative content
+            non_informative_patterns = [
+                "i don't recall", "no relevant", "haven't discussed", "i'm sorry", 
+                "don't have any information", "don't have a record"
+            ]
+            
+            if any(pattern in response.lower() for pattern in non_informative_patterns):
+                logger.info(f"Not storing non-informative backdated response")
+                return None
+
+            # Combine query and response for embedding
+            interaction_text = f"User: {query}\nAssistant: {response}"
+
+            semantic_vector = await self.vector_operations.create_episodic_memory_vector(interaction_text)
+            memory_id = f"mem_{uuid.uuid4().hex}"
+
+            # Calculate backdated time
+            current_time = datetime.now(timezone.utc) - timedelta(days=days_ago, hours=hours_ago)
+
+            # Generate timestamp formats
+            backdated_time_iso = current_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+            backdated_time_unix = int(current_time.timestamp())
+
+            # Determine time of day
+            hour = current_time.hour
+            if 5 <= hour < 9:
+                time_of_day = "early morning"
+            elif 9 <= hour < 12:
+                time_of_day = "morning"
+            elif 12 <= hour < 14:
+                time_of_day = "noon"
+            elif 14 <= hour < 17:
+                time_of_day = "afternoon"
+            elif 17 <= hour < 21:
+                time_of_day = "evening"
+            else:
+                time_of_day = "night"
+                
+            # Determine if content is substantive
+            is_substantive = len(response) > 200
+            
+            # Create a simple content summary for easier debugging
+            summary = response[:100].replace("\n", " ").strip() + "..." if len(response) > 100 else response
+            
+            # Set appropriate is_today flag
+            is_today = days_ago == 0
+            
+            # Create metadata
+            metadata = {
+                "content": interaction_text,
+                "memory_type": "EPISODIC",
+                "created_at_iso": backdated_time_iso,
+                "created_at_unix": backdated_time_unix,
+                "created_at": backdated_time_iso,
+                "window_id": window_id,
+                "source": "user_interaction",
+                "time_of_day": time_of_day,
+                "day_of_week": current_time.strftime("%A").lower(),
+                "date_str": current_time.strftime("%Y-%m-%d"),
+                "is_morning": 5 <= hour < 12,
+                "is_afternoon": 12 <= hour < 17,
+                "is_evening": 17 <= hour < 24,
+                "is_today": is_today,
+                "is_very_recent": False,  # Backdated memories are never "very recent"
+                "is_substantive": is_substantive,
+                "content_summary": summary,
+                "hour_of_day": current_time.hour,
+                "is_weekday": 0 <= current_time.weekday() <= 4,
+                "is_weekend": current_time.weekday() >= 5,
+                "month": current_time.strftime("%B").lower(),
+                "year": current_time.year,
+                "week_of_year": current_time.isocalendar()[1],
+                "is_backdated_test": True  # Flag to indicate this is a test memory
+            }
+
+            # Create Memory object
+            memory = Memory(
+                id=memory_id,
+                content=interaction_text,
+                memory_type=MemoryType.EPISODIC,
+                created_at=backdated_time_iso,
+                metadata=metadata,
+                window_id=window_id,
+                semantic_vector=semantic_vector
+            )
+
+            # Log creation details
+            logger.info(f"Creating backdated memory with timestamps - ISO: {backdated_time_iso}, Unix: {backdated_time_unix}")
+            logger.info(f"Date string: {metadata['date_str']}, Day: {metadata['day_of_week']}")
+
+            # Store in Pinecone
+            success = await self.pinecone_service.create_memory(
+                memory_id=memory.id,
+                vector=semantic_vector,
+                metadata=metadata
+            )
+
+            if not success:
+                raise MemoryOperationError("Failed to store backdated memory in vector database")
+
+            logger.info(f"Backdated memory stored successfully: {memory_id}")
+            return memory
+
+        except Exception as e:
+            logger.error(f"Failed to create backdated memory: {e}", exc_info=True)
+            return None
 
     async def handle_temporal_query(self, query, window_id=None):
         """Dedicated handler for temporal queries."""
