@@ -2200,7 +2200,7 @@ You are an AI memory processor recalling past conversations.
                 logger.info("No relevant conversations found in target timeframe, attempting broader search...")
 
 
-
+        logger.info(f"Returning summaries - Episodic: {summaries.get('episodic', '')[:100]}...")
         return summaries
 
     async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:

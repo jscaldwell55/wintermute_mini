@@ -120,6 +120,8 @@ Response Style
         Returns:
             Formatted prompt string
         """
+        if not episodic_memories:
+            logger.info("Using default 'No relevant conversation history' because episodic_memories is empty")
         # Set defaults for missing memory types
         semantic_memories = semantic_memories or "No relevant background knowledge available."
         episodic_memories = episodic_memories or "No relevant conversation history available."

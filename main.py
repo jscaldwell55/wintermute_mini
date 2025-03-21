@@ -1180,6 +1180,8 @@ async def query_memory(
 
         # Memory retrieval time
         memory_time = time.time() - start_time
+
+        logger.info(f"[{trace_id}] Calling memory_summarization_agent with {len(semantic_memories_raw)} semantic, {len(episodic_memories_raw)} episodic, and {len(learned_memories_raw)} learned memories")
         
         # Process memories through the summarization agent
         summarized_memories = await memory_system.memory_summarization_agent(
@@ -1188,6 +1190,7 @@ async def query_memory(
             episodic_memories=episodic_memories_raw,
             learned_memories=learned_memories_raw
         )
+        logger.info(f"[{trace_id}] Received memory summaries - Episodic: {summarized_memories.get('episodic', '')[:100]}...")
 
         temporal_context = ""
         if episodic_memories_raw and len(episodic_memories_raw) > 0:
@@ -1221,7 +1224,7 @@ async def query_memory(
 
         # Note: Temperature will be handled separately and not modified by creativity settings
 
-
+        logger.info(f"[{trace_id}] Passing to template - Episodic: {summarized_memories.get('episodic', '')[:100]}...")
         # Construct the prompt with summarized memories and creativity instruction
         prompt = case_response_template.format(
             query=query.prompt,
