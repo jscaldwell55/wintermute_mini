@@ -108,15 +108,26 @@ Response Style
     ) -> str:
         """
         Formats the prompt with summarized memories.
+        
+        Args:
+            query: User query
+            semantic_memories: Summarized semantic memories (string)
+            episodic_memories: Summarized episodic memories (string)
+            learned_memories: Summarized learned memories (string)
+            creativity_instruction: Style instruction
+            temporal_context: Additional temporal context for time-based queries
+            
+        Returns:
+            Formatted prompt string
         """
-        # Log the incoming episodic memories for debugging
+        # Log what we received 
         logger.info(f"CaseResponseTemplate.format received episodic_memories: {episodic_memories[:100] if episodic_memories else 'None'}")
         
-        # Set defaults for missing memory types but ONLY if they are None or empty strings
+        # Make absolutely sure we have strings, not None values
         semantic_memories = semantic_memories if semantic_memories else "No relevant background knowledge available."
         episodic_memories = episodic_memories if episodic_memories and episodic_memories.strip() else "No relevant conversation history available."
         learned_memories = learned_memories if learned_memories else "No relevant insights available yet."
-        creativity_instruction = creativity_instruction or "No relevant instructions available yet."
+        creativity_instruction = creativity_instruction or "No specific creativity instructions provided."
         temporal_context = temporal_context or ""  # Empty string if no temporal context
         
         # Format the template with the processed memories

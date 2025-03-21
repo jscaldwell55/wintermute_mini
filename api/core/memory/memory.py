@@ -2217,6 +2217,9 @@ You are an AI memory processor recalling past conversations.
                 logger.info(f"Returning non-empty episodic summary: {summaries.get('episodic', '')[:100]}...")
 
         logger.info(f"Returning summaries - Episodic: {summaries.get('episodic', '')[:100]}...")
+        # Make sure we always have a string, never None
+        if 'episodic' in summaries and summaries['episodic'] is None:
+            summaries['episodic'] = "No relevant conversation history available."
         return summaries
 
     async def store_interaction_enhanced(self, query: str, response: str, window_id: Optional[str] = None) -> Memory:
