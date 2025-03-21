@@ -1944,7 +1944,7 @@ class MemorySystem:
         candidates: List[Tuple[MemoryResponse, float]],
         max_memories: int = 5,
         time_window_hours: float = 24
-    ) -> List[MemoryResponse]:
+        ) -> List[MemoryResponse]:
         """
         Optimize the selection of episodic memories for a temporal query.
         Only memories within the target time window (e.g., last 24 hours) are allowed.
@@ -1965,15 +1965,14 @@ class MemorySystem:
         timestamps = []
         for mem, score in candidates:
             try:
-                # Assume mem.created_at is an ISO string.
-                mem_time = datetime.fromisoformat(mem.created_at.rstrip('Z'))
-                if mem_time.tzinfo is None:
-                    mem_time = mem_time.replace(tzinfo=timezone.utc)
+                # Use the normalize_timestamp helper to parse mem.created_at.
+                mem_time = normalize_timestamp(mem.created_at)
                 age_hours = (now - mem_time).total_seconds() / 3600
                 if age_hours <= time_window_hours:
                     filtered_candidates.append(mem)
                     scores.append(score)
-                    timestamps.append(mem_time.timestamp())
+                    # Pinecone requires a Unix timestamp.
+                    timestamps.append(int(mem_time.timestamp()))
             except Exception as e:
                 # Skip candidates with parsing errors.
                 continue
@@ -2015,6 +2014,7 @@ class MemorySystem:
             selected = [mem for mem, _ in sorted_by_score][:max_memories]
 
         return selected
+
 
 
     async def memory_summarization_agent(
