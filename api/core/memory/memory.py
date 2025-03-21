@@ -2394,8 +2394,7 @@ You are an AI memory processor recalling past conversations.
                 return None
 
             # Combine query and response for embedding. Correct format.
-            interaction_text = f"User: {query}\nAssistant: {response}"
-
+            interaction_text = f"Assistant: {response}"
             # Check for duplicates *before* creating the memory object
             if await self._check_recent_duplicate(interaction_text):
                 logger.warning("Duplicate interaction detected. Skipping storage.")
