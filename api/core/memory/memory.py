@@ -1693,6 +1693,7 @@ class MemorySystem:
         This is an internal helper for batch_query_memories.
         """
         try:
+            penalty_count = 0
             # Use pre-computed vector if provided
             if pre_computed_vector is not None:
                 query_vector = pre_computed_vector
@@ -1778,11 +1779,12 @@ class MemorySystem:
                             "not remember any", "doesn't look like", "nothing specific"
                         ]
 
-                        if any(phrase in content for phrase in negative_phrases):
+                        if any(phrase in content for phrase in negative_phrases): # <---- ENSURE THIS LINE IS EXACTLY LIKE THIS
                             # Apply severe penalty to empty/negative responses
                             original_score = final_score
-                            final_score *= empty_response_penalty
-                            logger.info(f"Applied empty response penalty to memory {memory_data['id']}: " +
+                            final_score *= empty_response_penalty  # Default 0.01 = 1% of original score
+                            penalty_count += 1
+                            logger.debug(f"Applied empty response penalty to memory {memory_data['id']}: " +
                                     f"Score reduced from {original_score:.4f} to {final_score:.4f}")
 
                     # More comprehensive negative phrases detection
@@ -1792,12 +1794,7 @@ class MemorySystem:
                         "not remember any", "doesn't look like", "nothing specific"
                     ]
 
-                    if any(phrase in content for phrase in negative_phrases): # <---- ENSURE THIS LINE IS EXACTLY LIKE THIS
-                        # Apply severe penalty to empty/negative responses
-                        original_score = final_score
-                        final_score *= empty_response_penalty  # Default 0.01 = 1% of original score
-                        logger.info(f"Applied empty response penalty to memory {memory_data['id']}: " +
-                                f"Score reduced from {original_score:.4f} to {final_score:.4f}")
+                  
 
                     # Apply memory-type specific scoring
                     if memory_type == "EPISODIC":
@@ -1869,7 +1866,6 @@ class MemorySystem:
                         age_days = (current_time - created_at).total_seconds() / (86400)  # Seconds in a day
 
                         # Calculate recency score with much slower decay for semantic memories
-                        # Increase minimum score and slow down the decay rate significantly
                         recency_score = max(0.6, 1.0 - (math.log(1 + age_days) / 20))
 
                         # Combine scores using semantic_recency_weight from settings
@@ -1926,6 +1922,10 @@ class MemorySystem:
                 matches, similarity_scores = zip(*memory_scores)
             else:
                 matches, similarity_scores = [], []
+
+            # Log summary of penalties applied
+            if penalty_count > 0:
+                logger.info(f"Applied empty response penalties to {penalty_count} memories")
 
             return QueryResponse(
                 matches=list(matches),
