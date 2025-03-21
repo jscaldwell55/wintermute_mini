@@ -2051,16 +2051,29 @@ class MemorySystem:
             if filtered_episodic_memories:
                 episodic_memories = filtered_episodic_memories
 
-        # **NEW STEP: Temporal Query Optimization**
         # If the query contains temporal keywords, run the OR-based optimization before further processing
         temporal_keywords = ["yesterday", "today", "last week", "this morning", "this afternoon", "this evening"]
         if any(keyword in query.lower() for keyword in temporal_keywords):
             logger.info("Temporal query detected: applying OR-based optimization to episodic memories")
-            optimized = await self.optimize_temporal_memories(episodic_memories, time_window_hours=24)
+            
+            # Verify the structure of episodic_memories
+            logger.info(f"Episodic memories count before optimization: {len(episodic_memories)}")
+            for i, item in enumerate(episodic_memories):
+                if isinstance(item, tuple) and len(item) == 2:
+                    mem, score = item
+                    logger.info(f"[Pre-Optimize] Memory {i}: ID={mem.id if hasattr(mem, 'id') else 'unknown'}, score type={type(score).__name__}")
+                else:
+                    logger.warning(f"[Pre-Optimize] Item at index {i} is not a valid (MemoryResponse, float) tuple: {item}")
+            
+            optimized = await self.optimize_temporal_memories(candidates=episodic_memories, max_memories=5, time_window_hours=24)
             if optimized:
+                # Set a default score (e.g., 1.0) for each optimized memory
                 episodic_memories = [(mem, 1.0) for mem in optimized]
+                logger.info(f"Optimized episodic memories count: {len(episodic_memories)}")
             else:
                 episodic_memories = []
+                logger.info("No optimized episodic memories returned.")
+
 
         # Format semantic memories (no changes)
         semantic_content = "\n".join([
