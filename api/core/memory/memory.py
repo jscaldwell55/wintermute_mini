@@ -2220,6 +2220,8 @@ You are an AI memory processor recalling past conversations.
         # Make sure we always have a string, never None
         if 'episodic' in summaries and summaries['episodic'] is None:
             summaries['episodic'] = "No relevant conversation history available."
+        if "episodic" not in summaries:
+            summaries["episodic"] = "No relevant conversation history available."
         logger.info(f"Returning summaries - Episodic: {summaries.get('episodic', '')[:100]}...")
         return summaries
 
