@@ -324,6 +324,8 @@ class PineconeService(MemoryService):
             if query_filter and "created_at_unix" in query_filter and isinstance(query_filter["created_at_unix"], dict):
                 for op, ts in query_filter["created_at_unix"].items():
                     logger.info(f"  {op.upper()} timestamp (Unix): {ts}") # Log the timestamp range
+                    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                    logger.info(f"  {op.upper()} as date: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
             elif query_filter and "created_at_unix" in query_filter: # Log for single value as well
                 created_at_unix_filter = query_filter["created_at_unix"]
                 logger.info(
