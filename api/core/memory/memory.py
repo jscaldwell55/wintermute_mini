@@ -1975,7 +1975,7 @@ class MemorySystem:
                     scores.append(score)
                     timestamps.append(mem_time.timestamp())
             except Exception as e:
-                # If there's an error parsing, skip the candidate.
+                # Skip candidates with parsing errors.
                 continue
 
         if not filtered_candidates:
@@ -1997,7 +1997,7 @@ class MemorySystem:
         # Constraint: select at most max_memories.
         solver.Add(solver.Sum(memory_vars) <= max_memories)
         
-        # (Optional) Constraint: at least one memory must be very recent (e.g., within the last 2 hours).
+        # Optional: ensure at least one memory is very recent (e.g., within the last 2 hours).
         very_recent_threshold = now - timedelta(hours=2)
         very_recent_indices = [i for i, ts in enumerate(timestamps) if ts >= very_recent_threshold.timestamp()]
         if very_recent_indices:
@@ -2010,11 +2010,12 @@ class MemorySystem:
                 if memory_vars[i].solution_value() > 0.5:
                     selected.append(filtered_candidates[i])
         else:
-            # Fallback: select top scoring filtered candidates.
+            # Fallback: choose the top scoring filtered candidates.
             sorted_by_score = sorted(zip(filtered_candidates, scores), key=lambda x: x[1], reverse=True)
             selected = [mem for mem, _ in sorted_by_score][:max_memories]
 
         return selected
+
 
     async def memory_summarization_agent(
         self,
