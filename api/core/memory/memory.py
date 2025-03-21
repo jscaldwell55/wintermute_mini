@@ -1939,7 +1939,7 @@ class MemorySystem:
             # Return an empty list if there's an error, not None
             return []
         
-    async def optimize_temporal_memories(candidates: List[Tuple[MemoryResponse, float]],
+    async def optimize_temporal_memories(self, candidates: List[Tuple[MemoryResponse, float]],
                                      max_memories: int = 5,
                                      time_window_hours: float = 24) -> List[MemoryResponse]:
         """
