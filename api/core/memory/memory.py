@@ -1939,6 +1939,21 @@ class MemorySystem:
             content_snippet = mem.content[:100] + "..." if len(mem.content) > 100 else mem.content
             logger.info(f"Memory content snippet: {content_snippet}")
 
+        # Pre-filter obviously empty responses
+        if episodic_memories:
+            filtered_episodic_memories = []
+            for mem, score in episodic_memories:
+                content_lower = mem.content.lower()
+                if (len(mem.content) > 150 or 
+                    not any(phrase in content_lower for phrase in ["i don't recall", "no relevant", "haven't discussed", "i'm sorry"])):
+                    filtered_episodic_memories.append((mem, score))
+                else:
+                    logger.info(f"Pre-filtering empty response memory: {mem.id}")
+            
+            # Only replace if we have some substantial memories left
+            if filtered_episodic_memories:
+                episodic_memories = filtered_episodic_memories
+
         # Format semantic memories (no changes)
         semantic_content = "\n".join([
             f"- {mem.content[:300]}..." if len(mem.content) > 300 else f"- {mem.content}"
@@ -2000,7 +2015,7 @@ class MemorySystem:
                         similarity_to_query = 0.0  # Default if no vector
 
                     # Apply a dynamic relevance boost based on similarity to query
-                    relevance_boost = 1.0 + (similarity_to_query * 0.5)  # Boost up to 50% based on similarity
+                    relevance_boost = 1.0 + (similarity_to_query * 1.0)  # Boost up to 50% based on similarity
 
                     # Apply recency weighting (existing bell curve or time-based decay)
                     if isinstance(mem.created_at, str):
@@ -2047,7 +2062,7 @@ class MemorySystem:
             episodic_content_list.sort(key=lambda x: x[1], reverse=True)
 
             # Format top fragments into string for prompt
-            top_fragments = [fragment for fragment, _score in episodic_content_list[:5]] # Take top 5 fragments
+            top_fragments = [fragment for fragment, _score in episodic_content_list[:10]] # Take top 5 fragments
             episodic_content = "\n".join(top_fragments) if top_fragments else "No relevant conversation history available."
 
             # Log the final formatted content for the prompt
@@ -2125,15 +2140,18 @@ You are an AI memory processor recalling past conversations.
         """
             episodic_prompt += episodic_content
 
-        episodic_prompt += """
-**Task:**
-- Summarize relevant past conversations concisely (max 150 words).
-- Prioritize the most relevant content to the current query.
-{f"- Focus on conversations from {time_expression}." if time_expression else ""}
-{temporal_context if temporal_context else ""}
+        episodic_prompt += f"""
+        **Task:**
+        - Summarize relevant past conversations concisely (max 150 words).
+        - Prioritize the most relevant content to the current query.
+        - Focus on what was discussed rather than what wasn't discussed.
+        - If you find ANY substantive content, include it in your summary.
+        - Avoid starting with phrases like "I don't recall" - instead, focus on what you DO find.
+        {f"- Focus on conversations from {time_expression}." if time_expression else ""}
+        {temporal_context if temporal_context else ""}
 
-**Output the summarized memory:**
-"""
+        **Output the summarized memory:**
+        """
 
         semantic_summary_task = asyncio.create_task(
             self.llm_service.generate_gpt_response_async(semantic_prompt, temperature=0.5)
@@ -2165,11 +2183,22 @@ You are an AI memory processor recalling past conversations.
             else:
                 summaries[memory_type] = f"No relevant memories for {memory_type}."
 
-        # Check for "I don't recall" in the FINAL SUMMARY, not individual memories
+        # Check if the ENTIRE summary is just a variation of "I don't recall"
         if "episodic" in summaries:
-            if any(phrase in summaries["episodic"].lower() for phrase in ["i don't recall", "no relevant", "haven't discussed", "i'm sorry"]):
-                # Handle the case where no relevant memories were found *after* summarization
-                summaries["episodic"] = "I don't recall any relevant conversations from that time." # Or retry, expand time window, etc.
+            negative_phrases = ["i don't recall", "no relevant", "haven't discussed", "i'm sorry"]
+            
+            # This allows meaningful content to pass through even if it contains these phrases
+            if (len(summaries["episodic"]) < 100 and 
+                any(phrase in summaries["episodic"].lower() for phrase in negative_phrases)):
+                
+                # Handle the case where no relevant memories were found after summarization
+                summaries["episodic"] = "I don't recall any relevant conversations from that time."
+
+            # After the negative phrase check:
+            if "episodic" in summaries and "i don't recall" in summaries["episodic"].lower():
+                # Look for ANY substantive conversations from a broader timeframe
+                logger.info("No relevant conversations found in target timeframe, attempting broader search...")
+
 
 
         return summaries
