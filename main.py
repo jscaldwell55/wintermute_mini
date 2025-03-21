@@ -1190,7 +1190,13 @@ async def query_memory(
             episodic_memories=episodic_memories_raw,
             learned_memories=learned_memories_raw
         )
-        logger.info(f"[{trace_id}] Received memory summaries - Episodic: {summarized_memories.get('episodic', '')[:100]}...")
+
+        # Use the correct variable name (summarized_memories)
+        if "episodic" not in summarized_memories or summarized_memories["episodic"] is None:
+            logger.warning("Episodic memories missing from summaries, adding default")
+            summarized_memories["episodic"] = "No relevant conversation history available."
+
+        logger.info(f"[{trace_id}] Received memory summaries - Episodic: {summarized_memories.get('episodic', 'None')[:100]}...")
 
         temporal_context = ""
         if episodic_memories_raw and len(episodic_memories_raw) > 0:
