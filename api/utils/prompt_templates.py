@@ -108,24 +108,14 @@ Response Style
     ) -> str:
         """
         Formats the prompt with summarized memories.
-        
-        Args:
-            query: User query
-            semantic_memories: Summarized semantic memories (string)
-            episodic_memories: Summarized episodic memories (string)
-            learned_memories: Summarized learned memories (string)
-            creativity_instruction: Style instruction
-            temporal_context: Additional temporal context for time-based queries
-            
-        Returns:
-            Formatted prompt string
         """
-        if not episodic_memories:
-            logger.info("Using default 'No relevant conversation history' because episodic_memories is empty")
-        # Set defaults for missing memory types
-        semantic_memories = semantic_memories or "No relevant background knowledge available."
-        episodic_memories = episodic_memories or "No relevant conversation history available."
-        learned_memories = learned_memories or "No relevant insights available yet."
+        # Log the incoming episodic memories for debugging
+        logger.info(f"CaseResponseTemplate.format received episodic_memories: {episodic_memories[:100] if episodic_memories else 'None'}")
+        
+        # Set defaults for missing memory types but ONLY if they are None or empty strings
+        semantic_memories = semantic_memories if semantic_memories else "No relevant background knowledge available."
+        episodic_memories = episodic_memories if episodic_memories and episodic_memories.strip() else "No relevant conversation history available."
+        learned_memories = learned_memories if learned_memories else "No relevant insights available yet."
         creativity_instruction = creativity_instruction or "No relevant instructions available yet."
         temporal_context = temporal_context or ""  # Empty string if no temporal context
         
@@ -138,6 +128,9 @@ Response Style
             creativity_instruction=creativity_instruction,
             temporal_context=temporal_context
         )
+        
+        # Log the final formatted memories
+        logger.info(f"Formatted episodic memories in template: {episodic_memories[:100]}...")
         
         return formatted.strip()
 

@@ -1689,6 +1689,22 @@ class MemorySystem:
                     content = memory_data["metadata"].get("content", "").lower()
                     empty_response_penalty = getattr(self.settings, 'empty_response_penalty', 0.01)
 
+                    # Check if this memory has already been pre-filtered
+                    if not hasattr(memory_data, 'pre_filtered') or not memory_data.pre_filtered:
+                        # More comprehensive negative phrases detection
+                        negative_phrases = [
+                            "i don't recall", "i'm sorry", "no relevant", "haven't discussed",
+                            "don't remember", "i do not recall", "not recall any",
+                            "not remember any", "doesn't look like", "nothing specific"
+                        ]
+
+                        if any(phrase in content for phrase in negative_phrases):
+                            # Apply severe penalty to empty/negative responses
+                            original_score = final_score
+                            final_score *= empty_response_penalty
+                            logger.info(f"Applied empty response penalty to memory {memory_data['id']}: " +
+                                    f"Score reduced from {original_score:.4f} to {final_score:.4f}")
+
                     # More comprehensive negative phrases detection
                     negative_phrases = [
                         "i don't recall", "i'm sorry", "no relevant", "haven't discussed",
@@ -2194,11 +2210,11 @@ You are an AI memory processor recalling past conversations.
                 # Handle the case where no relevant memories were found after summarization
                 summaries["episodic"] = "I don't recall any relevant conversations from that time."
 
-            # After the negative phrase check:
-            if "episodic" in summaries and "i don't recall" in summaries["episodic"].lower():
-                # Look for ANY substantive conversations from a broader timeframe
-                logger.info("No relevant conversations found in target timeframe, attempting broader search...")
-
+            # Add logging to track what's being returned
+            if "i don't recall" in summaries["episodic"].lower() or "no relevant" in summaries["episodic"].lower():
+                logger.info("Episodic summary contains 'I don't recall' or similar phrase")
+            else:
+                logger.info(f"Returning non-empty episodic summary: {summaries.get('episodic', '')[:100]}...")
 
         logger.info(f"Returning summaries - Episodic: {summaries.get('episodic', '')[:100]}...")
         return summaries

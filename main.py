@@ -1222,18 +1222,21 @@ async def query_memory(
             # When disabled, use a strict instruction without affecting temperature
             creativity_instruction = "Adhere strictly to the provided memories, responding directly based on this information."
 
-        # Note: Temperature will be handled separately and not modified by creativity settings
 
-        logger.info(f"[{trace_id}] Passing to template - Episodic: {summarized_memories.get('episodic', '')[:100]}...")
-        # Construct the prompt with summarized memories and creativity instruction
-        prompt = case_response_template.format(
+        # Replace with just this block
+        logger.info(f"[{trace_id}] Passing to template - Episodic: {summarized_memories.get('episodic', 'None')[:100]}...")
+        final_prompt = case_response_template.format(
             query=query.prompt,
-            semantic_memories=summarized_memories.get("semantic", "No relevant background knowledge available."),
-            episodic_memories=summarized_memories.get("episodic", "No relevant conversation history available."),
-            learned_memories=summarized_memories.get("learned", "No relevant insights available yet."),
+            semantic_memories=summarized_memories.get('semantic'),
+            episodic_memories=summarized_memories.get('episodic'),
+            learned_memories=summarized_memories.get('learned'),
             creativity_instruction=creativity_instruction,
             temporal_context=temporal_context
         )
+        logger.info(f"Final prompt episodic memory section: {summarized_memories.get('episodic', 'None')[:100]}...")
+
+        # Then use the formatted prompt
+        prompt = final_prompt
 
         # Use a fixed temperature without random variation
         base_temp = 1.0  # Fixed base temperature at maximum safe value
