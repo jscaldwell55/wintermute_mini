@@ -50,6 +50,8 @@ from api.core.consolidation.enhanced_memory_consolidator import EnhancedMemoryCo
 from api.core.consolidation.consolidation_scheduler import ConsolidationScheduler
 from api.core.memory.interfaces.memory_service import MemoryService
 from api.core.memory.interfaces.vector_operations import VectorOperations
+from api.utils.neo4j_graph_store import Neo4jGraphStore
+
 
 
 # Keep only ONE router definition here:
@@ -173,7 +175,7 @@ class SystemComponents:
 
                 self.memory_graph = graph_components["memory_graph"]
                 await self.memory_graph.initialize()
-                logger.info("✅ Memory graph and Redis store initialized")
+                logger.info("✅ Memory graph and Neo4j store initialized")
 
                 self.memory_system = MemorySystem(
                     pinecone_service=self.pinecone_service,
@@ -674,45 +676,45 @@ async def get_graph_initialization_status():
         return {"status": "error", "message": str(e)}
     
 @api_router.get("/memory/graph/stats")
-async def get_graph_stats_with_redis():
-    """Get detailed statistics about the memory graph and Redis store."""
+async def get_graph_stats_with_neo4j():
+    """Get detailed statistics about the memory graph and Neo4j store."""
     if not hasattr(components, 'memory_graph'):
-        return {"status": "not_started", "node_count": 0, "edge_count": 0, "redis": {"initialized": False}}
+        return {"status": "not_started", "node_count": 0, "edge_count": 0, "neo4j": {"initialized": False}}
         
     try:
-        # Use the new method that includes Redis information
-        stats = await components.memory_graph.get_graph_stats_with_redis()
+        # Use the new method that includes Neo4j information
+        stats = await components.memory_graph.get_graph_stats_with_neo4j()
         
         return {
             "status": "complete" if stats['memory_graph']['node_count'] > 0 else "in_progress",
             "memory_graph": stats['memory_graph'],
-            "redis_store": stats['redis_store'],
+            "neo4j_store": stats['neo4j_store'],
             "is_synchronized": (
                 stats['memory_graph']['node_count'] > 0 and 
-                stats['redis_store']['nodes'] > 0 and
-                stats['memory_graph']['edge_count'] == stats['redis_store']['relationships']
+                stats['neo4j_store']['nodes'] > 0 and
+                stats['memory_graph']['edge_count'] == stats['neo4j_store']['relationships']
             )
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
     
 @api_router.post("/memory/graph/reload")
-async def reload_graph_from_redis():
-    """Reload the memory graph from Redis."""
+async def reload_graph_from_neo4j():
+    """Reload the memory graph from Neo4j."""
     if not hasattr(components, 'memory_graph'):
         return {"status": "error", "message": "Memory graph not initialized"}
         
     try:
-        # Clear the current graph and reload from Redis
+        # Clear the current graph and reload from Neo4j
         components.memory_graph.graph.clear()
-        await components.memory_graph.load_from_redis()
+        await components.memory_graph.load_from_neo4j()
         
         # Get stats after reload
-        stats = await components.memory_graph.get_graph_stats_with_redis()
+        stats = await components.memory_graph.get_graph_stats_with_neo4j()
         
         return {
             "status": "success",
-            "message": f"Reloaded {stats['memory_graph']['node_count']} nodes and {stats['memory_graph']['edge_count']} edges from Redis",
+            "message": f"Reloaded {stats['memory_graph']['node_count']} nodes and {stats['memory_graph']['edge_count']} edges from Neo4j",
             "stats": stats
         }
     except Exception as e:
@@ -1430,30 +1432,17 @@ app.include_router(api_router, prefix="/api/v1")
 async def startup_event():
     logger = logging.getLogger(__name__)
     logger.info("Starting up Wintermute application")
-    import os
     
-    # Ensure Redis is properly initialized
+    # Ensure Neo4j is properly initialized
     if hasattr(components, 'memory_graph') and components.memory_graph:
-        redis_initialized = await components.memory_graph.redis_store.initialize()
-        logger.info(f"Redis initialization on startup: {redis_initialized}")
+        neo4j_initialized = await components.memory_graph.neo4j_store.initialize()
+        logger.info(f"Neo4j initialization on startup: {neo4j_initialized}")
         
-        if not redis_initialized:
-            # Log available Redis environment variables for debugging
-            redis_vars = {k: v[:5] + '...' for k, v in os.environ.items() if 'REDIS' in k}
-            logger.warning(f"Available Redis environment variables: {redis_vars}")
-            
-            # Try both environment variables
-            redis_url = os.environ.get('REDISCLOUD_URL', os.environ.get('REDIS_URL'))
-            if redis_url:
-                masked_url = redis_url
-                if '@' in masked_url:
-                    prefix, suffix = masked_url.split('@', 1)
-                    if ':' in prefix and '//' in prefix:
-                        protocol_user = prefix.split(':', 1)[0]
-                        masked_url = f"{protocol_user}:****@{suffix}"
-                logger.info(f"Found Redis URL: {masked_url}")
-            else:
-                logger.warning("No REDISCLOUD_URL or REDIS_URL found in environment variables!")
+        if not neo4j_initialized:
+            # Log available Neo4j environment variables for debugging
+            import os
+            neo4j_vars = {k: v[:5] + '...' for k, v in os.environ.items() if 'NEO4J' in k}
+            logger.warning(f"Available Neo4j environment variables: {neo4j_vars}")
     
     logger.info("Wintermute startup complete")
     

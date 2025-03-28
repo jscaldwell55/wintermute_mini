@@ -8,7 +8,8 @@ import uuid
 import asyncio
 
 from api.core.memory.models import Memory, MemoryType
-from api.utils.redis_graph_store import RedisGraphStore 
+from api.utils.neo4j_graph_store import Neo4jGraphStore
+
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,9 @@ class MemoryGraph:
         # Counter for edge weights to track relationship strength
         self.relationship_counter = {}
         
-        # Redis persistence store
-        self.redis_store = RedisGraphStore()
+        # Neo4j persistence store
+        self.graph = nx.DiGraph()
+        self.neo4j_store = Neo4jGraphStore()
         self._initialized = False
         
         # Setup logging
@@ -35,33 +37,33 @@ class MemoryGraph:
         self.logger.info("Memory graph initialized")
     
     async def initialize(self):
-        """Initialize the memory graph and load from Redis if available."""
+        """Initialize the memory graph and load from Neo4j if available."""
         try:
-            # Initialize Redis store
-            redis_initialized = await self.redis_store.initialize()
+            # Initialize Neo4j store
+            neo4j_initialized = await self.neo4j_store.initialize()
             
-            if redis_initialized:
-                # Load graph from Redis
-                await self.load_from_redis()
-                logger.info("✅ Successfully loaded graph structure from Redis")
+            if neo4j_initialized:
+                # Load graph from Neo4j
+                await self.load_from_neo4j()
+                logger.info("✅ Successfully loaded graph structure from Neo4j")
             else:
-                logger.warning("⚠️ Redis initialization failed - will operate without persistence")
+                logger.warning("⚠️ Neo4j initialization failed - will operate without persistence")
                 
             self._initialized = True
-            self.logger.info(f"Memory graph initialization complete. Redis initialized: {redis_initialized}")
+            self.logger.info(f"Memory graph initialization complete. Neo4j initialized: {neo4j_initialized}")
             return True
         except Exception as e:
             logger.error(f"Error initializing memory graph: {e}")
-            self._initialized = True  # Still mark as initialized to allow operation without Redis
+            self._initialized = True  # Still mark as initialized to allow operation without Neo4j
             return False
     
-    async def load_from_redis(self):
-        """Load graph structure from Redis."""
+    async def load_from_neo4j(self):
+        """Load graph structure from Neo4j."""
         try:
-            self.logger.info("Loading graph structure from Redis...")
+            self.logger.info("Loading graph structure from Neo4j...")
             
             # Get all relationships
-            relationships = await self.redis_store.get_all_relationships()
+            relationships = await self.neo4j_store.get_all_relationships()
             
             # Add to in-memory graph
             for rel in relationships:
@@ -92,15 +94,15 @@ class MemoryGraph:
             
             node_count = self.graph.number_of_nodes()
             edge_count = self.graph.number_of_edges()
-            self.logger.info(f"Loaded graph with {node_count} nodes and {edge_count} edges from Redis")
+            self.logger.info(f"Loaded graph with {node_count} nodes and {edge_count} edges from Neo4j")
             
         except Exception as e:
-            self.logger.error(f"Error loading graph from Redis: {e}")
+            self.logger.error(f"Error loading graph from Neo4j: {e}")
     
-    async def get_graph_stats_with_redis(self) -> Dict[str, Any]:
-        """Get statistics about the memory graph and Redis store."""
-        redis_node_count = await self.redis_store.get_node_count()
-        redis_rel_count = await self.redis_store.get_relationship_count()
+    async def get_graph_stats_with_neo4j(self) -> Dict[str, Any]:
+        """Get statistics about the memory graph and Neo4j store."""
+        neo4j_node_count = await self.neo4j_store.get_node_count()
+        neo4j_rel_count = await self.neo4j_store.get_relationship_count()
         
         memory_node_count = self.graph.number_of_nodes()
         memory_edge_count = self.graph.number_of_edges()
@@ -110,9 +112,9 @@ class MemoryGraph:
         return {
             "memory_graph": graph_stats,
             "redis_store": {
-                "nodes": redis_node_count,
-                "relationships": redis_rel_count,
-                "initialized": self.redis_store.initialized
+                "nodes": neo4j_node_count,
+                "relationships": neo4j_rel_count,
+                "initialized": self.neo4j_store.initialized
             }
         }
     
@@ -170,7 +172,7 @@ class MemoryGraph:
                          metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
         Add a relationship (edge) between two memory nodes.
-        Also persists to Redis for durability across restarts.
+        Also persists to Neo4j for durability across restarts.
         
         Args:
             source_id: Source memory node ID
@@ -222,7 +224,7 @@ class MemoryGraph:
             self.logger.info(f"Added new relationship ({rel_type}) from {source_id} to {target_id}")
         
         # Persist to Redis asynchronously
-        asyncio.create_task(self.redis_store.store_relationship(
+        asyncio.create_task(self.neo4j_store.store_relationship(
             source_id, target_id, rel_type, edge_attrs['weight']
         ))
         
@@ -488,21 +490,4 @@ class MemoryGraph:
             counts[rel_type] = counts.get(rel_type, 0) + 1
         return counts
         
-    async def clear_all_relationships(self) -> bool:
-        """
-        Clear all relationships from both in-memory graph and Redis.
-        Mainly for testing or administrative purposes.
-        """
-        try:
-            # Clear NetworkX graph
-            self.graph.clear()
-            self.relationship_counter = {}
-            
-            # Clear Redis
-            await self.redis_store.clear_all_relationships()
-            
-            self.logger.info("Cleared all relationships from graph and Redis")
-            return True
-        except Exception as e:
-            self.logger.error(f"Error clearing relationships: {e}")
-            return False
+   
