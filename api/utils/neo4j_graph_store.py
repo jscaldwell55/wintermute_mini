@@ -66,12 +66,13 @@ class Neo4jGraphStore:
         """Retrieve all relationships from Neo4j."""
         query = """
         MATCH (s)-[r]->(t)
-        RETURN s.id AS source_id, t.id AS target_id, r.type AS rel_type, r.weight AS weight
+        RETURN id(s) AS source_id, id(t) AS target_id, type(r) AS rel_type, r.weight AS weight
         """
         async with self.driver.session() as session:
             result = await session.run(query)
-            relationships = [record.data() for record in result]
+            relationships = [record.data() async for record in result]
         return relationships
+
 
     async def get_graph_stats(self) -> Dict[str, Any]:
         """Retrieve basic graph statistics."""
