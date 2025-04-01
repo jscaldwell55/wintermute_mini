@@ -54,13 +54,21 @@ class Neo4jGraphStore:
     async def store_relationship(self, source_id: str, target_id: str, rel_type: str, weight: float):
         """Store a relationship between two memories."""
         query = """
-        MATCH (s:Memory {id: $source_id}), (t:Memory {id: $target_id})
+        MATCH (s:Memory {id: $source_id})
+        MATCH (t:Memory {id: $target_id})
         MERGE (s)-[r:RELATED_TO {type: $rel_type}]->(t)
         SET r.weight = $weight
         """
         async with self.driver.session() as session:
-            await session.run(query, source_id=source_id, target_id=target_id, rel_type=rel_type, weight=weight)
+            await session.run(
+                query,
+                source_id=source_id,
+                target_id=target_id,
+                rel_type=rel_type,
+                weight=weight
+            )
             logger.info(f"✅ Created relationship {rel_type} between {source_id} and {target_id}")
+
 
     async def get_all_relationships(self) -> List[Dict[str, Any]]:
         """Retrieve all relationships from Neo4j."""
