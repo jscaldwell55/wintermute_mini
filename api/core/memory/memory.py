@@ -1834,13 +1834,43 @@ class MemorySystem:
                         # Apply memory type weight
                         combined_score = combined_score * self.settings.episodic_memory_weight
 
-                        # Check for substantive content and boost if found
                         content_boost = getattr(self.settings, 'content_response_boost', 5.0)
-                        if (not any(phrase in content for phrase in negative_phrases) and
-                            len(content) > 100):  # Threshold for meaningful content
+                        is_negative_response = any(phrase in content for phrase in negative_phrases)
+                        is_short_content = len(content) <= 100  # Too short to be meaningful
+
+                        # Detect query-related keywords in content
+                        query_keywords = []
+                        # Extract main topic from the request prompt
+                        request_query = request.prompt.lower() if hasattr(request, 'prompt') else ""
+                        if request_query:
+                            # Extract main topic from query (e.g., "when did we discuss X" -> X)
+                            query_match = re.search(r"(?:discuss|talk about|mention)\s+(.+?)(?:\?|$)", request_query)
+                            if query_match:
+                                topic = query_match.group(1).strip()
+                                # Get keywords from the topic
+                                query_keywords = [word.strip() for word in topic.split() if len(word.strip()) > 3]
+
+                        # Check if content contains any of the query keywords
+                        contains_query_keywords = query_keywords and any(keyword in content.lower() for keyword in query_keywords)
+
+                        # Apply different boost levels based on criteria
+                        if not is_negative_response and not is_short_content:
+                            # High-quality content gets full boost
                             original_score = combined_score
-                            combined_score *= content_boost  # Default 5.0 = 5x boost for real content
-                            logger.info(f"Applied content boost to memory {memory_data['id']}: " +
+                            combined_score *= content_boost
+                            logger.info(f"Applied full content boost to memory {memory_data['id']}: " +
+                                    f"Score increased from {original_score:.4f} to {combined_score:.4f}")
+                        elif not is_negative_response and contains_query_keywords:
+                            # Special boost for content containing query keywords
+                            original_score = combined_score
+                            combined_score *= (content_boost * 1.5)  # Extra boost for relevant content
+                            logger.info(f"Applied TOPIC-RELEVANT content boost to memory {memory_data['id']}: " +
+                                    f"Score increased from {original_score:.4f} to {combined_score:.4f}")
+                        elif not is_negative_response and len(content) > 50:
+                            # Moderate-quality content gets partial boost
+                            original_score = combined_score
+                            combined_score *= (content_boost * 0.5)  # Half boost for moderate content
+                            logger.info(f"Applied partial content boost to memory {memory_data['id']}: " +
                                     f"Score increased from {original_score:.4f} to {combined_score:.4f}")
 
                         final_score = combined_score
@@ -2294,35 +2324,51 @@ class MemorySystem:
         # --- Define episodic_prompt HERE ---
         episodic_content_for_prompt = ""
         episodic_prompt = f"""
-You are an AI memory processor recalling past conversations.
+        You are an AI memory processor recalling past conversations.
 
-**User Query:** "{query}"
-"""
+        **User Query:** "{query}"
+
+        **IMPORTANT INSTRUCTION:** If ANY relevant conversation is found in the memory fragments provided below, focus ONLY on summarizing what WAS discussed. NEVER say "I don't recall" or similar if ANY relevant memory is available.
+        """
         if immediate_previous_turn_memory:
             episodic_prompt += f"""
-**Immediate Previous Turn (Most Recent Conversation):**
-        - {immediate_previous_turn_memory[0].content[:300]}...\n
+        **Immediate Previous Turn (Most Recent Conversation):**
+                - {immediate_previous_turn_memory[0].content[:300]}...\n
         """
         if slightly_recent_episodic_memories:
             episodic_prompt += f"""**Slightly Recent Conversation History (Last Few Minutes):**\n"""
-            episodic_prompt += "\\n".join([f"- ({self._format_memory_time_context(mem)}): " + mem.content[:200] + "..." for mem, score in slightly_recent_episodic_memories]) + "\\n"
+            episodic_prompt += "\n".join([f"- ({self._format_memory_time_context(mem)}): " + mem.content[:200] + "..." for mem, score in slightly_recent_episodic_memories]) + "\n"
+
+        # Log the key memories we're including to help with debugging
         if episodic_content:
+            logger.info(f"Including episodic content in prompt (length={len(episodic_content)})")
+            # Extract and log top 3 memory fragments for debugging
+            if episodic_content_list:
+                for i, (fragment, score) in enumerate(episodic_content_list[:3]):
+                    logger.info(f"Top memory {i+1}: (score={score:.2f}) {fragment[:200]}...")
+            
             episodic_prompt += f"""
-**Older Conversation History:**\n
+        **Older Conversation History:**
+
+        {episodic_content}
         """
-            episodic_prompt += episodic_content
+        else:
+            logger.warning("No episodic content being added to the prompt")
+
         episodic_prompt += f"""
         **Task:**
-        - Summarize relevant past conversations concisely (max 150 words).
-        - Prioritize the most relevant content to the current query.
-        - Focus on what was discussed rather than what wasn't discussed.
-        - If you find ANY substantive content, include it in your summary.
-        - Avoid starting with phrases like "I don't recall" - instead, focus on what you DO find.
+        - Summarize the relevant past conversations concisely (max 150 words).
+        - Prioritize the most relevant content to the current query: "{query}"
+        - ONLY focus on what WAS discussed in the provided memories.
+        - If you find ANY substantive content, no matter how brief, include it in your summary.
+        - NEVER start with phrases like "I don't recall" or "I'm sorry" - instead, focus on what you DO find.
+        - If truly nothing relevant was found, simply state "We haven't discussed {query.replace('When did we discuss', '').replace('?', '').strip()} before."
         {f"- Focus on conversations from {time_expression}." if time_expression else ""}
         {temporal_context if temporal_context else ""}
 
         **Output the summarized memory:**
         """
+        logger.info(f"Episodic prompt length: {len(episodic_prompt)} characters")
 
         semantic_summary_task = asyncio.create_task(
             self.llm_service.generate_gpt_response_async(semantic_prompt, temperature=0.5)
@@ -2341,30 +2387,69 @@ You are an AI memory processor recalling past conversations.
             return_exceptions=True
         )
         task_map = {"semantic": semantic_summary_task, "episodic": episodic_summary_task, "learned": learned_summary_task}
+
+        # Enhanced logging for tracing LLM responses
         for memory_type, task, result in zip(task_map.keys(), task_map.values(), results):
             if isinstance(result, Exception):
                 logger.error(f"Summarization task for {memory_type} failed: {result}")
                 summaries[memory_type] = f"Error processing {memory_type} memories."
             elif task is not None:
+                # Add detailed logging for episodic memory responses
+                if memory_type == "episodic":
+                    logger.info(f"RAW LLM RESPONSE FOR EPISODIC: {result}")
+                    
+                    # Check for concerning patterns in the response
+                    negative_phrases = ["i don't recall", "no relevant", "haven't discussed", "i'm sorry"]
+                    if any(phrase in result.lower() for phrase in negative_phrases):
+                        logger.warning(f"LLM returned negative response despite memories. Raw response: {result}")
+                        
+                        # Check if we actually had memory content
+                        if len(episodic_content_list) > 0:
+                            logger.warning(f"Potential LLM issue: Negative response despite having {len(episodic_content_list)} memories")
+                
                 summaries[memory_type] = result.strip()
                 logger.info(f"Memory summarization for {memory_type} completed: {summaries[memory_type][:100]}...")
             else:
                 summaries[memory_type] = f"No relevant memories for {memory_type}."
         if "episodic" in summaries:
-            negative_phrases = ["i don't recall", "no relevant", "haven't discussed", "i'm sorry"]
-            if (len(summaries["episodic"]) < 100 and 
-                any(phrase in summaries["episodic"].lower() for phrase in negative_phrases)):
-                summaries["episodic"] = "I don't recall any relevant conversations from that time."
-            if "episodic" in summaries and "i don't recall" in summaries["episodic"].lower():
-                logger.info("Episodic summary contains 'I don't recall' or similar phrase")
+            # Check if the content is substantial enough to keep
+            negative_phrases = ["i don't recall", "no relevant", "haven't discussed", "i'm sorry", 
+                                "don't have any information", "no specific", "didn't have"]
+            
+            content = summaries["episodic"].lower()
+            is_negative_response = any(phrase in content for phrase in negative_phrases)
+            is_short_response = len(summaries["episodic"]) < 100
+            
+            # Only discard if BOTH conditions are true: it's negative AND short
+            if is_negative_response and is_short_response and len(episodic_content_list) == 0:
+                logger.info("Discarding low-quality episodic summary (negative and short)")
+                summaries["episodic"] = "No relevant conversation history available."
             else:
-                logger.info(f"Returning non-empty episodic summary: {summaries.get('episodic', '')[:100]}...")
-        logger.info(f"Returning summaries - Episodic: {summaries.get('episodic', '')[:100]}...")
-        if 'episodic' in summaries and summaries['episodic'] is None:
+                # If we have content in episodic_content_list but got a negative response,
+                # there might be an LLM error - use a backup approach
+                if is_negative_response and len(episodic_content_list) > 0:
+                    logger.warning("LLM returned negative response despite having content. Using backup summarization.")
+                    # Create a simple backup summary from the top memory fragments
+                    top_fragments = [frag for frag, _ in episodic_content_list[:3]]
+                    if top_fragments:
+                        # Use the most relevant memory directly
+                        best_fragment = top_fragments[0].replace("- ", "", 1)
+                        time_part = best_fragment.split(")")[0] + ")" if ")" in best_fragment else ""
+                        content_part = best_fragment.split(")", 1)[1] if ")" in best_fragment else best_fragment
+                        
+                        # Create a general summary based on the query topic
+                        query_topic = query.lower().replace("when did we discuss ", "").replace("when did we talk about ", "").replace("?", "").strip()
+                        summaries["episodic"] = f"We discussed {query_topic} {time_part}. {content_part}"
+                        logger.info(f"Created backup summary: {summaries['episodic'][:100]}...")
+                else:
+                    logger.info(f"Keeping valid episodic summary: {summaries['episodic'][:100]}...")
+
+        logger.info(f"Final episodic summary: {summaries.get('episodic', '')[:100]}...")
+
+        # Ensure we always have an episodic summary
+        if 'episodic' not in summaries or summaries['episodic'] is None:
             summaries['episodic'] = "No relevant conversation history available."
-        if "episodic" not in summaries:
-            summaries["episodic"] = "No relevant conversation history available."
-        logger.info(f"Returning summaries - Episodic: {summaries.get('episodic', '')[:100]}...")
+
         return summaries
 
 

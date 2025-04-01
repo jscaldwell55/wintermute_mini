@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional, Tuple, Set
 import numpy as np
 import math
 from datetime import datetime, timezone, timedelta
+import re
 
 
 from api.core.memory.models import Memory, MemoryType, QueryRequest, QueryResponse, MemoryResponse
@@ -94,32 +95,37 @@ class GraphMemoryRetriever:
             # Scale between 0.8 (peak) and 0.2 (oldest)
             return 0.8 * bell_value + 0.2
 
-    def _boost_content_relevance(self, memories, scores, query):
+    def _boost_content_relevance(self, memories, scores, query, content_terms=None):
         """
         Boost relevance scores for memories that match specific content terms in the query
         and penalize non-informative memories
         """
         query_lower = query.lower()
 
-        # Extract important terms (nouns, proper names) from the query
-        # Exclude common stop words and query words
-        stop_words = ["the", "and", "but", "or", "in", "on", "at", "to", "for", "with",
-                    "about", "from", "do", "did", "does", "have", "has", "had", "is",
-                    "am", "are", "was", "were", "be", "been", "being", "by", "during",
-                    "before", "after", "above", "below", "between", "into", "through",
-                    "during", "you", "your", "we", "our", "i", "my", "me", "mine"]
+        # Use provided content terms if available, otherwise extract from query
+        if not content_terms:
+            # Extract important terms (nouns, proper names) from the query
+            # Exclude common stop words and query words
+            stop_words = ["the", "and", "but", "or", "in", "on", "at", "to", "for", "with",
+                        "about", "from", "do", "did", "does", "have", "has", "had", "is",
+                        "am", "are", "was", "were", "be", "been", "being", "by", "during",
+                        "before", "after", "above", "below", "between", "into", "through",
+                        "during", "you", "your", "we", "our", "i", "my", "me", "mine"]
 
-        # Extract all words, filter out stop words and short words
-        important_terms = [term for term in query_lower.split()
-                        if len(term) > 3 and term not in stop_words]
+            # Extract all words, filter out stop words and short words
+            important_terms = [term for term in query_lower.split()
+                            if len(term) > 3 and term not in stop_words]
 
-        # Also look for specific phrases (these are particularly important)
-        phrases = ["mirandola", "talked about", "discuss", "conversation about",
-                "remember", "recall", "mentioned", "spoke about"]
+            # Also look for specific phrases (these are particularly important)
+            phrases = ["talked about", "discuss", "conversation about",
+                    "remember", "recall", "mentioned", "spoke about"]
 
-        for phrase in phrases:
-            if phrase in query_lower:
-                important_terms.append(phrase)
+            for phrase in phrases:
+                if phrase in query_lower:
+                    important_terms.append(phrase)
+        else:
+            # Use the content terms extracted by is_content_query
+            important_terms = content_terms
 
         if not important_terms:
             return memories, scores  # No important terms found
@@ -231,10 +237,10 @@ class GraphMemoryRetriever:
         self.logger.info(f"Is temporal query: {is_temporal_query} for query: {request.prompt[:50]}...")
 
         # Add content query detection
-        is_content_query = any(term in request.prompt.lower() for term in
-                            ["mirandola", "discuss", "talked about", "remember", "our conversation",
-                            "we talked", "mention", "referred to", "spoke about", "said", "recall"])
+        is_content_query, content_terms = self.is_content_query(request.prompt)
         self.logger.info(f"Is content query: {is_content_query} for query: {request.prompt[:50]}...")
+        if content_terms:
+            self.logger.info(f"Content query detected with terms: {content_terms}")
 
         # Apply appropriate boosting based on query type
         if is_temporal_query:
@@ -242,7 +248,7 @@ class GraphMemoryRetriever:
 
         # Always apply content boosting for content-specific queries
         if is_content_query:
-            top_matches, top_scores = self._boost_content_relevance(top_matches, top_scores, request.prompt)
+            top_matches, top_scores = self._boost_content_relevance(top_matches, top_scores, request.prompt, content_terms)
 
         self.logger.info(f"Final combined retrieval returned {len(top_matches)} matches")
 
@@ -694,6 +700,54 @@ class GraphMemoryRetriever:
                     break
 
         return memories, scores
+    
+    def is_content_query(self, query: str) -> Tuple[bool, List[str]]:
+        """Determine if query is asking about specific content and extract key terms."""
+        # Normalize query for consistent matching
+        query_lower = query.lower()
+        
+        # Extract content after "discuss", "talk about", etc.
+        content_patterns = [
+            r"(?:did|have)\s+(?:we|you|i)\s+(?:talk|discuss|chat|mention)\s+(?:about)?\s+(.+)",
+            r"(?:when|what)\s+(?:did|have)\s+(?:we|you|i)\s+(?:talk|discuss|chat|mention)\s+(?:about)?\s+(.+)"
+        ]
+        
+        content_terms = []
+        is_content = False
+        
+        for pattern in content_patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                is_content = True
+                content = match.group(1).strip('?. ')
+                # Split into terms, filter out common words
+                terms = [t.strip() for t in content.split() if len(t.strip()) > 2]
+                content_terms.extend(terms)
+                # Add the full phrase too for exact matching
+                content_terms.append(content)
+                break
+        
+        # Special handling for queries that are implicitly about content
+        # Check for queries like "Do you remember X?" or "Have I told you about X?"
+        implicit_patterns = [
+            r"(?:do you remember|have i told you about|did i mention) (.+)",
+            r"(?:what do you know about|tell me about) (.+)"
+        ]
+        
+        for pattern in implicit_patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                is_content = True
+                content = match.group(1).strip('?. ')
+                terms = [t.strip() for t in content.split() if len(t.strip()) > 2]
+                content_terms.extend(terms)
+                content_terms.append(content)
+                break
+        
+        # Deduplicate terms
+        content_terms = list(set(content_terms))
+        
+        return is_content, content_terms
 
     async def find_paths_between_memories(
         self,
